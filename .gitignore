@@ -1,0 +1,15 @@
+# Local editor and tool state
+.vscode
+
+# VS Code extension test host artifacts
+.vscode-test
+
+# Build and dependency artifacts
+node_modules
+out
+*.vsix
+
+# OS / temp files
+.DS_Store
+Thumbs.db
+*.log
