@@ -40,3 +40,9 @@
 ## 📄 License
 
 This project is licensed under the [MIT](LICENSE) License
+
+## 🙏 Credits
+
+- [LinuxDO](https://linux.do)
+- [V2EX](https://www.v2ex.com)
+- [ZCF](https://github.com/UfoMiao/zcf)

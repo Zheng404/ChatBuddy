@@ -40,3 +40,9 @@
 ## 📄 许可证
 
 本项目采用 [MIT](LICENSE) 许可证
+
+## 🙏 感谢
+
+- [LinuxDO](https://linux.do)
+- [V2EX](https://www.v2ex.com)
+- [ZCF](https://github.com/UfoMiao/zcf)
