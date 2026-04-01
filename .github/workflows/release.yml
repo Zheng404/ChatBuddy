@@ -101,6 +101,7 @@ jobs:
 
       - name: Push version changes to main
         run: |
+          git branch -f main HEAD
           git push origin main
 
       - name: Release summary
