@@ -551,6 +551,16 @@ ${SHARED_TOAST_STYLE}
         height: 16px;
       }
 
+      .raw-modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:1000 }
+      .raw-modal-overlay.visible { display:flex }
+      .raw-modal { width:min(800px,90%);max-height:80vh;border:1px solid var(--border);border-radius:12px;background:var(--bg);display:flex;flex-direction:column;overflow:hidden }
+      .raw-modal-header { display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--hover) }
+      .raw-modal-title { font-weight:600;font-size:14px }
+      .raw-modal-close { border:0;background:transparent;color:var(--fg);width:28px;height:28px;padding:0;cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center }
+      .raw-modal-close:hover { background:var(--toolbar-hover) }
+      .raw-modal-body { padding:16px;overflow-y:auto;flex:1;min-height:0 }
+      .raw-modal-body pre { white-space:pre-wrap;word-break:break-word;font-family:"Cascadia Code","JetBrains Mono",monospace;font-size:13px;line-height:1.6;color:var(--fg) }
+
     </style>
   </head>
   <body>
@@ -588,6 +598,15 @@ ${SHARED_TOAST_STYLE}
       </footer>
     </div>
     <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+    <div class="raw-modal-overlay" id="rawModalOverlay">
+      <div class="raw-modal">
+        <div class="raw-modal-header">
+          <span class="raw-modal-title" id="rawModalTitle"></span>
+          <button class="raw-modal-close" id="rawModalClose" type="button"><span class="codicon codicon-close"></span></button>
+        </div>
+        <div class="raw-modal-body"><pre id="rawModalBody"></pre></div>
+      </div>
+    </div>
 
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
@@ -599,7 +618,8 @@ ${SHARED_TOAST_STYLE}
         regenerateFrom: '<span class="codicon codicon-debug-restart"></span>',
         edit: '<span class="codicon codicon-edit"></span>',
         copy: '<span class="codicon codicon-copy"></span>',
-        delete: '<span class="codicon codicon-trash"></span>'
+        delete: '<span class="codicon codicon-trash"></span>',
+        rawText: '<span class="codicon codicon-code"></span>'
       };
 
       const dom = {
@@ -615,7 +635,11 @@ ${SHARED_TOAST_STYLE}
         tempModelChip: document.getElementById('tempModelChip'),
         streamingToggle: document.getElementById('streamingToggle'),
         streamingLabel: document.getElementById('streamingLabel'),
-        toastStack: document.getElementById('toastStack')
+        toastStack: document.getElementById('toastStack'),
+        rawModalOverlay: document.getElementById('rawModalOverlay'),
+        rawModalTitle: document.getElementById('rawModalTitle'),
+        rawModalClose: document.getElementById('rawModalClose'),
+        rawModalBody: document.getElementById('rawModalBody')
       };
 
       let state = {
@@ -967,6 +991,7 @@ ${SHARED_TOAST_STYLE}
             : '';
           const messageActions = state.canChat ? '' +
             '<div class="message-meta-actions">' +
+              '<button class="message-action-btn" type="button" data-msg-action="view-raw" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.viewRawTextAction || '') + '">' + icons.rawText + '</button>' +
               (message.id === latestAssistantId && message.role === 'assistant'
                 ? '<button class="message-action-btn" type="button" data-msg-action="regenerate-reply" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.regenerateReplyAction || '') + '">' + icons.regenerateReply + '</button>'
                 : '') +
@@ -1213,6 +1238,31 @@ ${SHARED_TOAST_STYLE}
         if (action === 'delete-message') {
           vscode.postMessage({ type: 'deleteMessage', messageId });
           return;
+        }
+        if (action === 'view-raw') {
+          var msg = state.selectedSession?.messages?.find(function(m) { return m.id === messageId; });
+          if (msg) {
+            var rawText = String(msg.content || '');
+            var reasoningText = String(msg.reasoning || '').trim();
+            if (msg.role === 'assistant' && reasoningText) {
+              var separator = state.strings.reasoningSectionTitle || 'Reasoning';
+              rawText = separator + '\\n' + reasoningText + '\\n\\n' + rawText;
+            }
+            dom.rawModalBody.textContent = rawText;
+            dom.rawModalTitle.textContent = (state.strings.viewRawTextTitle || 'Raw Text') + ' - ' + (msg.role === 'user' ? state.strings.userRole : state.strings.assistantRole);
+            dom.rawModalOverlay.classList.add('visible');
+          }
+          return;
+        }
+      });
+
+      dom.rawModalClose.addEventListener('click', function() {
+        dom.rawModalOverlay.classList.remove('visible');
+      });
+
+      dom.rawModalOverlay.addEventListener('click', function(event) {
+        if (event.target === dom.rawModalOverlay) {
+          dom.rawModalOverlay.classList.remove('visible');
         }
       });
 
