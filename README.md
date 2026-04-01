@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/VS%20Code-1.85.0+-blue.svg" alt="VS Code Version">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
-  <img src="https://img.shields.io/badge/Version-0.0.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.2-blue.svg" alt="Version">
 </p>
 
 ## 📸 Screenshots

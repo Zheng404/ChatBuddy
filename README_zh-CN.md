@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/VS%20Code-1.85.0+-blue.svg" alt="VS Code 版本">
   <img src="https://img.shields.io/badge/许可证-MIT-green.svg" alt="许可证">
-  <img src="https://img.shields.io/badge/版本-0.0.1-blue.svg" alt="版本">
+  <img src="https://img.shields.io/badge/版本-0.0.2-blue.svg" alt="版本">
 </p>
 
 ## 📸 功能截图
