@@ -215,6 +215,8 @@ export type WebviewInboundMessage =
   | { type: 'regenerateFromMessage'; messageId: string }
   | { type: 'copyMessage'; messageId: string }
   | { type: 'deleteMessage'; messageId: string }
+  | { type: 'editMessage'; messageId: string; newContent: string }
+  | { type: 'clearSession' }
   | { type: 'setStreaming'; enabled: boolean }
   | { type: 'sendMessage'; content: string }
   | { type: 'stopGeneration' };

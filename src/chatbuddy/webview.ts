@@ -50,7 +50,7 @@ export function getChatWebviewHtml(webview: vscode.Webview): string {
         --toolbar-hover: var(--vscode-toolbar-hoverBackground);
         --user-bg: color-mix(in srgb, var(--vscode-editor-inactiveSelectionBackground) 88%, var(--bg) 12%);
         --assistant-bg: color-mix(in srgb, var(--bg) 94%, var(--fg) 6%);
-        --code-bg: var(--vscode-textCodeBlock-background);
+        --code-bg: color-mix(in srgb, var(--bg) 85%, var(--fg) 15%);
       }
 
       * {
@@ -317,9 +317,33 @@ export function getChatWebviewHtml(webview: vscode.Webview): string {
         overflow-x: auto;
       }
 
+      .message-text pre code {
+        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+        background: transparent !important;
+      }
+
       .message-text code {
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
       }
+
+      /* Markdown: Headings */
+      .message-text h1,.message-text h2,.message-text h3{margin:1em 0 .5em;font-weight:600}
+      .message-text h1{font-size:2em}.message-text h2{font-size:1.5em}.message-text h3{font-size:1.25em}
+      /* Markdown: Inline formatting */
+      .message-text strong{font-weight:600}.message-text em{font-style:italic}.message-text del{text-decoration:line-through}
+
+      /* Loading dots */
+      .loading-dots{display:flex;gap:4px;align-items:center;padding:10px 0}
+      .loading-dots .dot{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:ld-bounce 1.4s infinite ease-in-out both}
+      .loading-dots .dot:nth-child(1){animation-delay:-.32s}.loading-dots .dot:nth-child(2){animation-delay:-.16s}
+      @keyframes ld-bounce{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+
+      /* Loading indicator wrapper */
+      .loading-indicator-wrapper{padding:20px;text-align:center}
+
+      /* Streaming cursor */
+      .streaming-cursor{display:inline-block;width:2px;height:1.2em;background:var(--fg);margin-left:2px;vertical-align:text-bottom;animation:sc-blink 1s step-end infinite}
+      @keyframes sc-blink{0%,100%{opacity:1}50%{opacity:0}}
 
       .message-action-btn {
         border: 0;
@@ -338,6 +362,29 @@ export function getChatWebviewHtml(webview: vscode.Webview): string {
       .message-action-btn:hover {
         color: var(--fg);
         background: var(--toolbar-hover);
+      }
+
+      .action-btn-icon {
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .action-btn-icon:hover {
+        color: var(--fg);
+        background: var(--toolbar-hover);
+      }
+
+      .action-btn-icon .codicon {
+        font-size: 16px;
       }
 
       .composer-shell {
@@ -523,6 +570,7 @@ ${SHARED_TOAST_STYLE}
             <textarea class="composer-textarea" id="composerInput"></textarea>
             <div class="composer-actions">
               <div class="composer-inline-controls">
+                <button class="action-btn-icon" id="clearBtn" type="button"><span class="codicon codicon-clear-all"></span></button>
                 <select id="tempModelSelect" class="model-select"></select>
                 <span class="chip temp-chip" id="tempModelChip"></span>
               </div>
@@ -549,6 +597,7 @@ ${SHARED_TOAST_STYLE}
         stop: '<span class="codicon codicon-debug-stop"></span>',
         regenerateReply: '<span class="codicon codicon-refresh"></span>',
         regenerateFrom: '<span class="codicon codicon-debug-restart"></span>',
+        edit: '<span class="codicon codicon-edit"></span>',
         copy: '<span class="codicon codicon-copy"></span>',
         delete: '<span class="codicon codicon-trash"></span>'
       };
@@ -561,6 +610,7 @@ ${SHARED_TOAST_STYLE}
         composerInput: document.getElementById('composerInput'),
         sendBtn: document.getElementById('sendBtn'),
         stopBtn: document.getElementById('stopBtn'),
+        clearBtn: document.getElementById('clearBtn'),
         tempModelSelect: document.getElementById('tempModelSelect'),
         tempModelChip: document.getElementById('tempModelChip'),
         streamingToggle: document.getElementById('streamingToggle'),
@@ -746,12 +796,35 @@ ${SHARED_TOAST_STYLE}
           );
         });
 
-        escaped = escaped.replace(/\\n/g, '<br/>');
+        // ---- Markdown inline / block extensions ----
+        // Headings
+        escaped = escaped.replace(/^(#{1,6})\\s+(.+)$/gm, (m, hashes, txt) => {
+          const lv = hashes.length;
+          return '<h' + lv + '>' + txt + '</h' + lv + '>';
+        });
+        // Bold
+        escaped = escaped.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+        // Italic
+        escaped = escaped.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
+        // Strikethrough
+        escaped = escaped.replace(/~~(.+?)~~/g, '<del>$1</del>');
 
-        return escaped.replace(/@@CODE_BLOCK_(\\d+)@@/g, (_, index) => {
+        // Paragraph breaks (double newline) → spacer; single newline → line break
+        escaped = escaped.replace(/\\n\\n/g, '@@PARA@@');
+        escaped = escaped.replace(/\\n/g, '<br/>');
+        escaped = escaped.replace(/@@PARA@@/g, '<br/>');
+
+        // Restore code block placeholders
+        escaped = escaped.replace(/@@CODE_BLOCK_(\\d+)@@/g, (_, index) => {
           const value = codeBlocks[Number(index)];
           return typeof value === 'string' ? value : '';
         });
+
+        // Remove <br/> directly before/after block-level elements to prevent extra spacing
+        escaped = escaped.replace(/<br\\/>\\s*<(h[1-6]|pre|div|ul|ol|li|blockquote|table|hr)/g, '<$1');
+        escaped = escaped.replace(/<\\/(h[1-6]|pre|div|ul|ol|li|blockquote|table|hr)>\\s*<br\\/>/g, '</$1>');
+
+        return escaped;
       }
 
       function getSelectedAssistantAvatar() {
@@ -863,8 +936,12 @@ ${SHARED_TOAST_STYLE}
 
         const latestAssistantId = [...current].reverse().find((item) => item.role === 'assistant')?.id || '';
         const assistantDisplayName = String(state.selectedAssistant?.name || '').trim() || state.strings.assistantRole;
+        const isGenerating = state.isGenerating;
+        const lastMsg = current[current.length - 1];
 
         dom.messagesInner.innerHTML = current.map((message) => {
+          // Only show cursor on the last message when it's an assistant message and still generating
+          const showCursor = isGenerating && lastMsg && lastMsg.role === 'assistant' && message.id === lastMsg.id;
           const role =
             message.role === 'user'
               ? state.strings.userRole
@@ -893,6 +970,9 @@ ${SHARED_TOAST_STYLE}
               (message.id === latestAssistantId && message.role === 'assistant'
                 ? '<button class="message-action-btn" type="button" data-msg-action="regenerate-reply" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.regenerateReplyAction || '') + '">' + icons.regenerateReply + '</button>'
                 : '') +
+              (message.role === 'user'
+                ? '<button class="message-action-btn" type="button" data-msg-action="edit-message" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.editMessageAction || '') + '">' + icons.edit + '</button>'
+                : '') +
               (message.role !== 'system'
                 ? '<button class="message-action-btn" type="button" data-msg-action="regenerate-from" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.regenerateFromMessageAction || '') + '">' + icons.regenerateFrom + '</button>'
                 : '') +
@@ -912,10 +992,11 @@ ${SHARED_TOAST_STYLE}
                   messageActions +
                 '</div>' +
                 reasoningBlock +
-                '<div class="message-text">' + markdownToHtml(message.content || '') + '</div>' +
+                '<div class="message-text">' + markdownToHtml(message.content || '') + ((showCursor && message.id === lastMsg.id) ? '<span class="streaming-cursor"></span>' : '') + '</div>' +
               '</div>' +
             '</div>';
-        }).join('');
+        }).join('') + (isGenerating && lastMsg && lastMsg.role === 'assistant' && !lastMsg.content ? '<div class="loading-indicator-wrapper"><div class="loading-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>' : '');
+
 
         dom.messages.scrollTop = dom.messages.scrollHeight;
       }
@@ -959,6 +1040,8 @@ ${SHARED_TOAST_STYLE}
         dom.streamingToggle.disabled = !state.canChat || state.isGenerating;
         dom.sendBtn.disabled = state.isGenerating || !state.canChat;
         dom.stopBtn.disabled = !state.isGenerating;
+        dom.clearBtn.title = state.strings.clearSessionAction || '';
+        dom.clearBtn.disabled = !state.canChat || state.isGenerating || !state.selectedSession?.messages?.length;
       }
 
       function renderByDiff(force) {
@@ -981,8 +1064,12 @@ ${SHARED_TOAST_STYLE}
           return;
         }
         if (message.type === 'state') {
+          const wasGenerating = state.isGenerating;
           state = message.payload;
           renderByDiff(false);
+          if (wasGenerating && !state.isGenerating) {
+            dom.messagesInner.querySelectorAll('.streaming-cursor, .loading-indicator-wrapper').forEach((el) => el.remove());
+          }
           if (state.error) {
             if (state.error !== lastStateError) {
               showToast(state.error, 'error');
@@ -1033,6 +1120,17 @@ ${SHARED_TOAST_STYLE}
         }
         dom.composerInput.value = '';
         vscode.postMessage({ type: 'sendMessage', content });
+      });
+
+      dom.clearBtn.addEventListener('click', () => {
+        if (!state.canChat || !state.selectedSession) {
+          return;
+        }
+        const current = state.selectedSession?.messages ?? [];
+        if (!current.length) {
+          return;
+        }
+        vscode.postMessage({ type: 'clearSession' });
       });
 
       dom.composerInput.addEventListener('keydown', (event) => {
@@ -1101,6 +1199,15 @@ ${SHARED_TOAST_STYLE}
         }
         if (action === 'copy-message') {
           vscode.postMessage({ type: 'copyMessage', messageId });
+          return;
+        }
+        if (action === 'edit-message') {
+          const msg = state.selectedSession?.messages?.find((m) => m.id === messageId);
+          if (msg && dom.composerInput) {
+            dom.composerInput.value = msg.content || '';
+            dom.composerInput.focus();
+          }
+          vscode.postMessage({ type: 'editMessage', messageId, newContent: msg?.content || '' });
           return;
         }
         if (action === 'delete-message') {

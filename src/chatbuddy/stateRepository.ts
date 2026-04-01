@@ -1314,6 +1314,38 @@ export class ChatStateRepository {
     return next && next.id === sessionId ? cloneSession(next) : undefined;
   }
 
+  public editMessage(assistantId: string, sessionId: string, messageId: string, newContent: string): ChatSessionDetail | undefined {
+    if (!this.storageReady) {
+      return undefined;
+    }
+    const updatedAt = nowTs();
+    const changed = this.storage.updateMessage(assistantId, sessionId, messageId, newContent, updatedAt, true);
+    if (!changed) {
+      return undefined;
+    }
+    const current = this.getSelectedSession(assistantId);
+    if (current && current.id === sessionId) {
+      return cloneSession(current);
+    }
+    return undefined;
+  }
+
+  public clearSessionMessages(assistantId: string, sessionId: string): ChatSessionDetail | undefined {
+    if (!this.storageReady) {
+      return undefined;
+    }
+    const updatedAt = nowTs();
+    const changed = this.storage.clearSessionMessages(assistantId, sessionId, updatedAt, true);
+    if (!changed) {
+      return undefined;
+    }
+    const current = this.getSelectedSession(assistantId);
+    if (current && current.id === sessionId) {
+      return cloneSession(current);
+    }
+    return undefined;
+  }
+
   public setSessionPanelCollapsed(collapsed: boolean): void {
     this.state.sessionPanelCollapsed = collapsed;
     void this.persist();

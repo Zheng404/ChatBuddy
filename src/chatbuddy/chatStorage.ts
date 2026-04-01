@@ -594,6 +594,46 @@ export class ChatStorage {
     db.run('DELETE FROM messages WHERE session_id = ?', [sessionId]);
   }
 
+  public clearSessionMessages(assistantId: string, sessionId: string, updatedAt: number, persist = true): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- assistantId kept for API consistency
+    const db = this.ensureDb();
+    try {
+      this.runInTransaction(() => {
+        db.run('DELETE FROM messages WHERE session_id = ? AND role <> ?', [sessionId, 'system']);
+        this.updateSessionMetaFromMessages(sessionId, updatedAt);
+      });
+      if (persist) {
+        this.schedulePersist();
+      }
+      return true;
+    } catch (error) {
+      console.error('Failed to clear session messages:', error);
+      return false;
+    }
+  }
+
+  public updateMessage(assistantId: string, sessionId: string, messageId: string, newContent: string, updatedAt: number, persist = true): boolean {
+    const db = this.ensureDb();
+    const stmt = db.prepare(`
+      UPDATE messages
+      SET content = ?, updated_at = ?
+      WHERE id = ? AND session_id = ? AND assistant_id = ?
+    `);
+    try {
+      stmt.run([newContent, updatedAt, messageId, sessionId, assistantId]);
+      this.updateSessionMetaFromMessages(sessionId, updatedAt);
+      if (persist) {
+        this.schedulePersist();
+      }
+      return true;
+    } catch (error) {
+      console.error('Failed to update message:', error);
+      return false;
+    } finally {
+      stmt.free();
+    }
+  }
+
   private getNextSeq(sessionId: string): number {
     const row = this.queryOne(
       `SELECT COALESCE(MAX(seq), -1) + 1 AS value

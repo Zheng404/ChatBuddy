@@ -25,7 +25,7 @@ import {
 } from './types';
 
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
-const STREAM_FLUSH_INTERVAL_MS = 80;
+const STREAM_FLUSH_INTERVAL_MS = 50;
 
 function applyQuestionPrefix(content: string, questionPrefix: string): string {
   const prefix = questionPrefix.trim();
@@ -305,6 +305,12 @@ export class ChatController {
         return;
       case 'deleteMessage':
         await this.deleteMessage(message.messageId);
+        return;
+      case 'editMessage':
+        await this.editMessage(message.messageId, message.newContent);
+        return;
+      case 'clearSession':
+        await this.clearSession();
         return;
       case 'sendMessage':
         await this.sendMessage(message.content);
@@ -811,6 +817,57 @@ export class ChatController {
       return;
     }
     this.repository.deleteMessage(assistant.id, session.id, messageId);
+    this.postState();
+  }
+
+  private async editMessage(messageId: string, newContent: string): Promise<void> {
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant) {
+      return;
+    }
+    const session = this.repository.getSelectedSession(assistant.id);
+    if (!session) {
+      return;
+    }
+    const message = session.messages.find((item) => item.id === messageId);
+    if (!message) {
+      return;
+    }
+    const trimmedContent = newContent.trim();
+    if (!trimmedContent) {
+      return;
+    }
+    this.repository.editMessage(assistant.id, session.id, messageId, trimmedContent);
+    this.postState();
+  }
+
+  private async clearSession(): Promise<void> {
+    const strings = getStrings(this.getLocale());
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant) {
+      return;
+    }
+    const session = this.repository.getSelectedSession(assistant.id);
+    if (!session) {
+      return;
+    }
+    if (!session.messages.length) {
+      return;
+    }
+    const confirmed = await this.confirmDangerousAction(strings.confirmClearSession, strings.clearAction);
+    if (!confirmed) {
+      return;
+    }
+    this.repository.clearSessionMessages(assistant.id, session.id);
+    const greeting = assistant.greeting?.trim();
+    if (greeting) {
+      this.repository.appendMessage(assistant.id, session.id, {
+        id: createId('msg'),
+        role: 'assistant',
+        content: greeting,
+        timestamp: nowTs()
+      });
+    }
     this.postState();
   }
 
