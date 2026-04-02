@@ -57,7 +57,11 @@ jobs:
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           git add package.json package-lock.json
-          git commit -m "chore: bump version to $VERSION"
+          if git diff --cached --quiet; then
+            echo "No version changes to commit"
+          else
+            git commit -m "chore: bump version to $VERSION"
+          fi
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
