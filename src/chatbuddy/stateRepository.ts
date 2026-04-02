@@ -51,7 +51,8 @@ const DEFAULT_SETTINGS: ChatBuddySettings = {
   timeoutMs: 60000,
   streamingDefault: true,
   locale: 'auto',
-  sendShortcut: 'enter'
+  sendShortcut: 'enter',
+  chatTabMode: 'single' as const
 };
 
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
@@ -385,7 +386,8 @@ function sanitizeSettings(raw: unknown): ChatBuddySettings {
       saved.locale === 'zh-CN' || saved.locale === 'en' || saved.locale === 'auto'
         ? saved.locale
         : DEFAULT_SETTINGS.locale,
-    sendShortcut: saved.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter'
+    sendShortcut: saved.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
+    chatTabMode: saved.chatTabMode === 'multi' ? 'multi' : 'single'
   };
 }
 

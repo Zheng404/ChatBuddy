@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { dedupeModels, normalizeApiType } from './modelCatalog';
 import { formatString, getStrings, resolveLocale } from './i18n';
+import { hasAnyCapability } from './modelCapabilities';
 import { getPanelIconPath } from './panelIcon';
 import { OpenAICompatibleClient } from './providerClient';
 import { ChatStateRepository } from './stateRepository';
@@ -679,6 +680,41 @@ export class ModelConfigPanelController {
         font-size: 11px;
       }
 
+      .model-caps {
+        margin-top: 3px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+      }
+
+      .cap-pill {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0 6px;
+        font-size: 10px;
+        line-height: 16px;
+        color: var(--muted);
+        opacity: 0.4;
+        cursor: pointer;
+        user-select: none;
+        transition: opacity 0.12s, border-color 0.12s, color 0.12s;
+      }
+
+      .cap-pill:hover {
+        opacity: 0.7;
+      }
+
+      .cap-pill.active {
+        opacity: 1;
+      }
+
+      .cap-pill.active.cap-vision { border-color: #3b82f6; color: #3b82f6; }
+      .cap-pill.active.cap-reasoning { border-color: #a855f7; color: #a855f7; }
+      .cap-pill.active.cap-audio { border-color: #f59e0b; color: #f59e0b; }
+      .cap-pill.active.cap-video { border-color: #10b981; color: #10b981; }
+      .cap-pill.active.cap-tools { border-color: #6b7280; color: #6b7280; }
+
       .modal-backdrop {
         position: fixed;
         inset: 0;
@@ -931,7 +967,8 @@ ${SHARED_TOAST_STYLE}
             ? provider.models
                 .map((model) => ({
                   id: String(model.id || '').trim(),
-                  name: String(model.name || model.id || '').trim()
+                  name: String(model.name || model.id || '').trim(),
+                  capabilities: model.capabilities || undefined
                 }))
                 .filter((model) => model.id)
             : []
@@ -955,7 +992,7 @@ ${SHARED_TOAST_STYLE}
 
       function providerModelsSignature(models) {
         return mergeModels(models)
-          .map((model) => model.id + '|' + model.name)
+          .map((model) => model.id + '|' + model.name + '|' + JSON.stringify(model.capabilities || {}))
           .join('||');
       }
 
@@ -1059,7 +1096,8 @@ ${SHARED_TOAST_STYLE}
           }
           map.set(id, {
             id,
-            name: String(model.name || id).trim() || id
+            name: String(model.name || id).trim() || id,
+            capabilities: model.capabilities || undefined
           });
         }
         return Array.from(map.values()).sort((left, right) => left.id.localeCompare(right.id, 'en'));
@@ -1274,12 +1312,27 @@ ${SHARED_TOAST_STYLE}
         const selectedIds = new Set((provider.models || []).map((model) => model.id));
         dom.modelsList.innerHTML = models.map((model) => {
           const checked = selectedIds.has(model.id) ? 'checked' : '';
+          const caps = model.capabilities || {};
+          const capEntries = [];
+          const capKeys = [
+            { key: 'vision', cls: 'cap-vision', label: runtimeState.strings.capabilityVision },
+            { key: 'reasoning', cls: 'cap-reasoning', label: runtimeState.strings.capabilityReasoning },
+            { key: 'audio', cls: 'cap-audio', label: runtimeState.strings.capabilityAudio },
+            { key: 'video', cls: 'cap-video', label: runtimeState.strings.capabilityVideo },
+            { key: 'tools', cls: 'cap-tools', label: runtimeState.strings.capabilityTools }
+          ];
+          for (const cap of capKeys) {
+            const active = caps[cap.key] ? ' active' : '';
+            capEntries.push('<span class="cap-pill ' + cap.cls + active + '" data-model-id="' + escapeHtml(model.id) + '" data-cap="' + cap.key + '" title="' + escapeHtml(cap.label) + '">' + escapeHtml(cap.label) + '</span>');
+          }
+          const capsHtml = '<div class="model-caps">' + capEntries.join('') + '</div>';
           return '' +
             '<label class="model-row">' +
               '<input type="checkbox" data-model-id="' + escapeHtml(model.id) + '" ' + checked + ' />' +
               '<div class="model-meta">' +
                 '<div class="model-name">' + escapeHtml(model.id) + '</div>' +
                 '<div class="model-desc">' + escapeHtml(model.name || model.id) + '</div>' +
+                capsHtml +
               '</div>' +
             '</label>';
         }).join('');
@@ -1544,6 +1597,40 @@ ${SHARED_TOAST_STYLE}
             provider.models = (provider.models || []).filter((model) => model.id !== modelId);
           }
           normalizeTestModelForProvider(provider);
+        });
+        renderAll();
+      });
+
+      dom.modelsList.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement) || !target.classList.contains('cap-pill')) {
+          return;
+        }
+        const modelId = target.getAttribute('data-model-id');
+        const capKey = target.getAttribute('data-cap');
+        if (!modelId || !capKey) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        updateEditingProvider((provider) => {
+          const bucket = ensureFetchedModels(provider);
+          const model = bucket.find((m) => m.id === modelId);
+          if (!model) {
+            return;
+          }
+          if (!model.capabilities) {
+            model.capabilities = {};
+          }
+          model.capabilities[capKey] = !model.capabilities[capKey];
+          // Also sync to provider.models if the model is selected
+          const selected = (provider.models || []).find((m) => m.id === modelId);
+          if (selected) {
+            if (!selected.capabilities) {
+              selected.capabilities = {};
+            }
+            selected.capabilities[capKey] = model.capabilities[capKey];
+          }
         });
         renderAll();
       });

@@ -1,10 +1,12 @@
 import {
   DefaultModelSettings,
   ModelBinding,
+  ModelCapabilities,
   ProviderApiType,
   ProviderModelOption,
   ProviderModelProfile,
-  ProviderProfile
+  ProviderProfile,
+  RuntimeStrings
 } from './types';
 
 export function normalizeApiType(value: unknown, fallback: ProviderApiType = 'chat_completions'): ProviderApiType {
@@ -49,9 +51,11 @@ function normalizeModelProfile(raw: Partial<ProviderModelProfile> | string): Pro
     return undefined;
   }
   const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : id;
+  const rawCaps = typeof raw === 'object' ? (raw as Partial<ProviderModelProfile>).capabilities : undefined;
   return {
     id,
-    name
+    name,
+    capabilities: rawCaps
   };
 }
 
@@ -79,7 +83,8 @@ export function getProviderModelOptions(providers: ProviderProfile[], includeDis
         providerId: provider.id,
         providerName: provider.name,
         modelId: model.id,
-        label: getModelDisplayLabel(model.id, provider.name)
+        label: getModelDisplayLabel(model.id, provider.name),
+        capabilities: model.capabilities
       });
     }
   }
@@ -114,7 +119,8 @@ export function resolveModelOption(
     providerId: provider.id,
     providerName: provider.name,
     modelId: model.id,
-    label: getModelDisplayLabel(model.id, provider.name)
+    label: getModelDisplayLabel(model.id, provider.name),
+    capabilities: model.capabilities
   };
 }
 
@@ -128,4 +134,27 @@ export function cloneDefaultModels(defaultModels: DefaultModelSettings): Default
   return {
     assistant: defaultModels.assistant ? { ...defaultModels.assistant } : undefined
   };
+}
+
+export function capabilityLabelSuffix(caps: ModelCapabilities | undefined, strings: RuntimeStrings): string {
+  if (!caps) {
+    return '';
+  }
+  const tags: string[] = [];
+  if (caps.vision) {
+    tags.push(strings.capabilityVision);
+  }
+  if (caps.reasoning) {
+    tags.push(strings.capabilityReasoning);
+  }
+  if (caps.audio) {
+    tags.push(strings.capabilityAudio);
+  }
+  if (caps.video) {
+    tags.push(strings.capabilityVideo);
+  }
+  if (caps.tools) {
+    tags.push(strings.capabilityTools);
+  }
+  return tags.length ? ' [' + tags.join(', ') + ']' : '';
 }

@@ -89,6 +89,7 @@ function toProviderMessages(
 
 export class ChatController {
   private panel: vscode.WebviewPanel | undefined;
+  private panelsByAssistantId = new Map<string, vscode.WebviewPanel>();
   private streamingEnabled: boolean;
   private isGenerating = false;
   private abortController: AbortController | undefined;
@@ -122,26 +123,61 @@ export class ChatController {
     const strings = getStrings(this.getLocale());
     const panelTitle = assistant?.name?.trim() || strings.chatPanelTitle;
     const panelIcon = getPanelIconPath(assistant?.avatar ?? 'account');
+    const chatTabMode = this.repository.getSettings().chatTabMode;
 
-    if (!this.panel) {
-      this.panel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [getCodiconRootUri()]
-      });
-      this.panel.iconPath = panelIcon;
-      this.panel.webview.html = getChatWebviewHtml(this.panel.webview);
-      this.panel.onDidDispose(() => {
-        this.stopGeneration('manual');
-        this.panel = undefined;
-      });
-      this.panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
-        void this.handleWebviewMessage(message);
-      });
+    if (chatTabMode === 'multi' && assistant) {
+      // Multi-tab mode: each assistant gets its own panel
+      const existing = this.panelsByAssistantId.get(assistant.id);
+      if (existing) {
+        existing.title = panelTitle;
+        existing.iconPath = panelIcon;
+        existing.reveal(vscode.ViewColumn.One);
+        this.panel = existing;
+      } else {
+        const newPanel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [getCodiconRootUri()]
+        });
+        newPanel.iconPath = panelIcon;
+        newPanel.webview.html = getChatWebviewHtml(newPanel.webview);
+        const assistantIdRef = assistant.id;
+        newPanel.onDidDispose(() => {
+          this.stopGeneration('manual');
+          this.panelsByAssistantId.delete(assistantIdRef);
+          if (this.panel === newPanel) {
+            this.panel = undefined;
+          }
+        });
+        newPanel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
+          this.panel = newPanel;
+          void this.handleWebviewMessage(message);
+        });
+        this.panelsByAssistantId.set(assistant.id, newPanel);
+        this.panel = newPanel;
+      }
     } else {
-      this.panel.title = panelTitle;
-      this.panel.iconPath = panelIcon;
-      this.panel.reveal(vscode.ViewColumn.One);
+      // Single-tab mode: reuse the same panel
+      if (!this.panel) {
+        this.panel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [getCodiconRootUri()]
+        });
+        this.panel.iconPath = panelIcon;
+        this.panel.webview.html = getChatWebviewHtml(this.panel.webview);
+        this.panel.onDidDispose(() => {
+          this.stopGeneration('manual');
+          this.panel = undefined;
+        });
+        this.panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
+          void this.handleWebviewMessage(message);
+        });
+      } else {
+        this.panel.title = panelTitle;
+        this.panel.iconPath = panelIcon;
+        this.panel.reveal(vscode.ViewColumn.One);
+      }
     }
 
     this.postState();

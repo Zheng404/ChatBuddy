@@ -2,6 +2,7 @@ export type ChatRole = 'system' | 'user' | 'assistant';
 export type RuntimeLocale = 'zh-CN' | 'en';
 export type ChatBuddyLocaleSetting = 'auto' | RuntimeLocale;
 export type ChatSendShortcut = 'enter' | 'ctrlEnter';
+export type ChatTabMode = 'single' | 'multi';
 export type AssistantGroupKind = 'default' | 'deleted' | 'custom';
 export type ProviderApiType = 'chat_completions' | 'responses';
 export type ProviderKind = 'openai' | 'gemini' | 'openrouter' | 'ollama' | 'custom';
@@ -13,9 +14,18 @@ export interface AssistantOverrides {
   temperature?: number;
 }
 
+export interface ModelCapabilities {
+  vision?: boolean;
+  reasoning?: boolean;
+  audio?: boolean;
+  video?: boolean;
+  tools?: boolean;
+}
+
 export interface ProviderModelProfile {
   id: string;
   name: string;
+  capabilities?: ModelCapabilities;
 }
 
 export interface ProviderProfile {
@@ -45,6 +55,7 @@ export interface ProviderModelOption {
   providerName: string;
   modelId: string;
   label: string;
+  capabilities?: ModelCapabilities;
 }
 
 export interface AssistantGroup {
@@ -145,6 +156,7 @@ export interface ChatBuddySettings {
   streamingDefault: boolean;
   locale: ChatBuddyLocaleSetting;
   sendShortcut: ChatSendShortcut;
+  chatTabMode: ChatTabMode;
 }
 
 export interface ProviderConfig {

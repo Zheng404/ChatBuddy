@@ -4,7 +4,7 @@ import { getLanguageOptions, getStrings, resolveLocale } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository } from './stateRepository';
 import { SHARED_TOAST_STYLE } from './toastTheme';
-import { ChatBuddyLocaleSetting, ChatBuddySettings, ChatSendShortcut, RuntimeStrings } from './types';
+import { ChatBuddyLocaleSetting, ChatBuddySettings, ChatSendShortcut, ChatTabMode, RuntimeStrings } from './types';
 
 type SettingsMessage =
   | { type: 'ready' }
@@ -24,12 +24,14 @@ type SettingsActionResult = {
 type SettingsPayload = {
   locale: ChatBuddyLocaleSetting;
   sendShortcut: ChatSendShortcut;
+  chatTabMode: ChatTabMode;
 };
 
 type SettingsViewState = {
   strings: RuntimeStrings;
   languageOptions: ReadonlyArray<{ value: ChatBuddyLocaleSetting; label: string }>;
   sendShortcutOptions: ReadonlyArray<{ value: ChatSendShortcut; label: string }>;
+  chatTabModeOptions: ReadonlyArray<{ value: ChatTabMode; label: string }>;
   settings: ChatBuddySettings;
   notice?: string;
   noticeTone?: 'success' | 'error' | 'info';
@@ -39,7 +41,8 @@ function normalizeSettings(input: SettingsPayload, fallback: ChatBuddySettings):
   return {
     ...fallback,
     locale: input.locale,
-    sendShortcut: input.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter'
+    sendShortcut: input.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
+    chatTabMode: input.chatTabMode === 'multi' ? 'multi' : 'single'
   };
 }
 
@@ -47,6 +50,13 @@ function getSendShortcutOptions(strings: RuntimeStrings): ReadonlyArray<{ value:
   return [
     { value: 'enter', label: strings.sendShortcutEnter },
     { value: 'ctrlEnter', label: strings.sendShortcutCtrlEnter }
+  ] as const;
+}
+
+function getChatTabModeOptions(strings: RuntimeStrings): ReadonlyArray<{ value: ChatTabMode; label: string }> {
+  return [
+    { value: 'single', label: strings.chatTabModeSingle },
+    { value: 'multi', label: strings.chatTabModeMulti }
   ] as const;
 }
 
@@ -161,6 +171,7 @@ export class SettingsPanelController {
       strings,
       languageOptions: getLanguageOptions(strings),
       sendShortcutOptions: getSendShortcutOptions(strings),
+      chatTabModeOptions: getChatTabModeOptions(strings),
       settings,
       notice,
       noticeTone: notice ? noticeTone : undefined
@@ -371,6 +382,15 @@ ${SHARED_TOAST_STYLE}
         </section>
 
         <section class="section">
+          <h2 class="section-title" id="chatTabModeSectionTitle"></h2>
+          <div class="field">
+            <label for="chatTabMode" id="chatTabModeLabel"></label>
+            <select id="chatTabMode"></select>
+          </div>
+          <div class="help" id="chatTabModeHelp"></div>
+        </section>
+
+        <section class="section">
           <h2 class="section-title" id="dataTransferSectionTitle"></h2>
           <div class="help" id="dataTransferDescription"></div>
           <div class="data-actions">
@@ -411,6 +431,10 @@ ${SHARED_TOAST_STYLE}
         resetBtn: document.getElementById('resetBtn'),
         locale: document.getElementById('locale'),
         sendShortcut: document.getElementById('sendShortcut'),
+        chatTabModeSectionTitle: document.getElementById('chatTabModeSectionTitle'),
+        chatTabModeLabel: document.getElementById('chatTabModeLabel'),
+        chatTabModeHelp: document.getElementById('chatTabModeHelp'),
+        chatTabMode: document.getElementById('chatTabMode'),
         saveBtn: document.getElementById('saveBtn'),
         toastStack: document.getElementById('toastStack')
       };
@@ -419,9 +443,11 @@ ${SHARED_TOAST_STYLE}
         strings: {},
         languageOptions: [],
         sendShortcutOptions: [],
+        chatTabModeOptions: [],
         settings: {
           locale: 'auto',
-          sendShortcut: 'enter'
+          sendShortcut: 'enter',
+          chatTabMode: 'single'
         },
         notice: '',
         noticeTone: 'info'
@@ -454,6 +480,9 @@ ${SHARED_TOAST_STYLE}
         dom.sendShortcutSectionTitle.textContent = state.strings.sendShortcutSection;
         dom.sendShortcutLabel.textContent = state.strings.sendShortcutLabel;
         dom.sendShortcutHelp.textContent = state.strings.sendShortcutHelp;
+        dom.chatTabModeSectionTitle.textContent = state.strings.chatTabModeSection;
+        dom.chatTabModeLabel.textContent = state.strings.chatTabModeLabel;
+        dom.chatTabModeHelp.textContent = state.strings.chatTabModeHelp;
         dom.dataTransferSectionTitle.textContent = state.strings.dataTransferSectionTitle;
         dom.dataTransferDescription.textContent = state.strings.dataTransferDescription;
         dom.dangerSectionTitle.textContent = state.strings.dangerSectionTitle;
@@ -477,11 +506,15 @@ ${SHARED_TOAST_STYLE}
         dom.sendShortcut.innerHTML = state.sendShortcutOptions.map((option) => {
           return '<option value="' + option.value + '">' + option.label + '</option>';
         }).join('');
+        dom.chatTabMode.innerHTML = state.chatTabModeOptions.map((option) => {
+          return '<option value="' + option.value + '">' + option.label + '</option>';
+        }).join('');
       }
 
       function renderValues() {
         dom.locale.value = state.settings.locale || 'auto';
         dom.sendShortcut.value = state.settings.sendShortcut || 'enter';
+        dom.chatTabMode.value = state.settings.chatTabMode || 'single';
       }
 
       function renderAll() {
@@ -493,7 +526,8 @@ ${SHARED_TOAST_STYLE}
       function collectPayload() {
         return {
           locale: dom.locale.value,
-          sendShortcut: dom.sendShortcut.value
+          sendShortcut: dom.sendShortcut.value,
+          chatTabMode: dom.chatTabMode.value === 'multi' ? 'multi' : 'single'
         };
       }
 

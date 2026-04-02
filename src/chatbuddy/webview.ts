@@ -902,7 +902,7 @@ ${SHARED_TOAST_STYLE}
 
       function buildComposerSignature() {
         const modelOptionsDigest = (state.modelOptions || [])
-          .map((option) => option.ref + '~' + option.label)
+          .map((option) => option.ref + '~' + option.label + '~' + JSON.stringify(option.capabilities || {}))
           .join('^');
         return [
           state.canChat ? '1' : '0',
@@ -1035,7 +1035,17 @@ ${SHARED_TOAST_STYLE}
           if (!option || !option.ref || modelMap.has(option.ref)) {
             return;
           }
-          modelMap.set(option.ref, option.label || option.ref);
+          const caps = option.capabilities;
+          const capSuffix = caps && (caps.vision || caps.reasoning || caps.audio || caps.video || caps.tools)
+            ? ' [' + [
+                caps.vision ? state.strings.capabilityVision : '',
+                caps.reasoning ? state.strings.capabilityReasoning : '',
+                caps.audio ? state.strings.capabilityAudio : '',
+                caps.video ? state.strings.capabilityVideo : '',
+                caps.tools ? state.strings.capabilityTools : ''
+              ].filter(Boolean).join(', ') + ']'
+            : '';
+          modelMap.set(option.ref, (option.label || option.ref) + capSuffix);
         });
         if (activeModelRef && !modelMap.has(activeModelRef)) {
           modelMap.set(activeModelRef, assistantModelLabel);

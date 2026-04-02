@@ -6,14 +6,12 @@ import { AssistantsTreeProvider, AssistantGroupNode, AssistantNode } from './cha
 import { AssistantEditorPanelController } from './chatbuddy/assistantEditorPanel';
 import { ChatController } from './chatbuddy/chatController';
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from './chatbuddy/constants';
-import { DefaultModelsPanelController } from './chatbuddy/defaultModelsPanel';
 import { formatString, getStrings, resolveLocale } from './chatbuddy/i18n';
-import { ModelConfigPanelController } from './chatbuddy/modelConfigPanel';
 import { OpenAICompatibleClient } from './chatbuddy/providerClient';
 import { SessionNode, SessionsTreeProvider } from './chatbuddy/sessionsView';
-import { SettingsPanelController } from './chatbuddy/settingsPanel';
+import { SettingsCenterPanelController } from './chatbuddy/settingsCenterPanel';
 import { ChatStateRepository } from './chatbuddy/stateRepository';
-import { ChatSessionDetail } from './chatbuddy/types';
+import { ChatBuddySettings, ChatSessionDetail } from './chatbuddy/types';
 
 const MIN_SETTINGS_VIEW_ROWS = 4;
 
@@ -332,11 +330,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // noop during controller wiring
   };
 
-  const settingsPanelController = new SettingsPanelController(repository, (settings) => {
+  const applySettingsAndRefresh = (settings: ChatBuddySettings) => {
     chatController.applySettings(settings);
     refreshAll();
     updateTreeMessage();
-  }, async () => {
+  };
+
+  const handleResetData = async () => {
     const strings = getRuntimeStrings();
     const firstConfirm = await vscode.window.showWarningMessage(
       strings.confirmResetData,
@@ -364,7 +364,9 @@ export async function activate(context: vscode.ExtensionContext) {
     refreshAll();
     updateTreeMessage();
     return true;
-  }, async () => {
+  };
+
+  const handleExportData = async () => {
     const strings = getRuntimeStrings();
     const fileName = buildBackupFileName();
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -388,7 +390,9 @@ export async function activate(context: vscode.ExtensionContext) {
       notice: formatString(strings.exportDataDone, { path: uri.fsPath }),
       tone: 'success' as const
     };
-  }, async () => {
+  };
+
+  const handleImportData = async () => {
     const strings = getRuntimeStrings();
     const picked = await vscode.window.showOpenDialog({
       canSelectMany: false,
@@ -440,17 +444,16 @@ export async function activate(context: vscode.ExtensionContext) {
       notice: strings.importDataDone,
       tone: 'success' as const
     };
-  });
-  const modelConfigPanelController = new ModelConfigPanelController(repository, providerClient, (settings) => {
-    chatController.applySettings(settings);
-    refreshAll();
-    updateTreeMessage();
-  });
-  const defaultModelsPanelController = new DefaultModelsPanelController(repository, (settings) => {
-    chatController.applySettings(settings);
-    refreshAll();
-    updateTreeMessage();
-  });
+  };
+
+  const settingsCenterPanelController = new SettingsCenterPanelController(
+    repository,
+    providerClient,
+    applySettingsAndRefresh,
+    handleResetData,
+    handleExportData,
+    handleImportData
+  );
 
   const assistantEditorPanelController = new AssistantEditorPanelController(
     repository,
@@ -547,9 +550,7 @@ export async function activate(context: vscode.ExtensionContext) {
     sessionsTreeProvider.refresh();
     recycleBinTreeProvider.refresh();
     settingsTreeDataEmitter.fire();
-    settingsPanelController.refresh();
-    modelConfigPanelController.refresh();
-    defaultModelsPanelController.refresh();
+    settingsCenterPanelController.refresh();
     assistantEditorPanelController.refresh();
     updateViewHeadings();
   };
@@ -562,13 +563,13 @@ export async function activate(context: vscode.ExtensionContext) {
   };
 
   const openSettingsCommand = vscode.commands.registerCommand('chatbuddy.openSettings', () => {
-    settingsPanelController.openSettingsPanel();
+    settingsCenterPanelController.openPanel('general');
   });
   const openModelConfigCommand = vscode.commands.registerCommand('chatbuddy.openModelConfig', () => {
-    modelConfigPanelController.openPanel();
+    settingsCenterPanelController.openPanel('modelConfig');
   });
   const openDefaultModelsCommand = vscode.commands.registerCommand('chatbuddy.openDefaultModels', () => {
-    defaultModelsPanelController.openPanel();
+    settingsCenterPanelController.openPanel('defaultModels');
   });
 
   const openChatCommand = vscode.commands.registerCommand(

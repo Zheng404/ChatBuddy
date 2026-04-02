@@ -841,7 +841,17 @@ ${SHARED_TOAST_STYLE}
           return '<option value="' + escapeHtml(group.id) + '">' + escapeHtml(group.name) + '</option>';
         }).join('');
         dom.modelRef.innerHTML = (state.models || []).map((model) => {
-          return '<option value="' + escapeHtml(model.ref) + '">' + escapeHtml(model.label) + '</option>';
+          const caps = model.capabilities;
+          const capSuffix = caps && (caps.vision || caps.reasoning || caps.audio || caps.video || caps.tools)
+            ? ' [' + [
+                caps.vision ? state.strings.capabilityVision : '',
+                caps.reasoning ? state.strings.capabilityReasoning : '',
+                caps.audio ? state.strings.capabilityAudio : '',
+                caps.video ? state.strings.capabilityVideo : '',
+                caps.tools ? state.strings.capabilityTools : ''
+              ].filter(Boolean).join(', ') + ']'
+            : '';
+          return '<option value="' + escapeHtml(model.ref) + '">' + escapeHtml(model.label + capSuffix) + '</option>';
         }).join('');
       }
 

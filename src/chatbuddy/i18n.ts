@@ -266,7 +266,17 @@ const RUNTIME_STRINGS: Record<RuntimeLocale, RuntimeStrings> = {
     providerSearchPlaceholder: '搜索供应商',
     providerSearchEmpty: '未匹配到供应商',
     setAsDefaultProvider: '设为默认供应商',
-    providerEndpointPreviewPrefix: '请求预览：'
+    providerEndpointPreviewPrefix: '请求预览：',
+    capabilityVision: '视觉',
+    capabilityReasoning: '推理',
+    capabilityAudio: '音频',
+    capabilityVideo: '视频',
+    capabilityTools: '工具',
+    chatTabModeSection: '聊天标签页',
+    chatTabModeLabel: '标签页模式',
+    chatTabModeHelp: '控制切换助手时是在当前标签页加载，还是打开新的标签页。',
+    chatTabModeSingle: '单标签页',
+    chatTabModeMulti: '多标签页'
   },
   en: {
     appName: 'ChatBuddy',
@@ -554,7 +564,17 @@ const RUNTIME_STRINGS: Record<RuntimeLocale, RuntimeStrings> = {
     providerSearchPlaceholder: 'Search providers',
     providerSearchEmpty: 'No providers found',
     setAsDefaultProvider: 'Set as default provider',
-    providerEndpointPreviewPrefix: 'Request preview:'
+    providerEndpointPreviewPrefix: 'Request preview:',
+    capabilityVision: 'Vision',
+    capabilityReasoning: 'Reasoning',
+    capabilityAudio: 'Audio',
+    capabilityVideo: 'Video',
+    capabilityTools: 'Tools',
+    chatTabModeSection: 'Chat Tab',
+    chatTabModeLabel: 'Tab Mode',
+    chatTabModeHelp: 'Controls whether switching assistants loads in the current tab or opens a new one.',
+    chatTabModeSingle: 'Single Tab',
+    chatTabModeMulti: 'Multi Tab'
   }
 };
 

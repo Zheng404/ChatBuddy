@@ -1,9 +1,11 @@
 import { getStrings } from './i18n';
+import { hasAnyCapability } from './modelCapabilities';
 import { createModelRef, getModelDisplayLabel, parseModelRef } from './modelCatalog';
 import {
   AssistantProfile,
   ChatBuddySettings,
   ModelBinding,
+  ModelCapabilities,
   ProviderApiType,
   ProviderConfig,
   ProviderKind,
@@ -657,41 +659,87 @@ function isResponsesDoneEvent(payload: unknown): boolean {
   );
 }
 
+function extractCapabilitiesFromStandardModel(raw: Record<string, unknown>): ModelCapabilities | undefined {
+  // OpenRouter-style: architecture.input_modalities + supported_parameters
+  const architecture = raw.architecture as Record<string, unknown> | undefined;
+  const inputModalities = Array.isArray(architecture?.input_modalities) ? architecture.input_modalities as string[] : [];
+  const supportedParams = Array.isArray(raw.supported_parameters) ? raw.supported_parameters as string[] : [];
+  const pricing = raw.pricing as Record<string, unknown> | undefined;
+
+  if (inputModalities.length === 0 && supportedParams.length === 0 && !pricing?.internal_reasoning) {
+    return undefined;
+  }
+
+  const caps: ModelCapabilities = {};
+  if (inputModalities.some((m) => m === 'image')) {
+    caps.vision = true;
+  }
+  if (inputModalities.some((m) => m === 'audio')) {
+    caps.audio = true;
+  }
+  if (inputModalities.some((m) => m === 'video')) {
+    caps.video = true;
+  }
+  if (supportedParams.some((p) => p === 'tools' || p === 'tool_choice' || p === 'function_calling')) {
+    caps.tools = true;
+  }
+  if (pricing && typeof pricing.internal_reasoning === 'string' && pricing.internal_reasoning !== '0' && pricing.internal_reasoning !== '') {
+    caps.reasoning = true;
+  }
+
+  return hasAnyCapability(caps) ? caps : undefined;
+}
+
 function parseStandardModelList(data: unknown): ProviderModelProfile[] {
   if (!data || typeof data !== 'object') {
     return [];
   }
-  const payload = data as { data?: Array<{ id?: string }>; models?: Array<{ id?: string; name?: string }> };
+  const payload = data as { data?: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> };
   const result: ProviderModelProfile[] = [];
   for (const model of payload.data ?? []) {
-    if (typeof model.id === 'string' && model.id.trim()) {
-      result.push({
-        id: model.id.trim(),
-        name: model.id.trim()
-      });
-    }
-  }
-  for (const model of payload.models ?? []) {
     const id = typeof model.id === 'string' ? model.id.trim() : '';
     if (!id) {
       continue;
     }
+    const name = typeof model.name === 'string' && model.name.trim() ? model.name.trim() : id;
     result.push({
       id,
-      name: typeof model.name === 'string' && model.name.trim() ? model.name.trim() : id
+      name,
+      capabilities: extractCapabilitiesFromStandardModel(model)
+    });
+  }
+  for (const model of payload.models ?? []) {
+    const id = typeof model.id === 'string' ? (model.id as string).trim() : '';
+    if (!id) {
+      continue;
+    }
+    const name = typeof model.name === 'string' && (model.name as string).trim() ? (model.name as string).trim() : id;
+    result.push({
+      id,
+      name,
+      capabilities: extractCapabilitiesFromStandardModel(model)
     });
   }
   return result;
+}
+
+function extractCapabilitiesFromGeminiModel(raw: Record<string, unknown>): ModelCapabilities | undefined {
+  const description = typeof raw.description === 'string' ? (raw.description as string).toLowerCase() : '';
+  const caps: ModelCapabilities = {};
+  if (description.includes('multimodal') || description.includes('vision') || description.includes('image')) {
+    caps.vision = true;
+  }
+  return hasAnyCapability(caps) ? caps : undefined;
 }
 
 function parseGeminiModels(data: unknown): ProviderModelProfile[] {
   if (!data || typeof data !== 'object') {
     return [];
   }
-  const payload = data as { models?: Array<{ name?: string; displayName?: string }> };
+  const payload = data as { models?: Array<Record<string, unknown>> };
   const result: ProviderModelProfile[] = [];
   for (const model of payload.models ?? []) {
-    const rawName = typeof model.name === 'string' ? model.name.trim() : '';
+    const rawName = typeof model.name === 'string' ? (model.name as string).trim() : '';
     if (!rawName) {
       continue;
     }
@@ -699,28 +747,48 @@ function parseGeminiModels(data: unknown): ProviderModelProfile[] {
     if (!id) {
       continue;
     }
+    const displayName = typeof model.displayName === 'string' && (model.displayName as string).trim() ? (model.displayName as string).trim() : id;
     result.push({
       id,
-      name: typeof model.displayName === 'string' && model.displayName.trim() ? model.displayName.trim() : id
+      name: displayName,
+      capabilities: extractCapabilitiesFromGeminiModel(model)
     });
   }
   return result;
+}
+
+function extractCapabilitiesFromOllamaModel(raw: Record<string, unknown>): ModelCapabilities | undefined {
+  const details = raw.details as Record<string, unknown> | undefined;
+  const families = Array.isArray(details?.families) ? (details!.families as string[]) : [];
+  const capabilities = details?.capabilities as Record<string, unknown> | undefined;
+  const caps: ModelCapabilities = {};
+  if (capabilities?.vision === true || families.some((f) => f.toLowerCase() === 'vision' || f.toLowerCase() === 'clip')) {
+    caps.vision = true;
+  }
+  if (capabilities?.audio === true || families.some((f) => f.toLowerCase() === 'audio')) {
+    caps.audio = true;
+  }
+  if (capabilities?.tools === true || families.some((f) => f.toLowerCase() === 'tool' || f.toLowerCase() === 'tools')) {
+    caps.tools = true;
+  }
+  return hasAnyCapability(caps) ? caps : undefined;
 }
 
 function parseOllamaModels(data: unknown): ProviderModelProfile[] {
   if (!data || typeof data !== 'object') {
     return [];
   }
-  const payload = data as { models?: Array<{ name?: string; model?: string }> };
+  const payload = data as { models?: Array<Record<string, unknown>> };
   const result: ProviderModelProfile[] = [];
   for (const model of payload.models ?? []) {
-    const id = typeof model.name === 'string' ? model.name.trim() : typeof model.model === 'string' ? model.model.trim() : '';
+    const id = typeof model.name === 'string' ? (model.name as string).trim() : typeof model.model === 'string' ? (model.model as string).trim() : '';
     if (!id) {
       continue;
     }
     result.push({
       id,
-      name: id
+      name: id,
+      capabilities: extractCapabilitiesFromOllamaModel(model)
     });
   }
   return result;

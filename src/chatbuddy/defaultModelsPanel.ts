@@ -308,7 +308,19 @@ ${SHARED_TOAST_STYLE}
 
       function renderSelect(select, currentRef, invalidRef) {
         const options = [{ ref: '', label: state.strings.noneOption }]
-          .concat(state.modelOptions || [])
+          .concat((state.modelOptions || []).map((option) => {
+            const caps = option.capabilities;
+            const capSuffix = caps && (caps.vision || caps.reasoning || caps.audio || caps.video || caps.tools)
+              ? ' [' + [
+                  caps.vision ? state.strings.capabilityVision : '',
+                  caps.reasoning ? state.strings.capabilityReasoning : '',
+                  caps.audio ? state.strings.capabilityAudio : '',
+                  caps.video ? state.strings.capabilityVideo : '',
+                  caps.tools ? state.strings.capabilityTools : ''
+                ].filter(Boolean).join(', ') + ']'
+              : '';
+            return { ref: option.ref, label: option.label + capSuffix };
+          }))
           .concat(invalidRef ? [{ ref: invalidRef, label: invalidRef + ' (' + state.strings.modelUnavailableShort + ')' }] : []);
         const seen = new Set();
         select.innerHTML = options
