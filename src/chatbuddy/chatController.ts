@@ -27,6 +27,11 @@ import {
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
 const STREAM_FLUSH_INTERVAL_MS = 50;
 
+type PanelMessageContext = {
+  panel: vscode.WebviewPanel;
+  assistantId?: string;
+};
+
 function applyQuestionPrefix(content: string, questionPrefix: string): string {
   const prefix = questionPrefix.trim();
   if (!prefix) {
@@ -87,6 +92,87 @@ function toProviderMessages(
   ];
 }
 
+function splitThinkTaggedContent(rawText: string): { content: string; reasoning: string } {
+  if (!rawText || !/[<]/.test(rawText)) {
+    return {
+      content: rawText,
+      reasoning: ''
+    };
+  }
+
+  // Only treat as reasoning when the message starts with a think block.
+  if (!/^\s*<think\b[^>]*>/i.test(rawText)) {
+    return {
+      content: rawText,
+      reasoning: ''
+    };
+  }
+
+  const tagPattern = /<think\b[^>]*>|<\/think>/gi;
+  let thinkDepth = 0;
+  let cursor = 0;
+  let matchedThinkOpenTag = false;
+  const contentParts: string[] = [];
+  const reasoningParts: string[] = [];
+
+  for (const match of rawText.matchAll(tagPattern)) {
+    const index = match.index ?? 0;
+    const segment = rawText.slice(cursor, index);
+    if (segment) {
+      if (thinkDepth > 0) {
+        reasoningParts.push(segment);
+      } else {
+        contentParts.push(segment);
+      }
+    }
+
+    const tag = match[0].toLowerCase();
+    if (tag.startsWith('</think')) {
+      if (thinkDepth === 0) {
+        return {
+          content: rawText,
+          reasoning: ''
+        };
+      }
+      thinkDepth -= 1;
+    } else {
+      matchedThinkOpenTag = true;
+      thinkDepth += 1;
+    }
+    cursor = index + match[0].length;
+  }
+
+  if (!matchedThinkOpenTag || thinkDepth !== 0) {
+    return {
+      content: rawText,
+      reasoning: ''
+    };
+  }
+
+  const tail = rawText.slice(cursor);
+  if (tail) {
+    if (thinkDepth > 0) {
+      reasoningParts.push(tail);
+    } else {
+      contentParts.push(tail);
+    }
+  }
+
+  return {
+    content: contentParts.join(''),
+    reasoning: reasoningParts.join('')
+  };
+}
+
+function mergeReasoningParts(...parts: Array<string | undefined>): string | undefined {
+  const merged = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join('\n')
+    .trim();
+  return merged || undefined;
+}
+
 export class ChatController {
   private panel: vscode.WebviewPanel | undefined;
   private panelsByAssistantId = new Map<string, vscode.WebviewPanel>();
@@ -95,7 +181,7 @@ export class ChatController {
   private abortController: AbortController | undefined;
   private abortReason: 'manual' | 'timeout' | undefined;
   private sessionTempModelRefBySession: Record<string, string> = {};
-  private lastSelectedSessionId: string | undefined;
+  private lastSelectedSessionIdByAssistant: Record<string, string | undefined> = {};
 
   constructor(
     private readonly repository: ChatStateRepository,
@@ -151,7 +237,10 @@ export class ChatController {
         });
         newPanel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
           this.panel = newPanel;
-          void this.handleWebviewMessage(message);
+          void this.handleWebviewMessage(message, {
+            panel: newPanel,
+            assistantId: assistantIdRef
+          });
         });
         this.panelsByAssistantId.set(assistant.id, newPanel);
         this.panel = newPanel;
@@ -170,8 +259,11 @@ export class ChatController {
           this.stopGeneration('manual');
           this.panel = undefined;
         });
+        const panelRef = this.panel;
         this.panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
-          void this.handleWebviewMessage(message);
+          void this.handleWebviewMessage(message, {
+            panel: panelRef
+          });
         });
       } else {
         this.panel.title = panelTitle;
@@ -230,10 +322,20 @@ export class ChatController {
     this.postState();
   }
 
-  private async handleWebviewMessage(message: WebviewInboundMessage): Promise<void> {
+  private async handleWebviewMessage(message: WebviewInboundMessage, context?: PanelMessageContext): Promise<void> {
+    if (context?.panel) {
+      this.panel = context.panel;
+    }
+    if (context?.assistantId) {
+      const selectedAssistant = this.repository.getSelectedAssistant();
+      if (selectedAssistant?.id !== context.assistantId) {
+        this.repository.setSelectedAssistant(context.assistantId);
+      }
+    }
+
     switch (message.type) {
       case 'ready':
-        this.postState();
+        this.postState(undefined, context);
         return;
       case 'createSession': {
         const assistant = this.repository.getSelectedAssistant();
@@ -331,10 +433,10 @@ export class ChatController {
         return;
       }
       case 'regenerateReply':
-        await this.regenerateReply();
+        await this.regenerateReply(context);
         return;
       case 'regenerateFromMessage':
-        await this.regenerateFromMessage(message.messageId);
+        await this.regenerateFromMessage(message.messageId, context);
         return;
       case 'copyMessage':
         await this.copyMessage(message.messageId);
@@ -349,11 +451,11 @@ export class ChatController {
         await this.clearSession();
         return;
       case 'sendMessage':
-        await this.sendMessage(message.content);
+        await this.sendMessage(message.content, context);
         return;
       case 'stopGeneration':
         this.stopGeneration('manual');
-        this.postState();
+        this.postState(undefined, context);
         return;
       default:
         return;
@@ -389,19 +491,24 @@ export class ChatController {
     return created.id;
   }
 
-  private postMessage(message: WebviewOutboundMessage): void {
-    this.panel?.webview.postMessage(message);
+  private postMessage(message: WebviewOutboundMessage, context?: PanelMessageContext): void {
+    const targetPanel = context?.panel ?? this.panel;
+    void targetPanel?.webview.postMessage(message);
   }
 
-  private postError(message: string): void {
-    this.postMessage({ type: 'error', message });
+  private postError(message: string, context?: PanelMessageContext): void {
+    this.postMessage({ type: 'error', message }, context);
   }
 
-  private syncSessionScopedState(selectedSessionId?: string): void {
-    if (this.lastSelectedSessionId && this.lastSelectedSessionId !== selectedSessionId) {
-      delete this.sessionTempModelRefBySession[this.lastSelectedSessionId];
+  private syncSessionScopedState(assistantId: string | undefined, selectedSessionId?: string): void {
+    if (!assistantId) {
+      return;
     }
-    this.lastSelectedSessionId = selectedSessionId;
+    const lastSelectedSessionId = this.lastSelectedSessionIdByAssistant[assistantId];
+    if (lastSelectedSessionId && lastSelectedSessionId !== selectedSessionId) {
+      delete this.sessionTempModelRefBySession[lastSelectedSessionId];
+    }
+    this.lastSelectedSessionIdByAssistant[assistantId] = selectedSessionId;
   }
 
   private resolveEffectiveProviderConfig(settings: ChatBuddySettings, assistant: AssistantProfile, sessionId?: string) {
@@ -421,16 +528,18 @@ export class ChatController {
     });
   }
 
-  private buildPayload(error?: string): ChatStatePayload {
+  private buildPayload(error?: string, assistantIdOverride?: string): ChatStatePayload {
     const locale = this.getLocale();
     const strings = getStrings(locale);
     const raw = this.repository.getState();
     const settings = this.repository.getSettings();
-    const assistant = this.repository.getSelectedAssistant();
+    const assistant =
+      (assistantIdOverride ? this.repository.getAssistantById(assistantIdOverride) : undefined) ??
+      this.repository.getSelectedAssistant();
     const sessions = assistant ? this.repository.getSessionsForAssistant(assistant.id) : [];
     const selectedSession = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
 
-    this.syncSessionScopedState(selectedSession?.id);
+    this.syncSessionScopedState(assistant?.id, selectedSession?.id);
 
     let providerLabel = '-';
     let modelLabel = '-';
@@ -492,24 +601,25 @@ export class ChatController {
     };
   }
 
-  private postState(error?: string): void {
-    if (!this.panel) {
+  private postState(error?: string, context?: PanelMessageContext): void {
+    const targetPanel = context?.panel ?? this.panel;
+    if (!targetPanel) {
       return;
     }
-    const payload = this.buildPayload(error);
+    const payload = this.buildPayload(error, context?.assistantId);
     const title = payload.selectedAssistant?.name?.trim() || payload.strings.chatPanelTitle;
-    this.panel.title = title;
-    this.panel.iconPath = getPanelIconPath(payload.selectedAssistant?.avatar ?? 'account');
-    this.postMessage({ type: 'state', payload });
+    targetPanel.title = title;
+    targetPanel.iconPath = getPanelIconPath(payload.selectedAssistant?.avatar ?? 'account');
+    this.postMessage({ type: 'state', payload }, { panel: targetPanel });
   }
 
-  private async sendMessage(content: string): Promise<void> {
+  private async sendMessage(content: string, context?: PanelMessageContext): Promise<void> {
     const normalized = content.trim();
     if (!normalized) {
       return;
     }
     if (this.isGenerating) {
-      this.postError(getStrings(this.getLocale()).generationBusy);
+      this.postError(getStrings(this.getLocale()).generationBusy, context);
       return;
     }
 
@@ -517,20 +627,20 @@ export class ChatController {
     const strings = getStrings(locale);
     const assistant = this.repository.getSelectedAssistant();
     if (!assistant) {
-      this.postError(strings.noAssistantSelectedBody);
-      this.postState(strings.noAssistantSelectedBody);
+      this.postError(strings.noAssistantSelectedBody, context);
+      this.postState(strings.noAssistantSelectedBody, context);
       return;
     }
     if (assistant.isDeleted) {
-      this.postError(strings.assistantArchivedReadonly);
-      this.postState(strings.assistantArchivedReadonly);
+      this.postError(strings.assistantArchivedReadonly, context);
+      this.postState(strings.assistantArchivedReadonly, context);
       return;
     }
 
     this.ensureSession(assistant.id);
     const selectedSession = this.repository.getSelectedSession(assistant.id);
     if (!selectedSession) {
-      this.postError(strings.sessionNotFound);
+      this.postError(strings.sessionNotFound, context);
       return;
     }
 
@@ -554,8 +664,8 @@ export class ChatController {
         timestamp: nowTs(),
         model: resolved.config.modelLabel
       });
-      this.postError(invalidReason);
-      this.postState(invalidReason);
+      this.postError(invalidReason, context);
+      this.postState(invalidReason, context);
       return;
     }
 
@@ -585,17 +695,18 @@ export class ChatController {
       this.stopGeneration('timeout');
     }, resolved.config.timeoutMs);
 
-    this.postState();
+    this.postState(undefined, context);
 
-    let streamMerged = '';
-    let streamPersisted = '';
-    let streamReasoningMerged = '';
-    let streamReasoningPersisted = '';
+    let streamRawMerged = '';
+    let streamRawPersisted = '';
+    let streamReasoningDeltaMerged = '';
+    let streamReasoningDeltaPersisted = '';
     let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
     const flushStreamMessage = (persist: boolean) => {
-      const mergedTrimmed = streamMerged.trim();
+      const thinkSplit = splitThinkTaggedContent(streamRawMerged);
+      const mergedTrimmed = thinkSplit.content.trim();
       const contentValue = mergedTrimmed ? mergedTrimmed : strings.emptyResponse;
-      const reasoningValue = streamReasoningMerged.trim();
+      const reasoningValue = mergeReasoningParts(streamReasoningDeltaMerged, thinkSplit.reasoning);
       this.repository.updateLastAssistantMessage(
         assistant.id,
         selectedSession.id,
@@ -605,13 +716,13 @@ export class ChatController {
           content: contentValue,
           timestamp: nowTs(),
           model: resolved.config.modelLabel,
-          reasoning: reasoningValue || undefined
+          reasoning: reasoningValue
         }),
         persist
       );
-      streamPersisted = streamMerged;
-      streamReasoningPersisted = streamReasoningMerged;
-      this.postState();
+      streamRawPersisted = streamRawMerged;
+      streamReasoningDeltaPersisted = streamReasoningDeltaMerged;
+      this.postState(undefined, context);
     };
     const scheduleStreamFlush = () => {
       if (streamFlushTimer) {
@@ -619,7 +730,7 @@ export class ChatController {
       }
       streamFlushTimer = setTimeout(() => {
         streamFlushTimer = undefined;
-        if (streamMerged !== streamPersisted || streamReasoningMerged !== streamReasoningPersisted) {
+        if (streamRawMerged !== streamRawPersisted || streamReasoningDeltaMerged !== streamReasoningDeltaPersisted) {
           flushStreamMessage(false);
         }
       }, STREAM_FLUSH_INTERVAL_MS);
@@ -632,11 +743,11 @@ export class ChatController {
           resolved.config,
           {
             onDelta: (delta) => {
-              streamMerged += delta;
+              streamRawMerged += delta;
               scheduleStreamFlush();
             },
             onReasoningDelta: (delta) => {
-              streamReasoningMerged += delta;
+              streamReasoningDeltaMerged += delta;
               scheduleStreamFlush();
             },
             onDone: () => {
@@ -657,13 +768,16 @@ export class ChatController {
           locale,
           this.abortController.signal
         );
+        const thinkSplit = splitThinkTaggedContent(result.text);
+        const contentValue = thinkSplit.content.trim() || strings.emptyResponse;
+        const reasoningValue = mergeReasoningParts(result.reasoning, thinkSplit.reasoning);
         this.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
           id: current?.id ?? assistantMessage.id,
           role: 'assistant',
-          content: result.text.trim() || strings.emptyResponse,
+          content: contentValue,
           timestamp: nowTs(),
           model: resolved.config.modelLabel,
-          reasoning: result.reasoning?.trim() || undefined
+          reasoning: reasoningValue
         }));
       }
     } catch (error) {
@@ -694,8 +808,9 @@ export class ChatController {
         fallback = strings.unknownError;
       }
 
-      const partial = streamMerged.trim();
-      const reasoningPartial = streamReasoningMerged.trim();
+      const partialSplit = splitThinkTaggedContent(streamRawMerged);
+      const partial = partialSplit.content.trim();
+      const reasoningPartial = mergeReasoningParts(streamReasoningDeltaMerged, partialSplit.reasoning);
       const fallbackMessage = partial ? `${partial}\n\n${fallback}` : fallback;
       this.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
         id: current?.id ?? assistantMessage.id,
@@ -703,25 +818,25 @@ export class ChatController {
         content: fallbackMessage,
         timestamp: nowTs(),
         model: resolved.config.modelLabel,
-        reasoning: reasoningPartial || undefined
+        reasoning: reasoningPartial
       }));
 
-      this.postError(fallback);
-      this.postState(fallback);
+      this.postError(fallback, context);
+      this.postState(fallback, context);
     } finally {
       clearTimeout(timeoutHandle);
       this.isGenerating = false;
       this.abortController = undefined;
       this.abortReason = undefined;
-      this.postState();
+      this.postState(undefined, context);
     }
   }
 
-  private async regenerateReply(): Promise<void> {
+  private async regenerateReply(context?: PanelMessageContext): Promise<void> {
     const locale = this.getLocale();
     const strings = getStrings(locale);
     if (this.isGenerating) {
-      this.postError(strings.generationBusy);
+      this.postError(strings.generationBusy, context);
       return;
     }
     const assistant = this.repository.getSelectedAssistant();
@@ -730,7 +845,7 @@ export class ChatController {
     }
     const session = this.repository.getSelectedSession(assistant.id);
     if (!session) {
-      this.postError(strings.sessionNotFound);
+      this.postError(strings.sessionNotFound, context);
       return;
     }
 
@@ -742,7 +857,7 @@ export class ChatController {
       }
     }
     if (userIndex < 0) {
-      this.postError(strings.sessionNotFound);
+      this.postError(strings.sessionNotFound, context);
       return;
     }
 
@@ -757,14 +872,14 @@ export class ChatController {
 
     const userContent = session.messages[userIndex].content;
     this.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent);
+    await this.sendMessage(userContent, context);
   }
 
-  private async regenerateFromMessage(messageId: string): Promise<void> {
+  private async regenerateFromMessage(messageId: string, context?: PanelMessageContext): Promise<void> {
     const locale = this.getLocale();
     const strings = getStrings(locale);
     if (this.isGenerating) {
-      this.postError(strings.generationBusy);
+      this.postError(strings.generationBusy, context);
       return;
     }
     const assistant = this.repository.getSelectedAssistant();
@@ -773,7 +888,7 @@ export class ChatController {
     }
     const session = this.repository.getSelectedSession(assistant.id);
     if (!session) {
-      this.postError(strings.sessionNotFound);
+      this.postError(strings.sessionNotFound, context);
       return;
     }
 
@@ -790,7 +905,7 @@ export class ChatController {
       }
     }
     if (userIndex < 0) {
-      this.postError(strings.sessionNotFound);
+      this.postError(strings.sessionNotFound, context);
       return;
     }
 
@@ -805,7 +920,7 @@ export class ChatController {
 
     const userContent = session.messages[userIndex].content;
     this.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent);
+    await this.sendMessage(userContent, context);
   }
 
   private async copyMessage(messageId: string): Promise<void> {

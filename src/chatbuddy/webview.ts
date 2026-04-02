@@ -559,7 +559,13 @@ ${SHARED_TOAST_STYLE}
       .raw-modal-close { border:0;background:transparent;color:var(--fg);width:28px;height:28px;padding:0;cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center }
       .raw-modal-close:hover { background:var(--toolbar-hover) }
       .raw-modal-body { padding:16px;overflow-y:auto;flex:1;min-height:0 }
-      .raw-modal-body pre { white-space:pre-wrap;word-break:break-word;font-family:"Cascadia Code","JetBrains Mono",monospace;font-size:13px;line-height:1.6;color:var(--fg) }
+      .raw-modal-body pre { white-space:pre-wrap;word-break:break-word;font-family:"Cascadia Code","JetBrains Mono",monospace;font-size:13px;line-height:1.6;color:var(--fg);margin:0 }
+      .raw-reasoning-block { margin:0 0 12px;border:1px solid var(--border);border-radius:8px;background:var(--code-bg);overflow:hidden }
+      .raw-reasoning-block summary { cursor:pointer;user-select:none;list-style:none;padding:6px 10px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;font-family:"Cascadia Code","JetBrains Mono",monospace }
+      .raw-reasoning-block summary::-webkit-details-marker { display:none }
+      .raw-reasoning-block summary .chevron-icon { display:inline-flex;transition:transform .15s ease;font-size:14px }
+      .raw-reasoning-block[open] summary .chevron-icon { transform:rotate(90deg) }
+      .raw-reasoning-block pre { margin:0;padding:8px 10px;border-top:1px solid var(--border);white-space:pre-wrap;word-break:break-word;font-family:"Cascadia Code","JetBrains Mono",monospace;font-size:13px;line-height:1.6;color:var(--muted) }
 
     </style>
   </head>
@@ -604,7 +610,7 @@ ${SHARED_TOAST_STYLE}
           <span class="raw-modal-title" id="rawModalTitle"></span>
           <button class="raw-modal-close" id="rawModalClose" type="button"><span class="codicon codicon-close"></span></button>
         </div>
-        <div class="raw-modal-body"><pre id="rawModalBody"></pre></div>
+        <div class="raw-modal-body" id="rawModalBody"></div>
       </div>
     </div>
 
@@ -1252,13 +1258,23 @@ ${SHARED_TOAST_STYLE}
         if (action === 'view-raw') {
           var msg = state.selectedSession?.messages?.find(function(m) { return m.id === messageId; });
           if (msg) {
-            var rawText = String(msg.content || '');
+            var container = dom.rawModalBody;
+            container.innerHTML = '';
             var reasoningText = String(msg.reasoning || '').trim();
             if (msg.role === 'assistant' && reasoningText) {
-              var separator = state.strings.reasoningSectionTitle || 'Reasoning';
-              rawText = separator + '\\n' + reasoningText + '\\n\\n' + rawText;
+              var details = document.createElement('details');
+              details.className = 'raw-reasoning-block';
+              var summary = document.createElement('summary');
+              summary.innerHTML = '<span class="chevron-icon"><span class="codicon codicon-chevron-right"></span></span> ' + escapeHtml(state.strings.reasoningSectionTitle || 'Reasoning');
+              var reasoningPre = document.createElement('pre');
+              reasoningPre.textContent = reasoningText;
+              details.appendChild(summary);
+              details.appendChild(reasoningPre);
+              container.appendChild(details);
             }
-            dom.rawModalBody.textContent = rawText;
+            var contentPre = document.createElement('pre');
+            contentPre.textContent = String(msg.content || '');
+            container.appendChild(contentPre);
             dom.rawModalTitle.textContent = (state.strings.viewRawTextTitle || 'Raw Text') + ' - ' + (msg.role === 'user' ? state.strings.userRole : state.strings.assistantRole);
             dom.rawModalOverlay.classList.add('visible');
           }
