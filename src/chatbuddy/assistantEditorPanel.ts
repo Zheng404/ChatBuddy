@@ -8,7 +8,7 @@ import { getStrings, resolveLocale } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository, UpdateAssistantInput } from './stateRepository';
 import { SHARED_TOAST_STYLE } from './toastTheme';
-import { AssistantGroup, AssistantProfile, ProviderModelOption, RuntimeStrings } from './types';
+import { AssistantGroup, AssistantProfile, McpServerSummary, ProviderModelOption, RuntimeStrings } from './types';
 
 type AssistantEditorMessage =
   | { type: 'ready' }
@@ -31,6 +31,7 @@ type AssistantEditorPayload = {
   groupId: string;
   modelRef: string;
   streaming: boolean;
+  enabledMcpServerIds: string[];
   temperature: number;
   topP: number;
   maxTokens: number;
@@ -44,6 +45,7 @@ type AssistantEditorState = {
   assistant: AssistantProfile;
   groups: AssistantGroup[];
   models: ReadonlyArray<ProviderModelOption>;
+  mcpServers: ReadonlyArray<McpServerSummary>;
   notice?: string;
 };
 
@@ -156,6 +158,7 @@ function toUpdatePayload(input: AssistantEditorPayload, fallback: AssistantProfi
     groupId: input.groupId,
     modelRef: input.modelRef.trim() || fallback.modelRef,
     streaming: input.streaming,
+    enabledMcpServerIds: Array.isArray(input.enabledMcpServerIds) ? [...new Set(input.enabledMcpServerIds)] : [],
     temperature: clamp(input.temperature, 0, 2, fallback.temperature),
     topP: clamp(input.topP, 0, 1, fallback.topP),
     maxTokens: clamp(input.maxTokens, 0, 65535, fallback.maxTokens),
@@ -296,6 +299,7 @@ export class AssistantEditorPanelController {
       presencePenalty: settings.presencePenalty,
       frequencyPenalty: settings.frequencyPenalty,
       streaming: settings.streamingDefault,
+      enabledMcpServerIds: [],
       pinned: false,
       isDeleted: false,
       createdAt: timestamp,
@@ -381,6 +385,12 @@ export class AssistantEditorPanelController {
                 : group.name
         })),
       models: this.collectModelOptions(assistant),
+      mcpServers: this.repository.getMcpServers().filter((s) => s.enabled).map((server) => ({
+        id: server.id,
+        name: server.name,
+        enabled: server.enabled,
+        transport: server.transport
+      })),
       notice
     };
     void this.panel.webview.postMessage({ type: 'state', payload });
@@ -610,6 +620,32 @@ export class AssistantEditorPanelController {
         height: 14px;
       }
 
+      .mcp-server-check-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .mcp-server-check-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .mcp-server-check-item input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+      }
+
+      .mcp-server-check-item .mcp-server-transport {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
 ${SHARED_TOAST_STYLE}
 
       @media (max-width: 760px) {
@@ -680,6 +716,16 @@ ${SHARED_TOAST_STYLE}
         </section>
 
         <section class="section">
+          <h2 class="section-title" id="mcpSectionTitle"></h2>
+          <div class="field-grid">
+            <div class="field full">
+              <label id="mcpServersLabel"></label>
+              <div class="mcp-server-check-list" id="mcpServerCheckList"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
           <h2 class="section-title" id="promptSectionTitle"></h2>
           <div class="field-grid">
             <div class="field full">
@@ -740,6 +786,7 @@ ${SHARED_TOAST_STYLE}
         baseSectionTitle: document.getElementById('baseSectionTitle'),
         promptSectionTitle: document.getElementById('promptSectionTitle'),
         modelSectionTitle: document.getElementById('modelSectionTitle'),
+        mcpSectionTitle: document.getElementById('mcpSectionTitle'),
         paramsSectionTitle: document.getElementById('paramsSectionTitle'),
         nameLabel: document.getElementById('nameLabel'),
         noteLabel: document.getElementById('noteLabel'),
@@ -751,6 +798,7 @@ ${SHARED_TOAST_STYLE}
         groupLabel: document.getElementById('groupLabel'),
         modelLabel: document.getElementById('modelLabel'),
         streamingLabel: document.getElementById('streamingLabel'),
+        mcpServersLabel: document.getElementById('mcpServersLabel'),
         temperatureLabel: document.getElementById('temperatureLabel'),
         topPLabel: document.getElementById('topPLabel'),
         maxTokensLabel: document.getElementById('maxTokensLabel'),
@@ -768,6 +816,7 @@ ${SHARED_TOAST_STYLE}
         groupId: document.getElementById('groupId'),
         modelRef: document.getElementById('modelRef'),
         streaming: document.getElementById('streaming'),
+        mcpServerCheckList: document.getElementById('mcpServerCheckList'),
         temperature: document.getElementById('temperature'),
         topP: document.getElementById('topP'),
         maxTokens: document.getElementById('maxTokens'),
@@ -813,6 +862,7 @@ ${SHARED_TOAST_STYLE}
         dom.baseSectionTitle.textContent = strings.assistantBaseSection;
         dom.promptSectionTitle.textContent = strings.assistantPromptSection;
         dom.modelSectionTitle.textContent = strings.assistantModelSection;
+        dom.mcpSectionTitle.textContent = strings.assistantMcpSection || 'MCP';
         dom.paramsSectionTitle.textContent = strings.assistantParamsSection;
         dom.nameLabel.textContent = strings.assistantNameLabel;
         dom.noteLabel.textContent = strings.assistantNoteLabel;
@@ -824,6 +874,7 @@ ${SHARED_TOAST_STYLE}
         dom.groupLabel.textContent = strings.assistantGroupLabel;
         dom.modelLabel.textContent = strings.assistantModelLabel;
         dom.streamingLabel.textContent = strings.assistantStreamingLabel;
+        dom.mcpServersLabel.textContent = strings.mcpServersLabel || 'MCP Servers';
         dom.temperatureLabel.textContent = strings.temperatureLabel;
         dom.topPLabel.textContent = strings.topPLabel;
         dom.maxTokensLabel.textContent = strings.maxTokensLabel;
@@ -852,6 +903,18 @@ ${SHARED_TOAST_STYLE}
               ].filter(Boolean).join(', ') + ']'
             : '';
           return '<option value="' + escapeHtml(model.ref) + '">' + escapeHtml(model.label + capSuffix) + '</option>';
+        }).join('');
+        dom.mcpServerCheckList.innerHTML = (state.mcpServers || []).map((server) => {
+          const transportLabel = server.transport === 'streamableHttp'
+            ? 'HTTP'
+            : server.transport === 'sse'
+              ? 'SSE'
+              : 'stdio';
+          return '<label class="mcp-server-check-item">' +
+            '<input type="checkbox" value="' + escapeHtml(server.id) + '" />' +
+            '<span>' + escapeHtml(server.name) + '</span>' +
+            '<span class="mcp-server-transport">' + escapeHtml(transportLabel) + '</span>' +
+          '</label>';
         }).join('');
       }
 
@@ -903,6 +966,10 @@ ${SHARED_TOAST_STYLE}
         ensureModelOption(assistant.modelRef);
         dom.modelRef.value = assistant.modelRef || '';
         dom.streaming.checked = !!assistant.streaming;
+        const enabledIds = new Set(assistant.enabledMcpServerIds || []);
+        Array.from(dom.mcpServerCheckList.querySelectorAll('input[type="checkbox"]')).forEach((cb) => {
+          cb.checked = enabledIds.has(cb.value);
+        });
         dom.temperature.value = String(assistant.temperature ?? 0.7);
         dom.topP.value = String(assistant.topP ?? 1);
         dom.maxTokens.value = String(assistant.maxTokens ?? 0);
@@ -929,6 +996,7 @@ ${SHARED_TOAST_STYLE}
           groupId: dom.groupId.value,
           modelRef: dom.modelRef.value,
           streaming: !!dom.streaming.checked,
+          enabledMcpServerIds: Array.from(dom.mcpServerCheckList.querySelectorAll('input[type="checkbox"]:checked')).map((cb) => cb.value),
           temperature: Number.parseFloat(dom.temperature.value),
           topP: Number.parseFloat(dom.topP.value),
           maxTokens: Number.parseInt(dom.maxTokens.value, 10),

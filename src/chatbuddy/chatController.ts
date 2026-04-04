@@ -1,10 +1,13 @@
 import * as vscode from 'vscode';
 
 import { getCodiconRootUri } from './codicon';
+import { buildRemotePassthroughTools, McpRuntime } from './mcpRuntime';
 import { parseModelRef } from './modelCatalog';
 import { formatString, getAssistantLocalization, getDefaultSessionTitle, getStrings, resolveLocale } from './i18n';
 import {
   OpenAICompatibleClient,
+  ProviderChatResult,
+  ProviderToolRound,
   resolveModelBindingConfig,
   resolveProviderConfig,
   validateProviderConfig
@@ -18,7 +21,10 @@ import {
   ChatBuddySettings,
   ChatMessage,
   ChatStatePayload,
+  ChatToolRound,
   ProviderMessage,
+  ProviderConfig,
+  ProviderToolDefinition,
   RuntimeLocale,
   WebviewInboundMessage,
   WebviewOutboundMessage
@@ -30,6 +36,24 @@ const STREAM_FLUSH_INTERVAL_MS = 50;
 type PanelMessageContext = {
   panel: vscode.WebviewPanel;
   assistantId?: string;
+};
+
+type BuiltProviderTools = {
+  tools: ProviderToolDefinition[];
+  localToolNames: Set<string>;
+};
+
+type PendingToolContinuation = {
+  assistant: AssistantProfile;
+  sessionId: string;
+  assistantMessageId: string;
+  settings: ChatBuddySettings;
+  locale: RuntimeLocale;
+  providerMessages: ProviderMessage[];
+  providerTools: BuiltProviderTools;
+  providerConfig: ProviderConfig;
+  toolRounds: ProviderToolRound[];
+  result: ProviderChatResult;
 };
 
 function applyQuestionPrefix(content: string, questionPrefix: string): string {
@@ -165,11 +189,13 @@ function splitThinkTaggedContent(rawText: string): { content: string; reasoning:
 }
 
 function mergeReasoningParts(...parts: Array<string | undefined>): string | undefined {
-  const merged = parts
+  let merged = parts
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part))
     .join('\n')
     .trim();
+  // Strip model-specific tool call XML (e.g. <minimax:tool_call>...</minimax:tool_call>)
+  merged = merged.replace(/<[a-zA-Z_-]+:tool_call>[\s\S]*?<\/[a-zA-Z_-]+:tool_call>/g, '').trim();
   return merged || undefined;
 }
 
@@ -178,6 +204,7 @@ export class ChatController {
   private panelsByAssistantId = new Map<string, vscode.WebviewPanel>();
   private streamingEnabled: boolean;
   private isGenerating = false;
+  private pendingToolContinuation: PendingToolContinuation | undefined;
   private abortController: AbortController | undefined;
   private abortReason: 'manual' | 'timeout' | undefined;
   private sessionTempModelRefBySession: Record<string, string> = {};
@@ -185,7 +212,8 @@ export class ChatController {
 
   constructor(
     private readonly repository: ChatStateRepository,
-    private readonly providerClient: OpenAICompatibleClient
+    private readonly providerClient: OpenAICompatibleClient,
+    private readonly mcpRuntime: McpRuntime
   ) {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? this.repository.getSettings().streamingDefault;
@@ -219,6 +247,7 @@ export class ChatController {
         existing.iconPath = panelIcon;
         existing.reveal(vscode.ViewColumn.One);
         this.panel = existing;
+        this.postState();
       } else {
         const newPanel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
           enableScripts: true,
@@ -269,6 +298,7 @@ export class ChatController {
         this.panel.title = panelTitle;
         this.panel.iconPath = panelIcon;
         this.panel.reveal(vscode.ViewColumn.One);
+        this.postState();
       }
     }
 
@@ -331,6 +361,18 @@ export class ChatController {
       if (selectedAssistant?.id !== context.assistantId) {
         this.repository.setSelectedAssistant(context.assistantId);
       }
+    }
+
+    if (
+      this.pendingToolContinuation &&
+      message.type !== 'ready' &&
+      message.type !== 'continueToolCalls' &&
+      message.type !== 'cancelToolCalls'
+    ) {
+      const notice = getStrings(this.getLocale()).toolContinuationReadonly || getStrings(this.getLocale()).generationBusy;
+      this.postError(notice, context);
+      this.postState(notice, context);
+      return;
     }
 
     switch (message.type) {
@@ -453,6 +495,24 @@ export class ChatController {
       case 'sendMessage':
         await this.sendMessage(message.content, context);
         return;
+      case 'continueToolCalls':
+        await this.continuePendingToolCalls(context);
+        return;
+      case 'cancelToolCalls':
+        this.cancelPendingToolCalls(context);
+        return;
+      case 'listMcpResources':
+        await this.listMcpResources(context);
+        return;
+      case 'listMcpPrompts':
+        await this.listMcpPrompts(context);
+        return;
+      case 'readMcpResource':
+        await this.insertMcpResource(message.serverId, message.uri, context);
+        return;
+      case 'getMcpPrompt':
+        await this.insertMcpPrompt(message.serverId, message.name, message.args, context);
+        return;
       case 'stopGeneration':
         this.stopGeneration('manual');
         this.postState(undefined, context);
@@ -528,6 +588,500 @@ export class ChatController {
     });
   }
 
+  private async listMcpResources(context?: PanelMessageContext): Promise<void> {
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant || assistant.isDeleted) {
+      return;
+    }
+    const settings = this.repository.getSettings();
+    try {
+      const items = await this.mcpRuntime.listResources(settings, assistant);
+      this.postMessage({
+        type: 'mcpResources',
+        payload: {
+          items
+        }
+      }, context);
+    } catch (error) {
+      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+    }
+  }
+
+  private async listMcpPrompts(context?: PanelMessageContext): Promise<void> {
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant || assistant.isDeleted) {
+      return;
+    }
+    const settings = this.repository.getSettings();
+    try {
+      const items = await this.mcpRuntime.listPrompts(settings, assistant);
+      this.postMessage({
+        type: 'mcpPrompts',
+        payload: {
+          items
+        }
+      }, context);
+    } catch (error) {
+      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+    }
+  }
+
+  private async insertMcpResource(serverId: string, uri: string, context?: PanelMessageContext): Promise<void> {
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant || assistant.isDeleted) {
+      return;
+    }
+    const settings = this.repository.getSettings();
+    try {
+      const content = await this.mcpRuntime.readResource(settings, assistant, serverId, uri);
+      this.postMessage({
+        type: 'mcpInsert',
+        payload: {
+          content
+        }
+      }, context);
+    } catch (error) {
+      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+    }
+  }
+
+  private async insertMcpPrompt(
+    serverId: string,
+    name: string,
+    args: Record<string, string>,
+    context?: PanelMessageContext
+  ): Promise<void> {
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant || assistant.isDeleted) {
+      return;
+    }
+    const settings = this.repository.getSettings();
+    try {
+      const content = await this.mcpRuntime.getPrompt(settings, assistant, serverId, name, args);
+      this.postMessage({
+        type: 'mcpInsert',
+        payload: {
+          content
+        }
+      }, context);
+    } catch (error) {
+      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+    }
+  }
+
+  private providerSupportsToolCalling(modelRef: string, config: { apiType: string; providerKind: string }): boolean {
+    const option = this.repository.resolveModelOption(modelRef);
+    if (option?.capabilities?.tools) {
+      return true;
+    }
+    // If the model explicitly lacks tool support, respect that.
+    if (option?.capabilities && option.capabilities.tools === false) {
+      return false;
+    }
+    // Most OpenAI-compatible providers support function calling via chat_completions or responses API.
+    return config.apiType === 'chat_completions' || config.apiType === 'responses';
+  }
+
+  private async buildProviderTools(
+    settings: ChatBuddySettings,
+    assistant: AssistantProfile,
+    resolved: ReturnType<ChatController['resolveEffectiveProviderConfig']>
+  ): Promise<BuiltProviderTools> {
+    if (!assistant.enabledMcpServerIds.length) {
+      return {
+        tools: [],
+        localToolNames: new Set<string>()
+      };
+    }
+
+    const passthrough = buildRemotePassthroughTools(
+      settings,
+      assistant,
+      resolved.config.apiType === 'responses' && resolved.config.providerKind === 'openai'
+    );
+    const passthroughServerIds = new Set(passthrough.map((item) => item.serverId));
+    const localBindings = (await this.mcpRuntime.listToolBindings(settings, assistant)).filter(
+      (binding) => !passthroughServerIds.has(binding.serverId)
+    );
+    return {
+      tools: [...localBindings.map((binding) => binding.providerTool), ...passthrough.map((item) => item.tool)],
+      localToolNames: new Set(
+        localBindings
+          .map((binding) => (binding.providerTool.type === 'function' ? binding.providerTool.function.name : ''))
+          .filter(Boolean)
+      )
+    };
+  }
+
+  private async executeToolRound(
+    settings: ChatBuddySettings,
+    assistant: AssistantProfile,
+    toolCalls: ProviderToolRound['toolCalls'],
+    localToolNames: Set<string>
+  ): Promise<ProviderToolRound['results']> {
+    const results: ProviderToolRound['results'] = [];
+    for (const toolCall of toolCalls) {
+      if (!localToolNames.has(toolCall.name)) {
+        continue;
+      }
+      try {
+        const output = await this.mcpRuntime.callBoundTool(settings, assistant, toolCall.name, toolCall.argumentsText);
+        results.push({
+          toolCallId: toolCall.id,
+          output
+        });
+      } catch (error) {
+        results.push({
+          toolCallId: toolCall.id,
+          output: error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError
+        });
+      }
+    }
+    return results;
+  }
+
+  private buildToolContinuationContext(
+    pending: PendingToolContinuation,
+    context?: PanelMessageContext
+  ): PanelMessageContext | undefined {
+    if (!context?.panel) {
+      return context;
+    }
+    return {
+      panel: context.panel,
+      assistantId: pending.assistant.id
+    };
+  }
+
+  private applyProviderResultToAssistantMessage(
+    assistantId: string,
+    sessionId: string,
+    assistantMessageId: string,
+    result: ProviderChatResult,
+    modelLabel: string,
+    options?: {
+      fallbackContent?: string;
+      toolRounds?: ChatToolRound[];
+    }
+  ): void {
+    const thinkSplit = splitThinkTaggedContent(result.text);
+    const baseContent = thinkSplit.content.trim();
+    const fallbackContent = options?.fallbackContent?.trim();
+    const contentValue = baseContent || fallbackContent || getStrings(this.getLocale()).emptyResponse;
+    const reasoningValue = mergeReasoningParts(result.reasoning, thinkSplit.reasoning);
+    this.repository.updateLastAssistantMessage(assistantId, sessionId, (current) => ({
+      id: current?.id ?? assistantMessageId,
+      role: 'assistant',
+      content: contentValue,
+      timestamp: nowTs(),
+      model: modelLabel,
+      reasoning: reasoningValue,
+      toolRounds: options?.toolRounds
+    }));
+  }
+
+  private async runToolCallingBatch(
+    pending: PendingToolContinuation,
+    context?: PanelMessageContext
+  ): Promise<'completed' | 'paused'> {
+    const maxRounds = Math.max(1, Math.floor(pending.settings.mcp.maxToolRounds) || 1);
+    const targetContext = this.buildToolContinuationContext(pending, context);
+    let result = pending.result;
+    let roundCount = 0;
+    const chatToolRounds: ChatToolRound[] = [];
+
+    const extractReasoning = (r: ProviderChatResult): string => {
+      const split = splitThinkTaggedContent(r.text);
+      return mergeReasoningParts(r.reasoning, split.reasoning) || '';
+    };
+
+    while ((result.toolCalls?.length ?? 0) > 0) {
+      if (roundCount >= maxRounds) {
+        pending.result = result;
+        this.pendingToolContinuation = pending;
+        this.applyProviderResultToAssistantMessage(
+          pending.assistant.id,
+          pending.sessionId,
+          pending.assistantMessageId,
+          result,
+          pending.providerConfig.modelLabel,
+          {
+            fallbackContent: getStrings(pending.locale).toolContinuationPendingMessage,
+            toolRounds: chatToolRounds
+          }
+        );
+        this.postState(undefined, targetContext);
+        return 'paused';
+      }
+
+      const toolCalls = result.toolCalls ?? [];
+      const roundReasoning = extractReasoning(result);
+
+      const results = await this.executeToolRound(
+        pending.settings,
+        pending.assistant,
+        toolCalls,
+        pending.providerTools.localToolNames
+      );
+      if (results.length === 0) {
+        break;
+      }
+
+      // Build structured tool round for display (reasoning before tool calls)
+      chatToolRounds.push({
+        reasoning: roundReasoning || undefined,
+        calls: toolCalls.map((call) => {
+          const matched = results.find((r) => r.toolCallId === call.id);
+          return {
+            id: call.id,
+            name: call.name,
+            argumentsText: call.argumentsText,
+            output: matched?.output
+          };
+        })
+      });
+
+      pending.toolRounds.push({
+        toolCalls,
+        results
+      });
+      roundCount += 1;
+
+      // Update assistant message with tool call progress
+      this.applyProviderResultToAssistantMessage(
+        pending.assistant.id,
+        pending.sessionId,
+        pending.assistantMessageId,
+        { text: '', reasoning: '' },
+        pending.providerConfig.modelLabel,
+        { toolRounds: chatToolRounds }
+      );
+      this.postState(undefined, targetContext);
+
+      result = await this.providerClient.chat(
+        pending.providerMessages,
+        pending.providerConfig,
+        pending.locale,
+        this.abortController?.signal,
+        {
+          tools: pending.providerTools.tools,
+          toolRounds: pending.toolRounds
+        }
+      );
+      pending.result = result;
+    }
+
+    this.pendingToolContinuation = undefined;
+
+    // Final response after all tool rounds — use streaming if enabled
+    if (pending.assistant.streaming) {
+      await this.streamFinalResponse(pending, chatToolRounds, targetContext);
+    } else {
+      this.applyProviderResultToAssistantMessage(
+        pending.assistant.id,
+        pending.sessionId,
+        pending.assistantMessageId,
+        result,
+        pending.providerConfig.modelLabel,
+        {
+          fallbackContent: getStrings(pending.locale).emptyResponse,
+          toolRounds: chatToolRounds
+        }
+      );
+    }
+    return 'completed';
+  }
+
+  private async streamFinalResponse(
+    pending: PendingToolContinuation,
+    chatToolRounds: ChatToolRound[],
+    context?: PanelMessageContext
+  ): Promise<void> {
+    let streamRawMerged = '';
+    let streamRawPersisted = '';
+    let streamReasoningDeltaMerged = '';
+    let streamReasoningDeltaPersisted = '';
+    let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    const strings = getStrings(pending.locale);
+
+    const flushStreamMessage = (persist: boolean) => {
+      const thinkSplit = splitThinkTaggedContent(streamRawMerged);
+      const contentValue = thinkSplit.content.trim() || strings.emptyResponse;
+      const reasoningValue = mergeReasoningParts(streamReasoningDeltaMerged, thinkSplit.reasoning);
+      this.repository.updateLastAssistantMessage(
+        pending.assistant.id,
+        pending.sessionId,
+        (current) => ({
+          id: current?.id ?? pending.assistantMessageId,
+          role: 'assistant',
+          content: contentValue,
+          timestamp: nowTs(),
+          model: pending.providerConfig.modelLabel,
+          reasoning: reasoningValue,
+          toolRounds: chatToolRounds
+        }),
+        persist
+      );
+      streamRawPersisted = streamRawMerged;
+      streamReasoningDeltaPersisted = streamReasoningDeltaMerged;
+      this.postState(undefined, context);
+    };
+
+    const scheduleStreamFlush = () => {
+      if (streamFlushTimer) { return; }
+      streamFlushTimer = setTimeout(() => {
+        streamFlushTimer = undefined;
+        if (streamRawMerged !== streamRawPersisted || streamReasoningDeltaMerged !== streamReasoningDeltaPersisted) {
+          flushStreamMessage(false);
+        }
+      }, STREAM_FLUSH_INTERVAL_MS);
+    };
+
+    try {
+      await this.providerClient.chatStream(
+        pending.providerMessages,
+        pending.providerConfig,
+        {
+          onDelta: (delta) => {
+            streamRawMerged += delta;
+            scheduleStreamFlush();
+          },
+          onReasoningDelta: (delta) => {
+            streamReasoningDeltaMerged += delta;
+            scheduleStreamFlush();
+          },
+          onDone: () => {
+            if (streamFlushTimer) {
+              clearTimeout(streamFlushTimer);
+              streamFlushTimer = undefined;
+            }
+            flushStreamMessage(true);
+          }
+        },
+        pending.locale,
+        this.abortController?.signal,
+        { toolRounds: pending.toolRounds }
+      );
+    } catch (error) {
+      if (streamFlushTimer) {
+        clearTimeout(streamFlushTimer);
+        streamFlushTimer = undefined;
+      }
+      const partialSplit = splitThinkTaggedContent(streamRawMerged);
+      const partial = partialSplit.content.trim();
+      const reasoningPartial = mergeReasoningParts(streamReasoningDeltaMerged, partialSplit.reasoning);
+      const errorMsg = error instanceof Error ? error.message : strings.unknownError;
+      const fallbackContent = partial ? `${partial}\n\n${errorMsg}` : errorMsg;
+      this.repository.updateLastAssistantMessage(
+        pending.assistant.id,
+        pending.sessionId,
+        (current) => ({
+          id: current?.id ?? pending.assistantMessageId,
+          role: 'assistant',
+          content: fallbackContent,
+          timestamp: nowTs(),
+          model: pending.providerConfig.modelLabel,
+          reasoning: reasoningPartial || undefined,
+          toolRounds: chatToolRounds
+        }),
+        true
+      );
+      this.postState(undefined, context);
+    }
+  }
+
+  private async continuePendingToolCalls(context?: PanelMessageContext): Promise<void> {
+    const pending = this.pendingToolContinuation;
+    if (!pending) {
+      return;
+    }
+    if (this.isGenerating) {
+      this.postError(getStrings(this.getLocale()).generationBusy, context);
+      return;
+    }
+
+    const targetContext = this.buildToolContinuationContext(pending, context);
+    const strings = getStrings(pending.locale);
+
+    this.pendingToolContinuation = undefined;
+    this.isGenerating = true;
+    this.abortController = new AbortController();
+    this.abortReason = undefined;
+    const timeoutHandle = setTimeout(() => {
+      this.stopGeneration('timeout');
+    }, pending.providerConfig.timeoutMs);
+
+    this.postState(undefined, targetContext);
+
+    try {
+      await this.runToolCallingBatch(pending, targetContext);
+    } catch (error) {
+      let fallback: string;
+      if (this.abortReason === 'manual') {
+        fallback = strings.generationStopped;
+      } else if (this.abortReason === 'timeout') {
+        fallback = strings.requestTimeout;
+      } else if (error instanceof Error) {
+        const errorMsg = error.message.toLowerCase();
+        if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
+          fallback = strings.networkError || error.message;
+        } else if (errorMsg.includes('401') || errorMsg.includes('unauthorized')) {
+          fallback = strings.authFailed || error.message;
+        } else if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+          fallback = strings.rateLimitExceeded || error.message;
+        } else if (errorMsg.includes('timeout')) {
+          fallback = strings.requestTimeout;
+        } else {
+          fallback = error.message || strings.unknownError;
+        }
+      } else {
+        fallback = strings.unknownError;
+      }
+
+      this.applyProviderResultToAssistantMessage(
+        pending.assistant.id,
+        pending.sessionId,
+        pending.assistantMessageId,
+        pending.result,
+        pending.providerConfig.modelLabel,
+        {
+          fallbackContent: fallback
+        }
+      );
+      this.pendingToolContinuation = undefined;
+      this.postError(fallback, targetContext);
+      this.postState(fallback, targetContext);
+    } finally {
+      clearTimeout(timeoutHandle);
+      this.isGenerating = false;
+      this.abortController = undefined;
+      this.abortReason = undefined;
+      this.postState(undefined, targetContext);
+    }
+  }
+
+  private cancelPendingToolCalls(context?: PanelMessageContext): void {
+    const pending = this.pendingToolContinuation;
+    if (!pending) {
+      return;
+    }
+
+    const targetContext = this.buildToolContinuationContext(pending, context);
+    const strings = getStrings(pending.locale);
+    this.applyProviderResultToAssistantMessage(
+      pending.assistant.id,
+      pending.sessionId,
+      pending.assistantMessageId,
+      pending.result,
+      pending.providerConfig.modelLabel,
+      {
+        fallbackContent: strings.toolContinuationStoppedMessage || strings.generationStopped
+      }
+    );
+    this.pendingToolContinuation = undefined;
+    this.postState(undefined, targetContext);
+  }
+
   private buildPayload(error?: string, assistantIdOverride?: string): ChatStatePayload {
     const locale = this.getLocale();
     const strings = getStrings(locale);
@@ -545,6 +1099,9 @@ export class ChatController {
     let modelLabel = '-';
     let canChat = false;
     let readOnlyReason: string | undefined;
+    const awaitingToolContinuation = Boolean(this.pendingToolContinuation);
+    const pendingToolCallCount = this.pendingToolContinuation?.result.toolCalls?.length ?? 0;
+    const mcpServers = this.mcpRuntime.getServerSummaries(settings, assistant);
 
     if (!assistant) {
       readOnlyReason = strings.noAssistantSelectedBody;
@@ -558,6 +1115,11 @@ export class ChatController {
       providerLabel = resolved.config.providerName || '-';
       modelLabel = resolved.config.modelLabel || assistant.modelRef || '-';
       canChat = true;
+    }
+
+    if (awaitingToolContinuation) {
+      canChat = false;
+      readOnlyReason = strings.toolContinuationReadonly || strings.generationBusy;
     }
 
     const assistantMeta = Object.fromEntries(
@@ -596,6 +1158,10 @@ export class ChatController {
       streaming: assistant?.streaming ?? this.streamingEnabled,
       isGenerating: this.isGenerating,
       canChat,
+      mcpServers,
+      awaitingToolContinuation,
+      pendingToolCallCount,
+      toolRoundLimit: settings.mcp.maxToolRounds,
       readOnlyReason,
       error
     };
@@ -675,6 +1241,10 @@ export class ChatController {
       sessionAfterUser.messages,
       assistant.contextCount
     );
+    const providerTools = await this.buildProviderTools(settings, assistant, resolved);
+    const useToolCalling =
+      providerTools.tools.length > 0 && this.providerSupportsToolCalling(resolved.config.modelRef, resolved.config);
+    const useStreaming = assistant.streaming && !useToolCalling;
 
     const assistantMessage: ChatMessage = {
       id: createId('msg'),
@@ -737,7 +1307,7 @@ export class ChatController {
     };
 
     try {
-      if (assistant.streaming) {
+      if (useStreaming) {
         await this.providerClient.chatStream(
           providerMessages,
           resolved.config,
@@ -766,19 +1336,39 @@ export class ChatController {
           providerMessages,
           resolved.config,
           locale,
-          this.abortController.signal
+          this.abortController.signal,
+          useToolCalling
+            ? {
+                tools: providerTools.tools
+              }
+            : {}
         );
-        const thinkSplit = splitThinkTaggedContent(result.text);
-        const contentValue = thinkSplit.content.trim() || strings.emptyResponse;
-        const reasoningValue = mergeReasoningParts(result.reasoning, thinkSplit.reasoning);
-        this.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
-          id: current?.id ?? assistantMessage.id,
-          role: 'assistant',
-          content: contentValue,
-          timestamp: nowTs(),
-          model: resolved.config.modelLabel,
-          reasoning: reasoningValue
-        }));
+        if (useToolCalling) {
+          const runState: PendingToolContinuation = {
+            assistant,
+            sessionId: selectedSession.id,
+            assistantMessageId: assistantMessage.id,
+            settings,
+            locale,
+            providerMessages,
+            providerTools,
+            providerConfig: resolved.config,
+            toolRounds: [],
+            result
+          };
+          await this.runToolCallingBatch(runState, context);
+          return;
+        }
+        this.applyProviderResultToAssistantMessage(
+          assistant.id,
+          selectedSession.id,
+          assistantMessage.id,
+          result,
+          resolved.config.modelLabel,
+          {
+            fallbackContent: strings.emptyResponse
+          }
+        );
       }
     } catch (error) {
       if (streamFlushTimer) {

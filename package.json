@@ -68,6 +68,11 @@
         "icon": "$(symbol-constant)"
       },
       {
+        "command": "chatbuddy.openMcp",
+        "title": "%chatbuddy.command.openMcp%",
+        "icon": "$(plug)"
+      },
+      {
         "command": "chatbuddy.openAssistantChat",
         "title": "%chatbuddy.command.openAssistantChat%",
         "icon": "$(comment-discussion)"
@@ -750,6 +755,9 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "sql.js": "^1.14.1"
+    "@cfworker/json-schema": "^4.1.1",
+    "@modelcontextprotocol/client": "^2.0.0-alpha.2",
+    "sql.js": "^1.14.1",
+    "zod": "^4.3.6"
   }
 }

@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { createModelRef, dedupeModels, normalizeApiType, parseModelRef } from './modelCatalog';
 import { formatString, getLanguageOptions, getStrings, resolveLocale } from './i18n';
 import { getPanelIconPath } from './panelIcon';
+import { McpRuntime } from './mcpRuntime';
 import { OpenAICompatibleClient } from './providerClient';
 import { ChatStateRepository } from './stateRepository';
 import { SHARED_TOAST_STYLE } from './toastTheme';
@@ -11,13 +12,14 @@ import {
   ChatBuddySettings,
   ChatSendShortcut,
   ChatTabMode,
+  McpServerProfile,
   ProviderModelOption,
   ProviderModelProfile,
   ProviderProfile,
   RuntimeStrings
 } from './types';
 
-export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general';
+export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp';
 
 type SettingsActionResult = {
   notice: string;
@@ -29,6 +31,8 @@ type GeneralSettingsPayload = {
   sendShortcut: ChatSendShortcut;
   chatTabMode: ChatTabMode;
 };
+
+type McpToolRoundsPayload = { maxToolRounds: number };
 
 type SettingsCenterMessage =
   | { type: 'ready' }
@@ -76,7 +80,11 @@ type SettingsCenterMessage =
     }
   | { type: 'reset' }
   | { type: 'exportData' }
-  | { type: 'importData' };
+  | { type: 'importData' }
+  | { type: 'saveMcpServers'; payload: McpServerProfile[] }
+  | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
+  | { type: 'probeMcpServers' }
+  | { type: 'testMcpServer'; payload: { server: McpServerProfile } };
 
 type SettingsCenterState = {
   strings: RuntimeStrings;
@@ -116,6 +124,17 @@ type SettingsCenterOutbound =
         success: boolean;
         message: string;
       };
+    }
+  | {
+      type: 'mcpProbeResult';
+      payload: Array<{
+        serverId: string;
+        success: boolean;
+        tools: Array<{ name: string; description: string }>;
+        resources: Array<{ name: string; uri: string; description?: string }>;
+        prompts: Array<{ name: string; description?: string }>;
+        error?: string;
+      }>;
     };
 
 function getNonce(): string {
@@ -128,7 +147,7 @@ function getNonce(): string {
 }
 
 function normalizeSection(section: SettingsCenterSection | string | undefined): SettingsCenterSection {
-  if (section === 'modelConfig' || section === 'defaultModels' || section === 'general') {
+  if (section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp') {
     return section;
   }
   return 'general';
@@ -140,6 +159,27 @@ function normalizeGeneralSettings(input: GeneralSettingsPayload, fallback: ChatB
     locale: input.locale,
     sendShortcut: input.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
     chatTabMode: input.chatTabMode === 'multi' ? 'multi' : 'single'
+  };
+}
+
+function normalizeMcpServers(servers: McpServerProfile[], fallback: ChatBuddySettings): ChatBuddySettings {
+  return {
+    ...fallback,
+    mcp: {
+      ...fallback.mcp,
+      servers
+    }
+  };
+}
+
+function normalizeMcpToolRounds(input: McpToolRoundsPayload, fallback: ChatBuddySettings): ChatBuddySettings {
+  const raw = typeof input.maxToolRounds === 'number' ? input.maxToolRounds : 5;
+  return {
+    ...fallback,
+    mcp: {
+      ...fallback.mcp,
+      maxToolRounds: Math.max(1, Math.min(20, raw))
+    }
   };
 }
 
@@ -198,6 +238,7 @@ export class SettingsCenterPanelController {
   constructor(
     private readonly repository: ChatStateRepository,
     private readonly providerClient: OpenAICompatibleClient,
+    private readonly mcpRuntime: McpRuntime,
     private readonly onSave: (settings: ChatBuddySettings) => void,
     private readonly onReset: () => Promise<boolean> | boolean,
     private readonly onExportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
@@ -221,6 +262,7 @@ export class SettingsCenterPanelController {
       });
       this.updatePanelPresentation();
       this.postState();
+      void this.probeAllMcpServers();
       return;
     }
 
@@ -259,6 +301,32 @@ export class SettingsCenterPanelController {
       const next = normalizeDefaultModels(message.payload.assistant, this.repository.getSettings());
       this.onSave(next);
       this.postState(this.getStrings().defaultModelsSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'saveMcpServers') {
+      const current = this.repository.getSettings();
+      this.onSave(normalizeMcpServers(message.payload, current));
+      this.postState(this.getStrings().mcpSettingsSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'saveMcpToolRounds') {
+      const current = this.repository.getSettings();
+      const next = normalizeMcpToolRounds(message.payload, current);
+      this.onSave(next);
+      this.postState(this.getStrings().mcpSettingsSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'probeMcpServers') {
+      void this.probeAllMcpServers();
+      return;
+    }
+
+    if (message.type === 'testMcpServer') {
+      const server = message.payload.server;
+      void this.probeSingleMcpServer(server);
       return;
     }
 
@@ -496,6 +564,42 @@ export class SettingsCenterPanelController {
 
   private postMessage(message: SettingsCenterOutbound): void {
     void this.panel?.webview.postMessage(message);
+  }
+
+  private async probeAllMcpServers(): Promise<void> {
+    const settings = this.repository.getSettings();
+    const enabledServers = settings.mcp.servers.filter((s) => s.enabled);
+    const results = await Promise.all(
+      enabledServers.map(async (server) => {
+        const probe = await this.mcpRuntime.probeServer(server);
+        return {
+          serverId: server.id,
+          success: probe.success,
+          tools: probe.tools,
+          resources: probe.resources,
+          prompts: probe.prompts,
+          error: probe.error
+        };
+      })
+    );
+    this.postMessage({ type: 'mcpProbeResult', payload: results });
+  }
+
+  private async probeSingleMcpServer(server: McpServerProfile): Promise<void> {
+    const probe = await this.mcpRuntime.probeServer(server);
+    this.postMessage({
+      type: 'mcpProbeResult',
+      payload: [
+        {
+          serverId: server.id,
+          success: probe.success,
+          tools: probe.tools,
+          resources: probe.resources,
+          prompts: probe.prompts,
+          error: probe.error
+        }
+      ]
+    });
   }
 
   private postState(notice?: string, noticeTone: 'success' | 'error' | 'info' = 'info'): void {
@@ -1066,6 +1170,187 @@ ${SHARED_TOAST_STYLE}
           padding: 12px;
         }
       }
+      .mcp-server-card {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 8px;
+        background: transparent;
+      }
+
+      .mcp-server-card-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .mcp-server-name-display {
+        font-size: 13px;
+        font-weight: 700;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+      }
+
+      .mcp-server-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
+      .mcp-action-btn {
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        padding: 3px 8px;
+        background: transparent;
+        color: var(--fg);
+        cursor: pointer;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .mcp-action-btn:hover {
+        background: var(--panel-bg-strong);
+      }
+
+      .mcp-action-btn.danger {
+        color: var(--vscode-inputValidation-errorForeground, var(--fg));
+        border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+      }
+
+      .mcp-status-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+        vertical-align: middle;
+        margin-right: 4px;
+      }
+
+      .mcp-status-dot.mcp-status-ok {
+        background: #22c55e;
+      }
+
+      .mcp-status-dot.mcp-status-fail {
+        background: var(--vscode-inputValidation-errorBorder, #be1100);
+      }
+
+      .mcp-tool-count {
+        font-size: 11px;
+        color: var(--muted);
+        cursor: pointer;
+        white-space: nowrap;
+        padding: 0 2px;
+      }
+
+      .mcp-tool-count:hover {
+        text-decoration: underline;
+      }
+
+      .mcp-tools-section {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+
+      .mcp-tools-header {
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--fg);
+        background: transparent;
+        border: 0;
+        padding: 0;
+        width: 100%;
+      }
+
+      .mcp-tools-header:hover {
+        text-decoration: underline;
+      }
+
+      .mcp-tools-list {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .mcp-tools-list .tool-entry {
+        padding: 2px 0;
+      }
+
+      .mcp-tools-list .tool-name {
+        font-weight: 600;
+        color: var(--fg);
+      }
+
+      .mcp-modal-field-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .mcp-kv-row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .mcp-kv-row input {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .mcp-kv-remove {
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        padding: 3px 8px;
+        background: transparent;
+        color: var(--fg);
+        cursor: pointer;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .mcp-kv-remove:hover {
+        background: var(--panel-bg-strong);
+      }
+
+      .mcp-add-row-btn {
+        border: 1px dashed var(--input-border);
+        border-radius: 6px;
+        padding: 4px 10px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 11px;
+      }
+
+      .mcp-add-row-btn:hover {
+        color: var(--fg);
+      }
+
+      .mcp-server-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .mcp-server-toggle input {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+      }
+
     </style>
   </head>
   <body>
@@ -1091,6 +1376,10 @@ ${SHARED_TOAST_STYLE}
           <button class="nav-item" id="navGeneral" type="button" data-section="general">
             <span class="nav-item-title" id="navGeneralTitle"></span>
             <span class="nav-item-desc" id="navGeneralDescription"></span>
+          </button>
+          <button class="nav-item" id="navMcp" type="button" data-section="mcp">
+            <span class="nav-item-title" id="navMcpTitle"></span>
+            <span class="nav-item-desc" id="navMcpDescription"></span>
           </button>
         </aside>
 
@@ -1154,9 +1443,6 @@ ${SHARED_TOAST_STYLE}
           </section>
 
           <section class="settings-pane" id="paneDefaultModels" data-section="defaultModels">
-            <div class="pane-toolbar">
-              <button class="primary-btn" id="defaultModelsSaveBtn" type="button"></button>
-            </div>
             <section class="section-card">
               <div class="field">
                 <label for="defaultAssistantModel" id="defaultAssistantModelLabel"></label>
@@ -1166,10 +1452,31 @@ ${SHARED_TOAST_STYLE}
             </section>
           </section>
 
-          <section class="settings-pane" id="paneGeneral" data-section="general">
-            <div class="pane-toolbar">
-              <button class="primary-btn" id="generalSaveBtn" type="button"></button>
+          <section class="settings-pane" id="paneMcp" data-section="mcp">
+            <div class="section-grid">
+              <section class="section-card">
+                <h2 class="section-title" id="mcpMaxToolRoundsTitle"></h2>
+                <div class="field">
+                  <label for="mcpMaxToolRounds" id="mcpMaxToolRoundsLabel"></label>
+                  <input id="mcpMaxToolRounds" type="number" min="1" max="20" />
+                </div>
+                <div class="help" id="mcpMaxToolRoundsHelp"></div>
+                <div style="margin-top: 8px;">
+                  <button class="primary-btn" id="mcpSaveToolRoundsBtn" type="button"></button>
+                </div>
+              </section>
+
+              <section class="section-card">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                  <h2 class="section-title" id="mcpServersTitle" style="margin:0;flex:1"></h2>
+                  <button class="primary-btn" id="mcpAddServerBtn" type="button"></button>
+                </div>
+                <div id="mcpServerList"></div>
+              </section>
             </div>
+          </section>
+
+          <section class="settings-pane" id="paneGeneral" data-section="general">
             <div class="section-grid">
               <section class="section-card">
                 <h2 class="section-title" id="languageSectionTitle"></h2>
@@ -1246,6 +1553,43 @@ ${SHARED_TOAST_STYLE}
       </div>
     </div>
 
+    <div class="modal-backdrop" id="mcpServerModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="mcpServerModalTitle">
+        <h3 class="modal-title" id="mcpServerModalTitle"></h3>
+        <p class="modal-copy" id="mcpServerModalDescription"></p>
+        <div class="field-grid">
+          <div class="field">
+            <label for="mcpModalName" id="mcpModalNameLabel"></label>
+            <input id="mcpModalName" type="text" />
+          </div>
+          <div class="field">
+            <label for="mcpModalTransport" id="mcpModalTransportLabel"></label>
+            <select id="mcpModalTransport">
+              <option value="stdio">stdio</option>
+              <option value="streamableHttp">streamableHttp</option>
+              <option value="sse">sse</option>
+            </select>
+          </div>
+          <div class="field full" id="mcpModalFields"></div>
+        </div>
+        <div class="panel-actions">
+          <button class="ghost-btn" id="mcpModalCancelBtn" type="button"></button>
+          <button class="action-btn" id="mcpModalSaveBtn" type="button"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="mcpDeleteConfirmModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="mcpDeleteConfirmTitle">
+        <h3 class="modal-title" id="mcpDeleteConfirmTitle"></h3>
+        <p class="modal-copy" id="mcpDeleteConfirmDescription"></p>
+        <div class="panel-actions">
+          <button class="ghost-btn" id="mcpDeleteCancelBtn" type="button"></button>
+          <button class="danger-btn" id="mcpDeleteConfirmBtn" type="button"></button>
+        </div>
+      </div>
+    </div>
+
     <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
     <script nonce="${nonce}">
@@ -1266,7 +1610,6 @@ ${SHARED_TOAST_STYLE}
         paneModelConfig: document.getElementById('paneModelConfig'),
         paneDefaultModels: document.getElementById('paneDefaultModels'),
         paneGeneral: document.getElementById('paneGeneral'),
-        generalSaveBtn: document.getElementById('generalSaveBtn'),
         languageSectionTitle: document.getElementById('languageSectionTitle'),
         languageLabel: document.getElementById('languageLabel'),
         languageHelp: document.getElementById('languageHelp'),
@@ -1286,7 +1629,6 @@ ${SHARED_TOAST_STYLE}
         locale: document.getElementById('locale'),
         sendShortcut: document.getElementById('sendShortcut'),
         chatTabMode: document.getElementById('chatTabMode'),
-        defaultModelsSaveBtn: document.getElementById('defaultModelsSaveBtn'),
         defaultAssistantModelLabel: document.getElementById('defaultAssistantModelLabel'),
         defaultAssistantModel: document.getElementById('defaultAssistantModel'),
         defaultAssistantModelHelp: document.getElementById('defaultAssistantModelHelp'),
@@ -1322,6 +1664,32 @@ ${SHARED_TOAST_STYLE}
         discardChangesModalDescription: document.getElementById('discardChangesModalDescription'),
         discardChangesStayBtn: document.getElementById('discardChangesStayBtn'),
         discardChangesConfirmBtn: document.getElementById('discardChangesConfirmBtn'),
+        navMcp: document.getElementById('navMcp'),
+        navMcpTitle: document.getElementById('navMcpTitle'),
+        navMcpDescription: document.getElementById('navMcpDescription'),
+        paneMcp: document.getElementById('paneMcp'),
+        mcpMaxToolRoundsTitle: document.getElementById('mcpMaxToolRoundsTitle'),
+        mcpMaxToolRoundsLabel: document.getElementById('mcpMaxToolRoundsLabel'),
+        mcpMaxToolRoundsHelp: document.getElementById('mcpMaxToolRoundsHelp'),
+        mcpMaxToolRounds: document.getElementById('mcpMaxToolRounds'),
+        mcpSaveToolRoundsBtn: document.getElementById('mcpSaveToolRoundsBtn'),
+        mcpServersTitle: document.getElementById('mcpServersTitle'),
+        mcpServerList: document.getElementById('mcpServerList'),
+        mcpAddServerBtn: document.getElementById('mcpAddServerBtn'),
+        mcpServerModal: document.getElementById('mcpServerModal'),
+        mcpServerModalTitle: document.getElementById('mcpServerModalTitle'),
+        mcpServerModalDescription: document.getElementById('mcpServerModalDescription'),
+        mcpModalNameLabel: document.getElementById('mcpModalNameLabel'),
+        mcpModalTransportLabel: document.getElementById('mcpModalTransportLabel'),
+        mcpModalName: document.getElementById('mcpModalName'),
+        mcpModalTransport: document.getElementById('mcpModalTransport'),
+        mcpModalCancelBtn: document.getElementById('mcpModalCancelBtn'),
+        mcpModalSaveBtn: document.getElementById('mcpModalSaveBtn'),
+        mcpDeleteConfirmModal: document.getElementById('mcpDeleteConfirmModal'),
+        mcpDeleteConfirmTitle: document.getElementById('mcpDeleteConfirmTitle'),
+        mcpDeleteConfirmDescription: document.getElementById('mcpDeleteConfirmDescription'),
+        mcpDeleteCancelBtn: document.getElementById('mcpDeleteCancelBtn'),
+        mcpDeleteConfirmBtn: document.getElementById('mcpDeleteConfirmBtn'),
         toastStack: document.getElementById('toastStack')
       };
 
@@ -1354,6 +1722,13 @@ ${SHARED_TOAST_STYLE}
       let providerEditorId = '';
       let searchKeyword = '';
       let lastToastNotice = '';
+      let mcpServers = [];
+      let mcpModalMode = 'add';
+      let mcpModalEditIdx = -1;
+      let mcpModalDraft = null;
+      let mcpProbeResults = [];
+      let expandedToolServerIdx = -1;
+      let mcpDeleteResolver = null;
 
       function showToast(message, tone = 'info') {
         const text = String(message || '').trim();
@@ -1382,7 +1757,7 @@ ${SHARED_TOAST_STYLE}
       }
 
       function normalizeSectionValue(section) {
-        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' ? section : 'general';
+        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' ? section : 'general';
       }
 
       function getSectionMeta(section) {
@@ -1397,6 +1772,12 @@ ${SHARED_TOAST_STYLE}
           return {
             title: strings.defaultModelsTitle || '',
             description: strings.defaultModelsDescription || ''
+          };
+        }
+        if (section === 'mcp') {
+          return {
+            title: strings.mcpTitle || 'MCP',
+            description: strings.mcpDescription || ''
           };
         }
         return {
@@ -1420,8 +1801,10 @@ ${SHARED_TOAST_STYLE}
         dom.navDefaultModelsDescription.textContent = strings.defaultModelsDescription || '';
         dom.navGeneralTitle.textContent = strings.settingsTitle || '';
         dom.navGeneralDescription.textContent = strings.settingsDescription || '';
+        dom.navMcpTitle.textContent = strings.mcpTitle || 'MCP';
+        dom.navMcpDescription.textContent = strings.mcpDescription || '';
 
-        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navGeneral];
+        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navGeneral, dom.navMcp];
         for (const item of items) {
           const isActive = item.getAttribute('data-section') === activeSection;
           item.classList.toggle('active', isActive);
@@ -1430,7 +1813,7 @@ ${SHARED_TOAST_STYLE}
       }
 
       function renderSectionVisibility() {
-        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral];
+        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral, dom.paneMcp];
         for (const pane of panes) {
           const isActive = pane.getAttribute('data-section') === activeSection;
           pane.classList.toggle('active', isActive);
@@ -1468,7 +1851,6 @@ ${SHARED_TOAST_STYLE}
         dom.exportBtn.textContent = strings.exportDataAction || '';
         dom.importBtn.textContent = strings.importDataAction || '';
         dom.resetBtn.textContent = strings.resetDataAction || '';
-        dom.generalSaveBtn.textContent = strings.saveSettings || '';
       }
 
       function renderSelectOptions(select, options) {
@@ -1489,7 +1871,6 @@ ${SHARED_TOAST_STYLE}
 
       function renderDefaultModels() {
         const strings = runtimeState.strings || {};
-        dom.defaultModelsSaveBtn.textContent = strings.saveSettings || '';
         dom.defaultAssistantModelLabel.textContent = strings.defaultAssistantModelLabel || '';
 
         const defaults = (runtimeState.settings && runtimeState.settings.defaultModels) || {};
@@ -1535,6 +1916,378 @@ ${SHARED_TOAST_STYLE}
         dom.defaultAssistantModel.value = currentRef || '';
         dom.defaultAssistantModelHelp.textContent = invalidRef ? strings.invalidDefaultModelHint || '' : '';
         dom.defaultAssistantModelHelp.className = invalidRef ? 'help invalid' : 'help';
+      }
+
+      function cloneMcpServers(items) {
+        return (Array.isArray(items) ? items : []).map((server) => ({
+          id: String(server.id || ''),
+          name: String(server.name || ''),
+          enabled: server.enabled !== false,
+          transport: server.transport === 'streamableHttp' || server.transport === 'sse' ? server.transport : 'stdio',
+          command: String(server.command || ''),
+          args: Array.isArray(server.args) ? server.args.slice() : [],
+          cwd: String(server.cwd || ''),
+          env: Array.isArray(server.env) ? server.env.map((e) => ({ key: String(e.key || ''), value: String(e.value || '') })) : [],
+          url: String(server.url || ''),
+          headers: Array.isArray(server.headers) ? server.headers.map((h) => ({ key: String(h.key || ''), value: String(h.value || '') })) : [],
+          timeoutMs: typeof server.timeoutMs === 'number' ? server.timeoutMs : 30000,
+          remotePassthroughEnabled: !!server.remotePassthroughEnabled
+        }));
+      }
+
+      function mcpServersSignature(items) {
+        return JSON.stringify(cloneMcpServers(items));
+      }
+
+      function syncMcpServersFromState(state) {
+        var servers = (state.settings && state.settings.mcp && state.settings.mcp.servers) || [];
+        mcpServers = cloneMcpServers(servers);
+        mcpProbeResults = [];
+        expandedToolServerIdx = -1;
+      }
+
+      function renderMcp() {
+        var strings = runtimeState.strings || {};
+        dom.mcpMaxToolRoundsTitle.textContent = strings.mcpMaxToolRoundsTitle || '';
+        dom.mcpMaxToolRoundsLabel.textContent = strings.mcpMaxToolRoundsLabel || '';
+        dom.mcpMaxToolRoundsHelp.textContent = strings.mcpMaxToolRoundsHelp || '';
+        dom.mcpSaveToolRoundsBtn.textContent = strings.saveAction || 'Save';
+        dom.mcpServersTitle.textContent = strings.mcpServersTitle || '';
+        dom.mcpAddServerBtn.textContent = strings.mcpAddServerAction || '+ Add Server';
+        var settings = runtimeState.settings || {};
+        var mcp = settings.mcp || {};
+        dom.mcpMaxToolRounds.value = String(typeof mcp.maxToolRounds === 'number' ? mcp.maxToolRounds : 5);
+        renderMcpServerList();
+      }
+
+      function renderMcpServerList() {
+        var strings = runtimeState.strings || {};
+        if (!mcpServers.length) {
+          dom.mcpServerList.innerHTML = '<div class="help">' + escapeHtml(strings.mcpEmptyState || '') + '</div>';
+          return;
+        }
+        dom.mcpServerList.innerHTML = mcpServers.map((server, idx) => {
+          var probe = mcpProbeResults[idx];
+          var statusDot = '';
+          if (probe) {
+            statusDot = probe.success
+              ? '<span class="mcp-status-dot mcp-status-ok" title="' + escapeHtml(strings.mcpProbeSuccess || '') + '"></span>'
+              : '<span class="mcp-status-dot mcp-status-fail" title="' + escapeHtml(probe.error || strings.mcpProbeFailed || '') + '"></span>';
+          }
+          var toolCountHtml = '';
+          if (probe && probe.success) {
+            var toolCountText = (strings.mcpToolsCount || '{count} tools').replace('{count}', String(probe.tools.length));
+            toolCountHtml = '<span class="mcp-tool-count" data-mcp-action="toggle-tools" data-idx="' + idx + '">' + escapeHtml(toolCountText) + '</span>';
+          }
+          var enabledLabel = strings.mcpServerEnabledLabel || '';
+          var transportLabel = server.transport === 'streamableHttp' ? 'HTTP' : server.transport === 'sse' ? 'SSE' : 'stdio';
+          var toolsHtml = renderMcpToolsSection(idx);
+          return (
+            '<div class="mcp-server-card" data-idx="' + idx + '">' +
+              '<div class="mcp-server-card-row">' +
+                '<span class="mcp-server-name-display">' + escapeHtml(server.name || strings.mcpServerNewName || '') + '</span>' +
+                statusDot +
+                toolCountHtml +
+                '<span class="pill">' + escapeHtml(transportLabel) + '</span>' +
+                '<label class="mcp-server-toggle">' +
+                  '<input type="checkbox" data-mcp-toggle-idx="' + idx + '" ' + (server.enabled ? 'checked' : '') + ' />' +
+                  '<span>' + escapeHtml(enabledLabel) + '</span>' +
+                '</label>' +
+                '<div class="mcp-server-actions">' +
+                  '<button class="mcp-action-btn" data-mcp-action="test" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpTestServerAction || 'Test') + '</button>' +
+                  '<button class="mcp-action-btn" data-mcp-action="edit" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpEditServerAction || 'Edit') + '</button>' +
+                  '<button class="mcp-action-btn" data-mcp-action="delete" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpDeleteServerAction || 'Delete') + '</button>' +
+                '</div>' +
+              '</div>' +
+              toolsHtml +
+            '</div>'
+          );
+        }).join('');
+      }
+
+      function renderMcpToolsSection(idx) {
+        var strings = runtimeState.strings || {};
+        if (idx !== expandedToolServerIdx) { return ''; }
+        var probe = mcpProbeResults[idx];
+        if (!probe || !probe.success) { return ''; }
+        var html = '<div class="mcp-tools-section">';
+        html += '<h4 class="mcp-tools-heading">' + escapeHtml(strings.mcpToolsTitle || 'Tools') + '</h4>';
+        if (probe.tools.length) {
+          html += '<ul class="mcp-tools-list">';
+          for (var t = 0; t < probe.tools.length; t++) {
+            html += '<li><strong>' + escapeHtml(probe.tools[t].name) + '</strong>' +
+              (probe.tools[t].description ? ' — ' + escapeHtml(probe.tools[t].description) : '') + '</li>';
+          }
+          html += '</ul>';
+        } else {
+          html += '<div class="help">' + escapeHtml(strings.mcpNoTools || '') + '</div>';
+        }
+        if (probe.resources.length) {
+          html += '<div class="mcp-tools-heading" style="margin-top:8px">' +
+            escapeHtml(strings.mcpResourcesLabel || 'Resources') + ': ' +
+            (strings.mcpResourcesCount || '{count}').replace('{count}', String(probe.resources.length)) + '</div>';
+        }
+        if (probe.prompts.length) {
+          html += '<div class="mcp-tools-heading" style="margin-top:4px">' +
+            escapeHtml(strings.mcpPromptsLabel || 'Prompts') + ': ' +
+            (strings.mcpPromptsCount || '{count}').replace('{count}', String(probe.prompts.length)) + '</div>';
+        }
+        html += '</div>';
+        return html;
+      }
+
+      function openMcpServerModal(mode, idx) {
+        mcpModalMode = mode;
+        mcpModalEditIdx = typeof idx === 'number' ? idx : -1;
+        var strings = runtimeState.strings || {};
+        var isNew = mode === 'add';
+        var server = isNew
+          ? { id: 'mcp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9), name: strings.mcpServerNewName || 'New Server', enabled: true, transport: 'stdio', command: '', args: [], cwd: '', env: [], url: '', headers: [], timeoutMs: 30000, remotePassthroughEnabled: false }
+          : (mcpServers[idx] ? cloneMcpServers([mcpServers[idx]])[0] : null);
+        if (!server) { return; }
+        mcpModalDraft = server;
+        dom.mcpServerModalTitle.textContent = isNew ? (strings.mcpAddServerModalTitle || 'Add MCP Server') : (strings.mcpEditServerModalTitle || 'Edit MCP Server');
+        dom.mcpServerModalDescription.textContent = isNew ? (strings.mcpAddServerModalDescription || '') : (strings.mcpEditServerModalDescription || '');
+        dom.mcpModalNameLabel.textContent = strings.mcpServerNameLabel || '';
+        dom.mcpModalTransportLabel.textContent = strings.mcpServerTransportLabel || '';
+        dom.mcpModalName.value = server.name || '';
+        dom.mcpModalTransport.value = server.transport || 'stdio';
+        dom.mcpModalCancelBtn.textContent = strings.cancelAction || 'Cancel';
+        dom.mcpModalSaveBtn.textContent = strings.saveAction || 'Save';
+        renderMcpModalFields();
+        dom.mcpServerModal.classList.add('visible');
+        dom.mcpServerModal.setAttribute('aria-hidden', 'false');
+        dom.mcpModalName.focus();
+      }
+
+      function renderMcpModalFields() {
+        var strings = runtimeState.strings || {};
+        var server = mcpModalDraft;
+        if (!server) { return; }
+        var transport = dom.mcpModalTransport.value || server.transport || 'stdio';
+        var fieldsHtml = '';
+        if (transport === 'stdio') {
+          fieldsHtml +=
+            '<div class="field full">' +
+              '<label>' + escapeHtml(strings.mcpServerCommandLabel || '') + '</label>' +
+              '<input id="mcpModalCommand" type="text" value="' + escapeHtml(server.command || '') + '" />' +
+            '</div>' +
+            '<div class="field full">' +
+              '<label>' + escapeHtml(strings.mcpServerArgsLabel || '') + '</label>' +
+              '<div id="mcpModalArgsList">' +
+                (server.args || []).map((arg, i) =>
+                  '<div class="mcp-kv-row">' +
+                    '<input class="mcp-kv-input" type="text" value="' + escapeHtml(arg) + '" data-arg-idx="' + i + '" />' +
+                    '<button class="mcp-kv-remove" data-remove-arg="' + i + '" type="button">x</button>' +
+                  '</div>'
+                ).join('') +
+              '</div>' +
+              '<button class="mcp-add-row-btn" id="mcpModalAddArgBtn" type="button">' + escapeHtml(strings.mcpAddArgAction || '+ Arg') + '</button>' +
+            '</div>' +
+            '<div class="field full">' +
+              '<label>' + escapeHtml(strings.mcpServerEnvLabel || '') + '</label>' +
+              '<div id="mcpModalEnvList">' +
+                (server.env || []).map((entry, i) =>
+                  '<div class="mcp-kv-row">' +
+                    '<input class="mcp-kv-input" type="text" placeholder="KEY" value="' + escapeHtml(entry.key) + '" data-env-key-idx="' + i + '" />' +
+                    '<input class="mcp-kv-input" type="text" placeholder="VALUE" value="' + escapeHtml(entry.value) + '" data-env-val-idx="' + i + '" />' +
+                    '<button class="mcp-kv-remove" data-remove-env="' + i + '" type="button">x</button>' +
+                  '</div>'
+                ).join('') +
+              '</div>' +
+              '<button class="mcp-add-row-btn" id="mcpModalAddEnvBtn" type="button">' + escapeHtml(strings.mcpAddEnvAction || '+ Variable') + '</button>' +
+            '</div>';
+        } else {
+          fieldsHtml +=
+            '<div class="field full">' +
+              '<label>' + escapeHtml(strings.mcpServerUrlLabel || '') + '</label>' +
+              '<input id="mcpModalUrl" type="text" value="' + escapeHtml(server.url || '') + '" />' +
+            '</div>' +
+            '<div class="field full">' +
+              '<label>' + escapeHtml(strings.mcpServerHeadersLabel || '') + '</label>' +
+              '<div id="mcpModalHeadersList">' +
+                (server.headers || []).map((entry, i) =>
+                  '<div class="mcp-kv-row">' +
+                    '<input class="mcp-kv-input" type="text" placeholder="KEY" value="' + escapeHtml(entry.key) + '" data-hdr-key-idx="' + i + '" />' +
+                    '<input class="mcp-kv-input" type="text" placeholder="VALUE" value="' + escapeHtml(entry.value) + '" data-hdr-val-idx="' + i + '" />' +
+                    '<button class="mcp-kv-remove" data-remove-hdr="' + i + '" type="button">x</button>' +
+                  '</div>'
+                ).join('') +
+              '</div>' +
+              '<button class="mcp-add-row-btn" id="mcpModalAddHeaderBtn" type="button">' + escapeHtml(strings.mcpAddHeaderAction || '+ Header') + '</button>' +
+            '</div>';
+        }
+        fieldsHtml +=
+          '<div class="field">' +
+            '<label>' + escapeHtml(strings.mcpServerTimeoutLabel || '') + '</label>' +
+            '<input id="mcpModalTimeout" type="number" min="1000" value="' + String(server.timeoutMs || 30000) + '" />' +
+          '</div>';
+        var modalFieldsContainer = document.getElementById('mcpModalFields');
+        if (modalFieldsContainer) { modalFieldsContainer.innerHTML = fieldsHtml; }
+        bindMcpModalFieldEvents();
+      }
+
+      function bindMcpModalFieldEvents() {
+        var addArgBtn = document.getElementById('mcpModalAddArgBtn');
+        if (addArgBtn) {
+          addArgBtn.addEventListener('click', () => {
+            if (!mcpModalDraft) { return; }
+            syncMcpModalDraftFromFields();
+            mcpModalDraft.args = mcpModalDraft.args || [];
+            mcpModalDraft.args.push('');
+            renderMcpModalFields();
+            var lastArg = document.querySelector('[data-arg-idx="' + (mcpModalDraft.args.length - 1) + '"]');
+            if (lastArg) { lastArg.focus(); }
+          });
+        }
+        var addEnvBtn = document.getElementById('mcpModalAddEnvBtn');
+        if (addEnvBtn) {
+          addEnvBtn.addEventListener('click', () => {
+            if (!mcpModalDraft) { return; }
+            syncMcpModalDraftFromFields();
+            mcpModalDraft.env = mcpModalDraft.env || [];
+            mcpModalDraft.env.push({ key: '', value: '' });
+            renderMcpModalFields();
+            var lastEnvKey = document.querySelector('[data-env-key-idx="' + (mcpModalDraft.env.length - 1) + '"]');
+            if (lastEnvKey) { lastEnvKey.focus(); }
+          });
+        }
+        var addHeaderBtn = document.getElementById('mcpModalAddHeaderBtn');
+        if (addHeaderBtn) {
+          addHeaderBtn.addEventListener('click', () => {
+            if (!mcpModalDraft) { return; }
+            syncMcpModalDraftFromFields();
+            mcpModalDraft.headers = mcpModalDraft.headers || [];
+            mcpModalDraft.headers.push({ key: '', value: '' });
+            renderMcpModalFields();
+            var lastHdrKey = document.querySelector('[data-hdr-key-idx="' + (mcpModalDraft.headers.length - 1) + '"]');
+            if (lastHdrKey) { lastHdrKey.focus(); }
+          });
+        }
+        document.querySelectorAll('.mcp-kv-remove[data-remove-arg]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (!mcpModalDraft) { return; }
+            syncMcpModalDraftFromFields();
+            var idx = parseInt(btn.getAttribute('data-remove-arg') || '0', 10);
+            mcpModalDraft.args = mcpModalDraft.args || [];
+            mcpModalDraft.args.splice(idx, 1);
+            renderMcpModalFields();
+          });
+        });
+        document.querySelectorAll('.mcp-kv-remove[data-remove-env]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (!mcpModalDraft) { return; }
+            syncMcpModalDraftFromFields();
+            var idx = parseInt(btn.getAttribute('data-remove-env') || '0', 10);
+            mcpModalDraft.env = mcpModalDraft.env || [];
+            mcpModalDraft.env.splice(idx, 1);
+            renderMcpModalFields();
+          });
+        });
+        document.querySelectorAll('.mcp-kv-remove[data-remove-hdr]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (!mcpModalDraft) { return; }
+            syncMcpModalDraftFromFields();
+            var idx = parseInt(btn.getAttribute('data-remove-hdr') || '0', 10);
+            mcpModalDraft.headers = mcpModalDraft.headers || [];
+            mcpModalDraft.headers.splice(idx, 1);
+            renderMcpModalFields();
+          });
+        });
+      }
+
+      function syncMcpModalDraftFromFields() {
+        if (!mcpModalDraft) { return; }
+        mcpModalDraft.name = (dom.mcpModalName.value || '').trim();
+        mcpModalDraft.transport = dom.mcpModalTransport.value || 'stdio';
+        if (mcpModalDraft.transport === 'stdio') {
+          var cmdEl = document.getElementById('mcpModalCommand');
+          mcpModalDraft.command = cmdEl ? cmdEl.value : '';
+          var argEls = document.querySelectorAll('[data-arg-idx]');
+          mcpModalDraft.args = Array.from(argEls).map((el) => el.value);
+          var envKeyEls = document.querySelectorAll('[data-env-key-idx]');
+          var envValEls = document.querySelectorAll('[data-env-val-idx]');
+          mcpModalDraft.env = Array.from(envKeyEls).map((el, i) => ({
+            key: el.value,
+            value: envValEls[i] ? envValEls[i].value : ''
+          }));
+        } else {
+          var urlEl = document.getElementById('mcpModalUrl');
+          mcpModalDraft.url = urlEl ? urlEl.value : '';
+          var hdrKeyEls = document.querySelectorAll('[data-hdr-key-idx]');
+          var hdrValEls = document.querySelectorAll('[data-hdr-val-idx]');
+          mcpModalDraft.headers = Array.from(hdrKeyEls).map((el, i) => ({
+            key: el.value,
+            value: hdrValEls[i] ? hdrValEls[i].value : ''
+          }));
+        }
+        var timeoutEl = document.getElementById('mcpModalTimeout');
+        mcpModalDraft.timeoutMs = timeoutEl ? Math.max(1000, parseInt(timeoutEl.value, 10) || 30000) : 30000;
+      }
+
+      function closeMcpServerModal() {
+        dom.mcpServerModal.classList.remove('visible');
+        dom.mcpServerModal.setAttribute('aria-hidden', 'true');
+        mcpModalDraft = null;
+        mcpModalEditIdx = -1;
+      }
+
+      function autoSaveMcpServers() {
+        vscode.postMessage({ type: 'saveMcpServers', payload: cloneMcpServers(mcpServers) });
+      }
+
+      function confirmMcpServer() {
+        syncMcpModalDraftFromFields();
+        if (!mcpModalDraft) { closeMcpServerModal(); return; }
+        var strings = runtimeState.strings || {};
+        if (!mcpModalDraft.name.trim()) {
+          showToast(strings.mcpServerNameRequired || 'Server name is required.', 'error');
+          return;
+        }
+        var wasMode = mcpModalMode;
+        var wasIdx = mcpModalEditIdx;
+        if (wasMode === 'add') {
+          mcpServers.push(cloneMcpServers([mcpModalDraft])[0]);
+        } else if (wasIdx >= 0 && wasIdx < mcpServers.length) {
+          mcpServers[wasIdx] = cloneMcpServers([mcpModalDraft])[0];
+        }
+        closeMcpServerModal();
+        renderMcpServerList();
+        autoSaveMcpServers();
+        var savedServer = (wasMode === 'add')
+          ? mcpServers[mcpServers.length - 1]
+          : mcpServers[wasIdx];
+        if (savedServer && savedServer.enabled) {
+          vscode.postMessage({
+            type: 'testMcpServer',
+            payload: { server: savedServer }
+          });
+        }
+      }
+
+      function openMcpDeleteConfirmModal(serverName) {
+        if (mcpDeleteResolver) { return Promise.resolve(false); }
+        var strings = runtimeState.strings || {};
+        dom.mcpDeleteConfirmTitle.textContent = (strings.mcpDeleteServerAction || 'Delete') + ': ' + serverName;
+        dom.mcpDeleteConfirmDescription.textContent = strings.mcpDeleteConfirm || 'Are you sure you want to delete this server?';
+        dom.mcpDeleteCancelBtn.textContent = strings.cancelAction || 'Cancel';
+        dom.mcpDeleteConfirmBtn.textContent = strings.confirmAction || 'Confirm';
+        dom.mcpDeleteConfirmModal.classList.add('visible');
+        dom.mcpDeleteConfirmModal.setAttribute('aria-hidden', 'false');
+        dom.mcpDeleteConfirmBtn.focus();
+        return new Promise(function(resolve) {
+          mcpDeleteResolver = resolve;
+        });
+      }
+
+      function closeMcpDeleteConfirmModal(confirmed) {
+        dom.mcpDeleteConfirmModal.classList.remove('visible');
+        dom.mcpDeleteConfirmModal.setAttribute('aria-hidden', 'true');
+        if (mcpDeleteResolver) {
+          var resolve = mcpDeleteResolver;
+          mcpDeleteResolver = null;
+          resolve(!!confirmed);
+        }
       }
 
       function cloneProviders(items) {
@@ -2073,11 +2826,16 @@ ${SHARED_TOAST_STYLE}
       function syncState(nextState) {
         const previousSignature = providersCollectionSignature(Object.values(persistedProvidersById));
         const nextSignature = providersCollectionSignature((nextState.settings && nextState.settings.providers) || []);
+        var previousMcpSignature = mcpServersSignature(mcpServers);
+        var nextMcpSignature = mcpServersSignature((nextState.settings && nextState.settings.mcp && nextState.settings.mcp.servers) || []);
         runtimeState = nextState;
         if (previousSignature !== nextSignature || Object.keys(persistedProvidersById).length === 0) {
           syncProvidersFromState(nextState);
         } else {
           persistedProvidersById = createPersistedProviderMap((nextState.settings && nextState.settings.providers) || []);
+        }
+        if (previousMcpSignature !== nextMcpSignature || !mcpServers.length) {
+          syncMcpServersFromState(nextState);
         }
         activeSection = normalizeSectionValue(nextState.activeSection || activeSection);
         renderAll();
@@ -2095,6 +2853,7 @@ ${SHARED_TOAST_STYLE}
         renderProviderList();
         renderProviderFields();
         renderModels();
+        renderMcp();
       }
 
       window.addEventListener('message', (event) => {
@@ -2130,6 +2889,16 @@ ${SHARED_TOAST_STYLE}
           showToast(message.payload.message || '', message.payload.success ? 'success' : 'error');
           renderAll();
         }
+        if (message && message.type === 'mcpProbeResult') {
+          var probeItems = message.payload || [];
+          for (var pi = 0; pi < mcpServers.length; pi++) {
+            var match = probeItems.find((r) => r.serverId === mcpServers[pi].id);
+            if (match) {
+              mcpProbeResults[pi] = match;
+            }
+          }
+          renderMcpServerList();
+        }
       });
 
       dom.navModelConfig.addEventListener('click', () => {
@@ -2141,8 +2910,11 @@ ${SHARED_TOAST_STYLE}
       dom.navGeneral.addEventListener('click', () => {
         activateSection('general', true);
       });
+      dom.navMcp.addEventListener('click', () => {
+        activateSection('mcp', true);
+      });
 
-      dom.generalSaveBtn.addEventListener('click', () => {
+      function autoSaveGeneral() {
         vscode.postMessage({
           type: 'saveGeneral',
           payload: {
@@ -2151,7 +2923,10 @@ ${SHARED_TOAST_STYLE}
             chatTabMode: dom.chatTabMode.value === 'multi' ? 'multi' : 'single'
           }
         });
-      });
+      }
+      dom.locale.addEventListener('change', autoSaveGeneral);
+      dom.sendShortcut.addEventListener('change', autoSaveGeneral);
+      dom.chatTabMode.addEventListener('change', autoSaveGeneral);
 
       dom.exportBtn.addEventListener('click', () => {
         vscode.postMessage({ type: 'exportData' });
@@ -2165,7 +2940,109 @@ ${SHARED_TOAST_STYLE}
         vscode.postMessage({ type: 'reset' });
       });
 
-      dom.defaultModelsSaveBtn.addEventListener('click', () => {
+      // MCP event bindings
+      dom.mcpSaveToolRoundsBtn.addEventListener('click', () => {
+        vscode.postMessage({
+          type: 'saveMcpToolRounds',
+          payload: { maxToolRounds: parseInt(dom.mcpMaxToolRounds.value, 10) || 5 }
+        });
+      });
+
+      dom.mcpAddServerBtn.addEventListener('click', () => {
+        openMcpServerModal('add', -1);
+      });
+
+      dom.mcpServerList.addEventListener('click', (event) => {
+        var target = event.target;
+        if (!(target instanceof HTMLElement)) { return; }
+        var card = target.closest('.mcp-server-card');
+        if (!card) { return; }
+        var idx = parseInt(card.getAttribute('data-idx'), 10);
+        if (isNaN(idx) || idx < 0 || idx >= mcpServers.length) { return; }
+        var action = target.getAttribute('data-mcp-action');
+        if (action === 'test') {
+          if (!mcpServers[idx].enabled) { return; }
+          vscode.postMessage({
+            type: 'testMcpServer',
+            payload: { server: mcpServers[idx] }
+          });
+          return;
+        }
+        if (action === 'toggle-tools') {
+          var probe = mcpProbeResults[idx];
+          if (probe && probe.success) {
+            expandedToolServerIdx = expandedToolServerIdx === idx ? -1 : idx;
+            renderMcpServerList();
+          }
+          return;
+        }
+        if (action === 'edit') {
+          openMcpServerModal('edit', idx);
+          return;
+        }
+        if (action === 'delete') {
+          var server = mcpServers[idx];
+          openMcpDeleteConfirmModal(server ? server.name : '').then(function(confirmed) {
+            if (!confirmed) { return; }
+            mcpServers.splice(idx, 1);
+            if (expandedToolServerIdx >= mcpServers.length) { expandedToolServerIdx = -1; }
+            if (expandedToolServerIdx === idx) { expandedToolServerIdx = -1; }
+            else if (expandedToolServerIdx > idx) { expandedToolServerIdx -= 1; }
+            renderMcpServerList();
+            autoSaveMcpServers();
+          });
+          return;
+        }
+      });
+
+      dom.mcpServerList.addEventListener('change', (event) => {
+        var target = event.target;
+        if (!(target instanceof HTMLInputElement)) { return; }
+        var toggleIdx = target.getAttribute('data-mcp-toggle-idx');
+        if (toggleIdx === null || toggleIdx === undefined) { return; }
+        var idx = parseInt(toggleIdx, 10);
+        if (isNaN(idx) || idx < 0 || idx >= mcpServers.length) { return; }
+        mcpServers[idx].enabled = target.checked;
+        renderMcpServerList();
+        autoSaveMcpServers();
+      });
+
+      dom.mcpModalTransport.addEventListener('change', () => {
+        if (mcpModalDraft) {
+          mcpModalDraft.transport = dom.mcpModalTransport.value || 'stdio';
+          renderMcpModalFields();
+        }
+      });
+
+      dom.mcpModalCancelBtn.addEventListener('click', () => {
+        closeMcpServerModal();
+      });
+
+      dom.mcpModalSaveBtn.addEventListener('click', () => {
+        confirmMcpServer();
+      });
+
+      dom.mcpServerModal.addEventListener('click', (event) => {
+        if (event.target === dom.mcpServerModal) {
+          closeMcpServerModal();
+        }
+      });
+
+      dom.mcpDeleteCancelBtn.addEventListener('click', () => {
+        closeMcpDeleteConfirmModal(false);
+      });
+
+      dom.mcpDeleteConfirmBtn.addEventListener('click', () => {
+        closeMcpDeleteConfirmModal(true);
+      });
+
+      dom.mcpDeleteConfirmModal.addEventListener('click', (event) => {
+        if (event.target === dom.mcpDeleteConfirmModal) {
+          closeMcpDeleteConfirmModal(false);
+        }
+      });
+
+      dom.defaultAssistantModel.addEventListener('change', () => {
         vscode.postMessage({
           type: 'saveDefaultModels',
           payload: {

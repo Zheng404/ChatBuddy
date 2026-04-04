@@ -308,6 +308,79 @@ export function getChatWebviewHtml(webview: vscode.Webview): string {
         color: var(--muted);
       }
 
+      .tool-rounds-block {
+        margin: 0 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--assistant-bg) 86%, var(--bg) 14%);
+        overflow: hidden;
+      }
+
+      .tool-rounds-block summary {
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        padding: 8px 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .tool-rounds-block summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .tool-rounds-content {
+        padding: 0 10px 10px;
+        line-height: 1.5;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .tool-round-item {
+        margin-bottom: 8px;
+      }
+
+      .tool-round-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .tool-call-name {
+        font-weight: 600;
+        color: var(--fg);
+      }
+
+      .tool-call-args {
+        margin: 4px 0;
+        padding: 4px 8px;
+        background: var(--code-bg);
+        border-radius: 6px;
+        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+        font-size: 11px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 120px;
+        overflow-y: auto;
+      }
+
+      .tool-call-output {
+        margin-top: 4px;
+        padding: 4px 8px;
+        background: var(--code-bg);
+        border-radius: 6px;
+        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+        font-size: 11px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .tool-round-separator {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 8px 0;
+      }
+
       .message-text pre {
         margin: 10px 0 0;
         background: var(--code-bg);
@@ -385,6 +458,40 @@ export function getChatWebviewHtml(webview: vscode.Webview): string {
 
       .action-btn-icon .codicon {
         font-size: 16px;
+      }
+
+      .mcp-entry-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .mcp-entry {
+        width: 100%;
+        text-align: left;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+        color: var(--fg);
+        cursor: pointer;
+      }
+
+      .mcp-entry:hover {
+        background: var(--hover);
+      }
+
+      .mcp-entry-title {
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .mcp-entry-meta {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+        word-break: break-word;
       }
 
       .composer-shell {
@@ -566,6 +673,8 @@ ${SHARED_TOAST_STYLE}
       .raw-reasoning-block summary .chevron-icon { display:inline-flex;transition:transform .15s ease;font-size:14px }
       .raw-reasoning-block[open] summary .chevron-icon { transform:rotate(90deg) }
       .raw-reasoning-block pre { margin:0;padding:8px 10px;border-top:1px solid var(--border);white-space:pre-wrap;word-break:break-word;font-family:"Cascadia Code","JetBrains Mono",monospace;font-size:13px;line-height:1.6;color:var(--muted) }
+      .confirm-copy { color: var(--muted); font-size: 13px; line-height: 1.7; white-space: pre-wrap }
+      .confirm-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px }
 
     </style>
   </head>
@@ -613,6 +722,20 @@ ${SHARED_TOAST_STYLE}
         <div class="raw-modal-body" id="rawModalBody"></div>
       </div>
     </div>
+    <div class="raw-modal-overlay" id="toolContinuationOverlay">
+      <div class="raw-modal" style="width:min(520px,90%);max-height:none;">
+        <div class="raw-modal-header">
+          <span class="raw-modal-title" id="toolContinuationTitle"></span>
+        </div>
+        <div class="raw-modal-body">
+          <div class="confirm-copy" id="toolContinuationDescription"></div>
+          <div class="confirm-actions">
+            <button class="action-btn secondary" id="toolContinuationCancelBtn" type="button"></button>
+            <button class="action-btn primary" id="toolContinuationContinueBtn" type="button"></button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
@@ -625,7 +748,8 @@ ${SHARED_TOAST_STYLE}
         edit: '<span class="codicon codicon-edit"></span>',
         copy: '<span class="codicon codicon-copy"></span>',
         delete: '<span class="codicon codicon-trash"></span>',
-        rawText: '<span class="codicon codicon-code"></span>'
+        rawText: '<span class="codicon codicon-code"></span>',
+        tool: '<span class="codicon codicon-tools"></span>'
       };
 
       const dom = {
@@ -645,7 +769,12 @@ ${SHARED_TOAST_STYLE}
         rawModalOverlay: document.getElementById('rawModalOverlay'),
         rawModalTitle: document.getElementById('rawModalTitle'),
         rawModalClose: document.getElementById('rawModalClose'),
-        rawModalBody: document.getElementById('rawModalBody')
+        rawModalBody: document.getElementById('rawModalBody'),
+        toolContinuationOverlay: document.getElementById('toolContinuationOverlay'),
+        toolContinuationTitle: document.getElementById('toolContinuationTitle'),
+        toolContinuationDescription: document.getElementById('toolContinuationDescription'),
+        toolContinuationCancelBtn: document.getElementById('toolContinuationCancelBtn'),
+        toolContinuationContinueBtn: document.getElementById('toolContinuationContinueBtn')
       };
 
       let state = {
@@ -662,11 +791,15 @@ ${SHARED_TOAST_STYLE}
         providerLabel: '-',
         modelLabel: '-',
         modelOptions: [],
+        mcpServers: [],
         sessionTempModelRef: '',
         sendShortcut: 'enter',
         streaming: true,
         isGenerating: false,
         canChat: false,
+        awaitingToolContinuation: false,
+        pendingToolCallCount: 0,
+        toolRoundLimit: 0,
         readOnlyReason: ''
       };
       const renderSigs = {
@@ -679,6 +812,7 @@ ${SHARED_TOAST_STYLE}
       let isResizingComposer = false;
       let composerResizeStartY = 0;
       let composerResizeStartHeight = 0;
+      let toolContinuationActionPending = false;
 
       function clampComposerHeight(value) {
         return Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, Math.round(value)));
@@ -726,6 +860,10 @@ ${SHARED_TOAST_STYLE}
           .replace(/&gt;/g, '>')
           .replace(/&quot;/g, '"')
           .replace(/&#0*39;/g, "'");
+      }
+
+      function formatTemplate(template, values) {
+        return String(template || '').replace(/\\{(\\w+)\\}/g, (_, key) => values[key] || '');
       }
 
       function normalizeCodicon(icon) {
@@ -867,6 +1005,11 @@ ${SHARED_TOAST_STYLE}
         }
         const content = String(message.content || '');
         const reasoning = String(message.reasoning || '');
+        const toolRoundsDigest = Array.isArray(message.toolRounds)
+          ? String(message.toolRounds.length) + ':' + message.toolRounds.map(function(r) {
+              return String((r.calls || []).length) + '|' + (r.calls || []).map(function(c) { return c.name || ''; }).join(',');
+            }).join(';')
+          : '';
         return [
           String(message.id || ''),
           String(message.role || ''),
@@ -875,7 +1018,8 @@ ${SHARED_TOAST_STYLE}
           String(reasoning.length),
           reasoning.slice(-80),
           String(message.timestamp || ''),
-          String(message.model || '')
+          String(message.model || ''),
+          toolRoundsDigest
         ].join('~');
       }
 
@@ -930,6 +1074,9 @@ ${SHARED_TOAST_STYLE}
           String(state.strings.model || ''),
           String(state.strings.chatModelFollowAssistant || ''),
           String(state.strings.chatTemporaryModelLabel || ''),
+          String(state.strings.mcpResourcesAction || ''),
+          String(state.strings.mcpPromptsAction || ''),
+          String((state.mcpServers || []).length),
           String(state.strings.noAssistantSelectedBody || '')
         ].join('|');
       }
@@ -938,6 +1085,30 @@ ${SHARED_TOAST_STYLE}
         return state.sendShortcut === 'ctrlEnter'
           ? String(state.strings.sendShortcutCtrlEnter || '')
           : String(state.strings.sendShortcutEnter || '');
+      }
+
+      function renderToolContinuationModal() {
+        const shouldShow = !!state.awaitingToolContinuation;
+        if (!shouldShow) {
+          dom.toolContinuationOverlay.classList.remove('visible');
+          toolContinuationActionPending = false;
+          return;
+        }
+
+        dom.toolContinuationTitle.textContent = state.strings.toolContinuationTitle || 'Continue Tool Calls';
+        dom.toolContinuationDescription.textContent = formatTemplate(
+          state.strings.toolContinuationDescription ||
+            'Auto tool-call limit reached ({limit} rounds). {count} tool calls are waiting to continue.',
+          {
+            limit: String(state.toolRoundLimit || 0),
+            count: String(state.pendingToolCallCount || 0)
+          }
+        );
+        dom.toolContinuationCancelBtn.textContent = state.strings.toolContinuationStopAction || 'Stop';
+        dom.toolContinuationContinueBtn.textContent = state.strings.toolContinuationContinueAction || 'Continue';
+        dom.toolContinuationCancelBtn.disabled = toolContinuationActionPending;
+        dom.toolContinuationContinueBtn.disabled = toolContinuationActionPending;
+        dom.toolContinuationOverlay.classList.add('visible');
       }
 
       function renderEmptyState() {
@@ -989,7 +1160,61 @@ ${SHARED_TOAST_STYLE}
           const shouldShowModel = !!modelText && !/^[^:\\s]+:[^:\\s]+$/.test(modelText);
           const metaExtra = shouldShowModel ? ' · ' + escapeHtml(modelText) : '';
           const reasoningText = String(message.reasoning || '').trim();
-          const reasoningBlock = message.role === 'assistant' && reasoningText
+          const toolRounds = (message.role === 'assistant' && Array.isArray(message.toolRounds) && message.toolRounds.length > 0)
+            ? message.toolRounds
+            : undefined;
+          // Pre-tool reasoning: each round's thinking before calling tools (flat, above Tool Calls)
+          const preToolReasoning = (function() {
+            if (!toolRounds) { return ''; }
+            var parts = [];
+            for (var ri = 0; ri < toolRounds.length; ri++) {
+              if (toolRounds[ri].reasoning) {
+                parts.push('<details class="reasoning-block">' +
+                  '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
+                  '<div class="reasoning-content">' + markdownToHtml(toolRounds[ri].reasoning) + '</div>' +
+                '</details>');
+              }
+            }
+            return parts.join('');
+          })();
+          // Tool calls block (flat, no reasoning inside)
+          const toolRoundsBlock = toolRounds
+            ? (function() {
+                const header = state.strings.toolCallRoundHeader || 'Tool Calls (Round {round})';
+                var parts = [];
+                for (let ri = 0; ri < toolRounds.length; ri++) {
+                  const round = toolRounds[ri];
+                  if (ri > 0) {
+                    parts.push('<hr class="tool-round-separator">');
+                  }
+                  parts.push('<div class="tool-call-name">' + escapeHtml(header.replace('{round}', String(ri + 1))) + '</div>');
+                  for (const call of round.calls || []) {
+                    parts.push('<div class="tool-round-item">');
+                    parts.push('<div><span class="tool-call-name">' + icons.tool + ' ' + escapeHtml(call.name || '') + '</span></div>');
+                    if (call.argumentsText) {
+                      parts.push('<div class="tool-call-args">' + escapeHtml(call.argumentsText) + '</div>');
+                    }
+                    if (call.output) {
+                      parts.push('<div class="tool-call-output">' + escapeHtml(call.output) + '</div>');
+                    }
+                    parts.push('</div>');
+                  }
+                }
+                return '<details class="tool-rounds-block">' +
+                  '<summary>' + escapeHtml(state.strings.toolCallSectionTitle || 'Tool Calls') + ' (' + toolRounds.length + ')</summary>' +
+                  '<div class="tool-rounds-content">' + parts.join('') + '</div>' +
+                '</details>';
+              })()
+            : '';
+          // Post-tool reasoning: final thinking after all tools (flat, below Tool Calls)
+          const postToolReasoning = (toolRounds && reasoningText)
+            ? '<details class="reasoning-block">' +
+                '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
+                '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>' +
+              '</details>'
+            : '';
+          // Simple case: no tool rounds, just reasoning
+          const reasoningBlock = (!toolRounds && message.role === 'assistant' && reasoningText)
             ? '<details class="reasoning-block">' +
                 '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
                 '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>' +
@@ -1023,6 +1248,9 @@ ${SHARED_TOAST_STYLE}
                   messageActions +
                 '</div>' +
                 reasoningBlock +
+                preToolReasoning +
+                toolRoundsBlock +
+                postToolReasoning +
                 '<div class="message-text">' + markdownToHtml(message.content || '') + ((showCursor && message.id === lastMsg.id) ? '<span class="streaming-cursor"></span>' : '') + '</div>' +
               '</div>' +
             '</div>';
@@ -1097,6 +1325,7 @@ ${SHARED_TOAST_STYLE}
           renderComposer();
           renderSigs.composer = composerSig;
         }
+        renderToolContinuationModal();
       }
 
       window.addEventListener('message', (event) => {
@@ -1107,6 +1336,9 @@ ${SHARED_TOAST_STYLE}
         if (message.type === 'state') {
           const wasGenerating = state.isGenerating;
           state = message.payload;
+          if (!state.awaitingToolContinuation) {
+            toolContinuationActionPending = false;
+          }
           renderByDiff(false);
           if (wasGenerating && !state.isGenerating) {
             dom.messagesInner.querySelectorAll('.streaming-cursor, .loading-indicator-wrapper').forEach((el) => el.remove());
@@ -1272,6 +1504,17 @@ ${SHARED_TOAST_STYLE}
               details.appendChild(reasoningPre);
               container.appendChild(details);
             }
+            if (msg.role === 'assistant' && Array.isArray(msg.toolRounds) && msg.toolRounds.length > 0) {
+              var toolDetails = document.createElement('details');
+              toolDetails.className = 'raw-reasoning-block';
+              var toolSummary = document.createElement('summary');
+              toolSummary.innerHTML = '<span class="chevron-icon"><span class="codicon codicon-chevron-right"></span></span> ' + escapeHtml(state.strings.toolCallSectionTitle || 'Tool Calls');
+              var toolPre = document.createElement('pre');
+              toolPre.textContent = JSON.stringify(msg.toolRounds, null, 2);
+              toolDetails.appendChild(toolSummary);
+              toolDetails.appendChild(toolPre);
+              container.appendChild(toolDetails);
+            }
             var contentPre = document.createElement('pre');
             contentPre.textContent = String(msg.content || '');
             container.appendChild(contentPre);
@@ -1290,6 +1533,24 @@ ${SHARED_TOAST_STYLE}
         if (event.target === dom.rawModalOverlay) {
           dom.rawModalOverlay.classList.remove('visible');
         }
+      });
+
+      dom.toolContinuationContinueBtn.addEventListener('click', () => {
+        if (!state.awaitingToolContinuation || toolContinuationActionPending) {
+          return;
+        }
+        toolContinuationActionPending = true;
+        renderToolContinuationModal();
+        vscode.postMessage({ type: 'continueToolCalls' });
+      });
+
+      dom.toolContinuationCancelBtn.addEventListener('click', () => {
+        if (!state.awaitingToolContinuation || toolContinuationActionPending) {
+          return;
+        }
+        toolContinuationActionPending = true;
+        renderToolContinuationModal();
+        vscode.postMessage({ type: 'cancelToolCalls' });
       });
 
       vscode.postMessage({ type: 'ready' });

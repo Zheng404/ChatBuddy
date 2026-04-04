@@ -7,6 +7,7 @@ import { AssistantEditorPanelController } from './chatbuddy/assistantEditorPanel
 import { ChatController } from './chatbuddy/chatController';
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from './chatbuddy/constants';
 import { formatString, getStrings, resolveLocale } from './chatbuddy/i18n';
+import { McpRuntime } from './chatbuddy/mcpRuntime';
 import { OpenAICompatibleClient } from './chatbuddy/providerClient';
 import { SessionNode, SessionsTreeProvider } from './chatbuddy/sessionsView';
 import { SettingsCenterPanelController } from './chatbuddy/settingsCenterPanel';
@@ -271,7 +272,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const repository = new ChatStateRepository(context);
   await repository.initialize();
   const providerClient = new OpenAICompatibleClient();
-  const chatController = new ChatController(repository, providerClient);
+  const mcpRuntime = new McpRuntime();
+  const chatController = new ChatController(repository, providerClient, mcpRuntime);
 
   const getRuntimeLocale = () => resolveLocale(repository.getSettings().locale, vscode.env.language);
   const getRuntimeStrings = () => getStrings(getRuntimeLocale());
@@ -289,15 +291,6 @@ export async function activate(context: vscode.ExtensionContext) {
         return [];
       }
       const strings = getRuntimeStrings();
-      const globalSettingsItem = new vscode.TreeItem(strings.openSettings, vscode.TreeItemCollapsibleState.None);
-      globalSettingsItem.id = 'chatbuddy.settings.open';
-      globalSettingsItem.iconPath = new vscode.ThemeIcon('settings-gear');
-      globalSettingsItem.command = {
-        command: 'chatbuddy.openSettings',
-        title: strings.openSettings
-      };
-      globalSettingsItem.tooltip = strings.settingsDescription;
-
       const modelConfigItem = new vscode.TreeItem(strings.openModelConfig, vscode.TreeItemCollapsibleState.None);
       modelConfigItem.id = 'chatbuddy.model-config.open';
       modelConfigItem.iconPath = new vscode.ThemeIcon('hubot');
@@ -315,7 +308,26 @@ export async function activate(context: vscode.ExtensionContext) {
         title: strings.openDefaultModels
       };
       defaultModelsItem.tooltip = strings.defaultModelsDescription;
-      const items: vscode.TreeItem[] = [modelConfigItem, defaultModelsItem, globalSettingsItem];
+
+      const mcpSettingsItem = new vscode.TreeItem(strings.openMcp || strings.mcpTitle || 'MCP', vscode.TreeItemCollapsibleState.None);
+      mcpSettingsItem.id = 'chatbuddy.mcp.open';
+      mcpSettingsItem.iconPath = new vscode.ThemeIcon('plug');
+      mcpSettingsItem.command = {
+        command: 'chatbuddy.openMcp',
+        title: strings.openMcp || strings.mcpTitle || 'MCP'
+      };
+      mcpSettingsItem.tooltip = strings.mcpDescription;
+
+      const globalSettingsItem = new vscode.TreeItem(strings.openSettings, vscode.TreeItemCollapsibleState.None);
+      globalSettingsItem.id = 'chatbuddy.settings.open';
+      globalSettingsItem.iconPath = new vscode.ThemeIcon('settings-gear');
+      globalSettingsItem.command = {
+        command: 'chatbuddy.openSettings',
+        title: strings.openSettings
+      };
+      globalSettingsItem.tooltip = strings.settingsDescription;
+
+      const items: vscode.TreeItem[] = [modelConfigItem, defaultModelsItem, mcpSettingsItem, globalSettingsItem];
       for (let index = items.length; index < MIN_SETTINGS_VIEW_ROWS; index += 1) {
         const spacer = new vscode.TreeItem(' ', vscode.TreeItemCollapsibleState.None);
         spacer.id = `chatbuddy.settings.spacer.${index}`;
@@ -331,6 +343,7 @@ export async function activate(context: vscode.ExtensionContext) {
   };
 
   const applySettingsAndRefresh = (settings: ChatBuddySettings) => {
+    repository.updateSettings(settings);
     chatController.applySettings(settings);
     refreshAll();
     updateTreeMessage();
@@ -449,6 +462,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const settingsCenterPanelController = new SettingsCenterPanelController(
     repository,
     providerClient,
+    mcpRuntime,
     applySettingsAndRefresh,
     handleResetData,
     handleExportData,
@@ -570,6 +584,9 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   const openDefaultModelsCommand = vscode.commands.registerCommand('chatbuddy.openDefaultModels', () => {
     settingsCenterPanelController.openPanel('defaultModels');
+  });
+  const openMcpCommand = vscode.commands.registerCommand('chatbuddy.openMcp', () => {
+    settingsCenterPanelController.openPanel('mcp');
   });
 
   const openChatCommand = vscode.commands.registerCommand(
@@ -1006,6 +1023,7 @@ export async function activate(context: vscode.ExtensionContext) {
     openSettingsCommand,
     openModelConfigCommand,
     openDefaultModelsCommand,
+    openMcpCommand,
     openChatCommand,
     openSessionChatCommand,
     createAssistantCommand,

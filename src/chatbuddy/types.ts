@@ -6,12 +6,38 @@ export type ChatTabMode = 'single' | 'multi';
 export type AssistantGroupKind = 'default' | 'deleted' | 'custom';
 export type ProviderApiType = 'chat_completions' | 'responses';
 export type ProviderKind = 'openai' | 'gemini' | 'openrouter' | 'ollama' | 'custom';
+export type McpTransportType = 'stdio' | 'streamableHttp' | 'sse';
 
 export interface AssistantOverrides {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
   temperature?: number;
+}
+
+export interface McpKeyValueEntry {
+  key: string;
+  value: string;
+}
+
+export interface McpServerProfile {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: McpTransportType;
+  command: string;
+  args: string[];
+  cwd: string;
+  env: McpKeyValueEntry[];
+  url: string;
+  headers: McpKeyValueEntry[];
+  timeoutMs: number;
+  remotePassthroughEnabled: boolean;
+}
+
+export interface McpSettings {
+  servers: McpServerProfile[];
+  maxToolRounds: number;
 }
 
 export interface ModelCapabilities {
@@ -83,6 +109,7 @@ export interface AssistantProfile {
   presencePenalty: number;
   frequencyPenalty: number;
   streaming: boolean;
+  enabledMcpServerIds: string[];
   pinned: boolean;
   isDeleted: boolean;
   deletedAt?: number;
@@ -100,6 +127,17 @@ export interface ChatMessage {
   timestamp: number;
   model?: string;
   reasoning?: string;
+  toolRounds?: ChatToolRound[];
+}
+
+export interface ChatToolRound {
+  reasoning?: string;
+  calls: Array<{
+    id: string;
+    name: string;
+    argumentsText: string;
+    output?: string;
+  }>;
 }
 
 export interface ChatSession {
@@ -147,6 +185,7 @@ export interface PersistedStateLite {
 export interface ChatBuddySettings {
   providers: ProviderProfile[];
   defaultModels: DefaultModelSettings;
+  mcp: McpSettings;
   temperature: number;
   topP: number;
   maxTokens: number;
@@ -176,6 +215,64 @@ export interface ProviderConfig {
   presencePenalty: number;
   frequencyPenalty: number;
   timeoutMs: number;
+}
+
+export type ProviderToolDefinition =
+  | {
+      type: 'function';
+      function: {
+        name: string;
+        description?: string;
+        parameters?: Record<string, unknown>;
+      };
+    }
+  | {
+      type: 'mcp';
+      server_label: string;
+      server_url: string;
+      headers?: Record<string, string>;
+      require_approval?: 'never' | 'always';
+    };
+
+export interface ProviderToolCall {
+  id: string;
+  name: string;
+  argumentsText: string;
+}
+
+export interface ProviderToolResult {
+  toolCallId: string;
+  output: string;
+}
+
+export interface McpServerSummary {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: McpTransportType;
+}
+
+export interface McpResourceEntry {
+  serverId: string;
+  serverName: string;
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpPromptArgument {
+  name: string;
+  description?: string;
+  required: boolean;
+}
+
+export interface McpPromptEntry {
+  serverId: string;
+  serverName: string;
+  name: string;
+  description?: string;
+  arguments: McpPromptArgument[];
 }
 
 export type RuntimeStrings = Record<string, string>;
@@ -211,6 +308,10 @@ export interface ChatStatePayload {
   streaming: boolean;
   isGenerating: boolean;
   canChat: boolean;
+  mcpServers: McpServerSummary[];
+  awaitingToolContinuation: boolean;
+  pendingToolCallCount: number;
+  toolRoundLimit: number;
   readOnlyReason?: string;
   error?: string;
 }
@@ -231,9 +332,18 @@ export type WebviewInboundMessage =
   | { type: 'clearSession' }
   | { type: 'setStreaming'; enabled: boolean }
   | { type: 'sendMessage'; content: string }
+  | { type: 'continueToolCalls' }
+  | { type: 'cancelToolCalls' }
+  | { type: 'listMcpResources' }
+  | { type: 'listMcpPrompts' }
+  | { type: 'readMcpResource'; serverId: string; uri: string }
+  | { type: 'getMcpPrompt'; serverId: string; name: string; args: Record<string, string> }
   | { type: 'stopGeneration' };
 
 export type WebviewOutboundMessage =
   | { type: 'state'; payload: ChatStatePayload }
   | { type: 'error'; message: string }
+  | { type: 'mcpResources'; payload: { items: McpResourceEntry[]; message?: string } }
+  | { type: 'mcpPrompts'; payload: { items: McpPromptEntry[]; message?: string } }
+  | { type: 'mcpInsert'; payload: { content: string; message?: string } }
   | { type: 'toast'; message: string; tone?: 'success' | 'error' | 'info' };

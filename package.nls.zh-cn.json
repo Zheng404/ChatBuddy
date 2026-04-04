@@ -9,6 +9,7 @@
   "chatbuddy.command.openSettings": "打开其他配置",
   "chatbuddy.command.openModelConfig": "打开模型配置",
   "chatbuddy.command.openDefaultModels": "打开默认模型",
+  "chatbuddy.command.openMcp": "打开 MCP 配置",
   "chatbuddy.command.openAssistantChat": "打开聊天",
   "chatbuddy.command.createAssistant": "新建助手",
   "chatbuddy.command.createGroup": "新建分组",

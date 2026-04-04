@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 
 import { dedupeModels, normalizeApiType } from './modelCatalog';
 import { formatString, getStrings, resolveLocale } from './i18n';
-import { hasAnyCapability } from './modelCapabilities';
 import { getPanelIconPath } from './panelIcon';
 import { OpenAICompatibleClient } from './providerClient';
 import { ChatStateRepository } from './stateRepository';

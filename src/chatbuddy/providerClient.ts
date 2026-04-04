@@ -9,8 +9,11 @@ import {
   ProviderApiType,
   ProviderConfig,
   ProviderKind,
+  ProviderToolCall,
+  ProviderToolDefinition,
   ProviderMessage,
   ProviderModelProfile,
+  ProviderToolResult,
   RuntimeLocale
 } from './types';
 
@@ -23,6 +26,18 @@ export interface StreamHandlers {
 export interface ProviderChatResult {
   text: string;
   reasoning?: string;
+  toolCalls?: ProviderToolCall[];
+  responseId?: string;
+}
+
+export interface ProviderToolRound {
+  toolCalls: ProviderToolCall[];
+  results: ProviderToolResult[];
+}
+
+export interface ProviderRequestOptions {
+  tools?: ProviderToolDefinition[];
+  toolRounds?: ProviderToolRound[];
 }
 
 export interface ProviderResolveMeta {
@@ -113,24 +128,38 @@ function createHeaders(provider: ProviderConnectionInput, json = true): Record<s
   return headers;
 }
 
-function toChatCompletionBody(messages: ProviderMessage[], providerConfig: ProviderConfig, stream: boolean) {
-  const body: Record<string, unknown> = {
-    model: providerConfig.modelId,
-    temperature: providerConfig.temperature,
-    top_p: providerConfig.topP,
-    presence_penalty: providerConfig.presencePenalty,
-    frequency_penalty: providerConfig.frequencyPenalty,
-    stream,
-    messages
-  };
-  if (providerConfig.maxTokens > 0) {
-    body.max_tokens = providerConfig.maxTokens;
+function toChatCompletionsMessages(messages: ProviderMessage[], toolRounds: ProviderToolRound[] = []) {
+  const result: Array<Record<string, unknown>> = messages.map((message) => ({
+    role: message.role,
+    content: message.content
+  }));
+  for (const round of toolRounds) {
+    if (round.toolCalls.length > 0) {
+      result.push({
+        role: 'assistant',
+        tool_calls: round.toolCalls.map((call) => ({
+          id: call.id,
+          type: 'function',
+          function: {
+            name: call.name,
+            arguments: call.argumentsText
+          }
+        }))
+      });
+    }
+    for (const toolResult of round.results) {
+      result.push({
+        role: 'tool',
+        tool_call_id: toolResult.toolCallId,
+        content: toolResult.output
+      });
+    }
   }
-  return body;
+  return result;
 }
 
-function toResponsesBody(messages: ProviderMessage[], providerConfig: ProviderConfig, stream: boolean) {
-  const input = messages.map((message) => ({
+function toResponsesInput(messages: ProviderMessage[], toolRounds: ProviderToolRound[] = []) {
+  const input: Array<Record<string, unknown>> = messages.map((message) => ({
     role: message.role,
     content: [
       {
@@ -139,15 +168,70 @@ function toResponsesBody(messages: ProviderMessage[], providerConfig: ProviderCo
       }
     ]
   }));
+  for (const round of toolRounds) {
+    for (const toolCall of round.toolCalls) {
+      input.push({
+        type: 'function_call',
+        call_id: toolCall.id,
+        name: toolCall.name,
+        arguments: toolCall.argumentsText
+      });
+    }
+    for (const result of round.results) {
+      input.push({
+        type: 'function_call_output',
+        call_id: result.toolCallId,
+        output: result.output
+      });
+    }
+  }
+  return input;
+}
+
+function toChatCompletionBody(
+  messages: ProviderMessage[],
+  providerConfig: ProviderConfig,
+  stream: boolean,
+  tools: ProviderToolDefinition[] = [],
+  toolRounds: ProviderToolRound[] = []
+) {
   const body: Record<string, unknown> = {
     model: providerConfig.modelId,
-    input,
+    temperature: providerConfig.temperature,
+    top_p: providerConfig.topP,
+    presence_penalty: providerConfig.presencePenalty,
+    frequency_penalty: providerConfig.frequencyPenalty,
+    stream,
+    messages: toChatCompletionsMessages(messages, toolRounds)
+  };
+  if (tools.length > 0) {
+    body.tools = tools;
+  }
+  if (providerConfig.maxTokens > 0) {
+    body.max_tokens = providerConfig.maxTokens;
+  }
+  return body;
+}
+
+function toResponsesBody(
+  messages: ProviderMessage[],
+  providerConfig: ProviderConfig,
+  stream: boolean,
+  tools: ProviderToolDefinition[] = [],
+  toolRounds: ProviderToolRound[] = []
+) {
+  const body: Record<string, unknown> = {
+    model: providerConfig.modelId,
+    input: toResponsesInput(messages, toolRounds),
     temperature: providerConfig.temperature,
     top_p: providerConfig.topP,
     presence_penalty: providerConfig.presencePenalty,
     frequency_penalty: providerConfig.frequencyPenalty,
     stream
   };
+  if (tools.length > 0) {
+    body.tools = tools;
+  }
   if (providerConfig.maxTokens > 0) {
     body.max_output_tokens = providerConfig.maxTokens;
   }
@@ -376,6 +460,65 @@ function joinChunks(chunks: string[]): string | undefined {
   return text || undefined;
 }
 
+function extractChatCompletionToolCalls(message: {
+  tool_calls?: Array<{
+    id?: string;
+    type?: string;
+    function?: {
+      name?: string;
+      arguments?: string;
+    };
+  }>;
+}): ProviderToolCall[] {
+  if (!Array.isArray(message.tool_calls)) {
+    return [];
+  }
+  return message.tool_calls
+    .map((call) => {
+      const name = toTrimmedString(call?.function?.name);
+      if (!name) {
+        return undefined;
+      }
+      return {
+        id: toTrimmedString(call?.id) || `${name}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        argumentsText: typeof call?.function?.arguments === 'string' ? call.function.arguments : '{}'
+      };
+    })
+    .filter((call): call is ProviderToolCall => Boolean(call));
+}
+
+function extractResponsesToolCalls(payload: {
+  output?: Array<{
+    type?: string;
+    id?: string;
+    call_id?: string;
+    name?: string;
+    arguments?: string;
+  }>;
+}): ProviderToolCall[] {
+  return (payload.output ?? [])
+    .map((item) => {
+      const itemType = toTrimmedString(item?.type).toLowerCase();
+      if (!itemType.includes('function_call') && !itemType.includes('tool_call')) {
+        return undefined;
+      }
+      const name = toTrimmedString(item?.name);
+      if (!name) {
+        return undefined;
+      }
+      return {
+        id:
+          toTrimmedString(item?.call_id) ||
+          toTrimmedString(item?.id) ||
+          `${name}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        argumentsText: typeof item?.arguments === 'string' ? item.arguments : '{}'
+      };
+    })
+    .filter((call): call is ProviderToolCall => Boolean(call));
+}
+
 function extractChatCompletionResult(data: unknown): ProviderChatResult {
   const payload = data as {
     choices?: Array<{
@@ -383,6 +526,14 @@ function extractChatCompletionResult(data: unknown): ProviderChatResult {
         content?: string | Array<{ type?: string; text?: string; value?: string; content?: string }>;
         reasoning?: string | Array<{ text?: string; value?: string }>;
         reasoning_content?: string | Array<{ text?: string; value?: string }>;
+        tool_calls?: Array<{
+          id?: string;
+          type?: string;
+          function?: {
+            name?: string;
+            arguments?: string;
+          };
+        }>;
       };
     }>;
   };
@@ -440,7 +591,8 @@ function extractChatCompletionResult(data: unknown): ProviderChatResult {
 
   return {
     text: joinChunks(textChunks) || '',
-    reasoning: joinChunks(reasoningChunks)
+    reasoning: joinChunks(reasoningChunks),
+    toolCalls: extractChatCompletionToolCalls(message)
   };
 }
 
@@ -449,9 +601,14 @@ function extractResponsesResult(data: unknown): ProviderChatResult {
     return { text: '' };
   }
   const payload = data as {
+    id?: string;
     output_text?: string;
     output?: Array<{
       type?: string;
+      id?: string;
+      call_id?: string;
+      name?: string;
+      arguments?: string;
       text?: string;
       value?: string;
       summary?: Array<{ text?: string; value?: string }>;
@@ -520,7 +677,9 @@ function extractResponsesResult(data: unknown): ProviderChatResult {
 
   return {
     text: joinChunks(textChunks) || '',
-    reasoning: joinChunks(reasoningChunks)
+    reasoning: joinChunks(reasoningChunks),
+    toolCalls: extractResponsesToolCalls(payload),
+    responseId: toTrimmedString(payload.id) || undefined
   };
 }
 
@@ -916,12 +1075,13 @@ export class OpenAICompatibleClient {
     messages: ProviderMessage[],
     providerConfig: ProviderConfig,
     locale: RuntimeLocale,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
   ): Promise<ProviderChatResult> {
     if (providerConfig.apiType === 'responses') {
-      return this.responses(messages, providerConfig, locale, signal);
+      return this.responses(messages, providerConfig, locale, signal, options);
     }
-    return this.chatCompletions(messages, providerConfig, locale, signal);
+    return this.chatCompletions(messages, providerConfig, locale, signal, options);
   }
 
   public async chatStream(
@@ -929,13 +1089,14 @@ export class OpenAICompatibleClient {
     providerConfig: ProviderConfig,
     handlers: StreamHandlers,
     locale: RuntimeLocale,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
   ): Promise<void> {
     if (providerConfig.apiType === 'responses') {
-      await this.responsesStream(messages, providerConfig, handlers, locale, signal);
+      await this.responsesStream(messages, providerConfig, handlers, locale, signal, options);
       return;
     }
-    await this.chatCompletionsStream(messages, providerConfig, handlers, locale, signal);
+    await this.chatCompletionsStream(messages, providerConfig, handlers, locale, signal, options);
   }
 
   public async testConnection(
@@ -999,7 +1160,8 @@ export class OpenAICompatibleClient {
     messages: ProviderMessage[],
     providerConfig: ProviderConfig,
     locale: RuntimeLocale,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
   ): Promise<ProviderChatResult> {
     const provider: ProviderConnectionInput = {
       id: providerConfig.providerId,
@@ -1012,7 +1174,9 @@ export class OpenAICompatibleClient {
     const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
       method: 'POST',
       headers: createHeaders(provider),
-      body: JSON.stringify(toChatCompletionBody(messages, providerConfig, false)),
+      body: JSON.stringify(
+        toChatCompletionBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])
+      ),
       signal
     });
     await ensureSuccess(response, locale);
@@ -1023,7 +1187,8 @@ export class OpenAICompatibleClient {
     messages: ProviderMessage[],
     providerConfig: ProviderConfig,
     locale: RuntimeLocale,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
   ): Promise<ProviderChatResult> {
     const provider: ProviderConnectionInput = {
       id: providerConfig.providerId,
@@ -1036,7 +1201,7 @@ export class OpenAICompatibleClient {
     const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
       method: 'POST',
       headers: createHeaders(provider),
-      body: JSON.stringify(toResponsesBody(messages, providerConfig, false)),
+      body: JSON.stringify(toResponsesBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])),
       signal
     });
     await ensureSuccess(response, locale);
@@ -1048,7 +1213,8 @@ export class OpenAICompatibleClient {
     providerConfig: ProviderConfig,
     handlers: StreamHandlers,
     locale: RuntimeLocale,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
   ): Promise<void> {
     const provider: ProviderConnectionInput = {
       id: providerConfig.providerId,
@@ -1061,7 +1227,9 @@ export class OpenAICompatibleClient {
     const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
       method: 'POST',
       headers: createHeaders(provider),
-      body: JSON.stringify(toChatCompletionBody(messages, providerConfig, true)),
+      body: JSON.stringify(
+        toChatCompletionBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])
+      ),
       signal
     });
     await ensureSuccess(response, locale);
@@ -1120,7 +1288,8 @@ export class OpenAICompatibleClient {
     providerConfig: ProviderConfig,
     handlers: StreamHandlers,
     locale: RuntimeLocale,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
   ): Promise<void> {
     const provider: ProviderConnectionInput = {
       id: providerConfig.providerId,
@@ -1133,7 +1302,7 @@ export class OpenAICompatibleClient {
     const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
       method: 'POST',
       headers: createHeaders(provider),
-      body: JSON.stringify(toResponsesBody(messages, providerConfig, true)),
+      body: JSON.stringify(toResponsesBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])),
       signal
     });
     await ensureSuccess(response, locale);

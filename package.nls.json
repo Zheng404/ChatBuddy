@@ -9,6 +9,7 @@
   "chatbuddy.command.openSettings": "Open Other Settings",
   "chatbuddy.command.openModelConfig": "Open Model Config",
   "chatbuddy.command.openDefaultModels": "Open Default Models",
+  "chatbuddy.command.openMcp": "Open MCP Settings",
   "chatbuddy.command.openAssistantChat": "Open Chat",
   "chatbuddy.command.createAssistant": "Create Assistant",
   "chatbuddy.command.createGroup": "Create Group",

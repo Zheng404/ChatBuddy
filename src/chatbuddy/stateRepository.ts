@@ -25,6 +25,9 @@ import {
   ChatSessionSummary,
   DefaultModelSettings,
   ModelBinding,
+  McpKeyValueEntry,
+  McpServerProfile,
+  McpSettings,
   PersistedState,
   PersistedStateLite,
   ProviderKind,
@@ -43,6 +46,10 @@ const LEGACY_UNTITLED_SESSION_TITLES = new Set(['新会话', 'New Chat']);
 const DEFAULT_SETTINGS: ChatBuddySettings = {
   providers: [],
   defaultModels: createEmptyDefaultModels(),
+  mcp: {
+    servers: [],
+    maxToolRounds: 8
+  },
   temperature: 0.7,
   topP: 1,
   maxTokens: 0,
@@ -126,7 +133,31 @@ function cloneGroup(group: AssistantGroup): AssistantGroup {
 function cloneAssistant(assistant: AssistantProfile): AssistantProfile {
   return {
     ...assistant,
+    enabledMcpServerIds: [...assistant.enabledMcpServerIds],
     overrides: assistant.overrides ? { ...assistant.overrides } : undefined
+  };
+}
+
+function cloneMcpKeyValueEntries(entries: McpKeyValueEntry[]): McpKeyValueEntry[] {
+  return entries.map((entry) => ({
+    key: entry.key,
+    value: entry.value
+  }));
+}
+
+function cloneMcpServer(server: McpServerProfile): McpServerProfile {
+  return {
+    ...server,
+    args: [...server.args],
+    env: cloneMcpKeyValueEntries(server.env),
+    headers: cloneMcpKeyValueEntries(server.headers)
+  };
+}
+
+function cloneMcpSettings(settings: McpSettings): McpSettings {
+  return {
+    maxToolRounds: settings.maxToolRounds,
+    servers: settings.servers.map(cloneMcpServer)
   };
 }
 
@@ -178,6 +209,84 @@ function normalizeModelBinding(value: unknown): ModelBinding | undefined {
   return {
     providerId,
     modelId
+  };
+}
+
+function normalizeMcpKeyValueEntries(value: unknown): McpKeyValueEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const result: McpKeyValueEntry[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const entry = item as Partial<McpKeyValueEntry>;
+    const key = typeof entry.key === 'string' ? entry.key.trim() : '';
+    if (!key) {
+      continue;
+    }
+    result.push({
+      key,
+      value: typeof entry.value === 'string' ? entry.value : ''
+    });
+  }
+  return result;
+}
+
+function sanitizeMcpServer(raw: unknown): McpServerProfile | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const source = raw as Partial<McpServerProfile> & { args?: unknown };
+  const id = typeof source.id === 'string' ? source.id.trim() : '';
+  const name = typeof source.name === 'string' ? source.name.trim() : '';
+  if (!id || !name) {
+    return undefined;
+  }
+  const transport =
+    source.transport === 'streamableHttp' || source.transport === 'sse' || source.transport === 'stdio'
+      ? source.transport
+      : 'stdio';
+  const args = Array.isArray(source.args)
+    ? source.args
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean)
+    : [];
+  return {
+    id,
+    name,
+    enabled: source.enabled !== false,
+    transport,
+    command: typeof source.command === 'string' ? source.command.trim() : '',
+    args,
+    cwd: typeof source.cwd === 'string' ? source.cwd.trim() : '',
+    env: normalizeMcpKeyValueEntries(source.env),
+    url: typeof source.url === 'string' ? source.url.trim() : '',
+    headers: normalizeMcpKeyValueEntries(source.headers),
+    timeoutMs: clamp(typeof source.timeoutMs === 'number' ? source.timeoutMs : 60000, 1000, 600000, 60000),
+    remotePassthroughEnabled: source.remotePassthroughEnabled === true
+  };
+}
+
+function sanitizeMcpSettings(raw: unknown): McpSettings {
+  const source = raw && typeof raw === 'object' ? (raw as Partial<McpSettings>) : {};
+  const byId = new Map<string, McpServerProfile>();
+  for (const item of Array.isArray(source.servers) ? source.servers : []) {
+    const server = sanitizeMcpServer(item);
+    if (!server || byId.has(server.id)) {
+      continue;
+    }
+    byId.set(server.id, server);
+  }
+  return {
+    servers: [...byId.values()],
+    maxToolRounds: clamp(
+      typeof source.maxToolRounds === 'number' ? source.maxToolRounds : DEFAULT_SETTINGS.mcp.maxToolRounds,
+      1,
+      20,
+      DEFAULT_SETTINGS.mcp.maxToolRounds
+    )
   };
 }
 
@@ -360,10 +469,12 @@ function sanitizeSettings(raw: unknown): ChatBuddySettings {
       : undefined;
   const defaultModels = sanitizeDefaultModels(saved.defaultModels, legacyAssistantBinding);
   const hydratedProviders = mergeModelBindingsIntoProviders(providers, Object.values(defaultModels));
+  const mcp = sanitizeMcpSettings(saved.mcp);
 
   return {
     providers: hydratedProviders,
     defaultModels,
+    mcp,
     temperature: clamp(saved.temperature ?? DEFAULT_SETTINGS.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
     topP: clamp(saved.topP ?? DEFAULT_SETTINGS.topP, 0, 1, DEFAULT_SETTINGS.topP),
     maxTokens: clamp(saved.maxTokens ?? DEFAULT_SETTINGS.maxTokens, 0, 65535, DEFAULT_SETTINGS.maxTokens),
@@ -489,6 +600,12 @@ function sanitizeAssistant(
       : legacyModelId && legacyProviderId
         ? createModelRef(legacyProviderId, legacyModelId)
         : getDefaultAssistantModelRef(settings);
+  const enabledMcpServerIds = Array.isArray(source.enabledMcpServerIds)
+    ? source.enabledMcpServerIds
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index)
+        .filter((item) => settings.mcp.servers.some((server) => server.id === item))
+    : [];
   const defaultAssistantName = resolveDefaultAssistantName(settings.locale);
 
   return {
@@ -514,6 +631,7 @@ function sanitizeAssistant(
     presencePenalty: clamp(source.presencePenalty ?? settings.presencePenalty, -2, 2, settings.presencePenalty),
     frequencyPenalty: clamp(source.frequencyPenalty ?? settings.frequencyPenalty, -2, 2, settings.frequencyPenalty),
     streaming: typeof source.streaming === 'boolean' ? source.streaming : settings.streamingDefault,
+    enabledMcpServerIds,
     pinned: isDeleted ? false : source.pinned === true,
     isDeleted,
     deletedAt: typeof source.deletedAt === 'number' ? source.deletedAt : undefined,
@@ -686,6 +804,7 @@ export interface UpdateAssistantInput {
   frequencyPenalty?: number;
   streaming?: boolean;
   avatar?: string;
+  enabledMcpServerIds?: string[];
 }
 
 export class ChatStateRepository {
@@ -732,7 +851,8 @@ export class ChatStateRepository {
     return {
       ...this.state.settings,
       providers: this.state.settings.providers.map(cloneProvider),
-      defaultModels: cloneDefaultModels(this.state.settings.defaultModels)
+      defaultModels: cloneDefaultModels(this.state.settings.defaultModels),
+      mcp: cloneMcpSettings(this.state.settings.mcp)
     };
   }
 
@@ -749,9 +869,18 @@ export class ChatStateRepository {
     this.providerApiKeys = this.extractProviderApiKeys(normalized.providers);
     this.applyProviderApiKeys(this.providerApiKeys, normalized);
     this.state.settings = normalized;
+    const validMcpServerIds = new Set(normalized.mcp.servers.map((server) => server.id));
+    this.state.assistants = this.state.assistants.map((assistant) => ({
+      ...cloneAssistant(assistant),
+      enabledMcpServerIds: assistant.enabledMcpServerIds.filter((serverId) => validMcpServerIds.has(serverId))
+    }));
     this.normalizeLocalizedDefaultTitles(normalized.locale);
     void this.persistSecrets();
     void this.persist();
+  }
+
+  public getMcpServers(): McpServerProfile[] {
+    return this.state.settings.mcp.servers.map(cloneMcpServer);
   }
 
   public async resetState(): Promise<void> {
@@ -906,6 +1035,7 @@ export class ChatStateRepository {
       presencePenalty: settings.presencePenalty,
       frequencyPenalty: settings.frequencyPenalty,
       streaming: settings.streamingDefault,
+      enabledMcpServerIds: [],
       pinned: false,
       isDeleted: false,
       createdAt: timestamp,
@@ -972,6 +1102,12 @@ export class ChatStateRepository {
     }
     if (typeof patch.streaming === 'boolean') {
       assistant.streaming = patch.streaming;
+    }
+    if (Array.isArray(patch.enabledMcpServerIds)) {
+      const validIds = new Set(this.state.settings.mcp.servers.map((server) => server.id));
+      assistant.enabledMcpServerIds = patch.enabledMcpServerIds
+        .map((item) => item.trim())
+        .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index && validIds.has(item));
     }
     assistant.updatedAt = nowTs();
     void this.persist();
@@ -1534,6 +1670,7 @@ export class ChatStateRepository {
         settings: {
           ...this.state.settings,
           defaultModels: cloneDefaultModels(this.state.settings.defaultModels),
+          mcp: cloneMcpSettings(this.state.settings.mcp),
           providers: this.state.settings.providers.map((provider) => ({
             ...provider,
             apiKey: '',

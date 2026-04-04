@@ -3,11 +3,11 @@ import * as path from 'path';
 
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 
-import { ChatMessage, ChatSessionDetail, ChatSessionSummary } from './types';
+import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from './types';
 import { nowTs } from './utils';
 
 const DB_FILE_NAME = 'chatbuddy.sqlite';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const PREVIEW_MAX_LENGTH = 240;
 
 type SessionTitleSource = ChatSessionDetail['titleSource'];
@@ -51,13 +51,26 @@ function mapMessageRow(row: Record<string, unknown>): ChatMessage {
   const content = toStringValue(row.content);
   const reasoning = toStringValue(row.reasoning).trim();
   const model = toStringValue(row.model).trim();
+  const toolRoundsRaw = toStringValue(row.tool_rounds).trim();
+  let toolRounds: ChatToolRound[] | undefined;
+  if (toolRoundsRaw) {
+    try {
+      const parsed = JSON.parse(toolRoundsRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        toolRounds = parsed;
+      }
+    } catch {
+      // Ignore malformed tool_rounds data.
+    }
+  }
   return {
     id: toStringValue(row.id),
     role: toRoleValue(row.role),
     content,
     timestamp: toNumberValue(row.ts, nowTs()),
     model: model ? model : undefined,
-    reasoning: reasoning ? reasoning : undefined
+    reasoning: reasoning ? reasoning : undefined,
+    toolRounds
   };
 }
 
@@ -231,7 +244,7 @@ export class ChatStorage {
     }
 
     const target = this.queryOne(
-      `SELECT id, role, content, reasoning, model, ts, seq
+      `SELECT id, role, content, reasoning, model, ts, seq, tool_rounds
          FROM messages
         WHERE session_id = ? AND role = 'assistant'
         ORDER BY seq DESC
@@ -245,7 +258,7 @@ export class ChatStorage {
     if (target) {
       db.run(
         `UPDATE messages
-            SET id = ?, role = ?, content = ?, reasoning = ?, model = ?, ts = ?
+            SET id = ?, role = ?, content = ?, reasoning = ?, model = ?, ts = ?, tool_rounds = ?
           WHERE session_id = ? AND seq = ?`,
         [
           next.id,
@@ -254,6 +267,7 @@ export class ChatStorage {
           next.reasoning ?? null,
           next.model ?? null,
           next.timestamp,
+          next.toolRounds ? JSON.stringify(next.toolRounds) : null,
           sessionId,
           toNumberValue(target.seq)
         ]
@@ -261,9 +275,9 @@ export class ChatStorage {
     } else {
       const nextSeq = this.getNextSeq(sessionId);
       db.run(
-        `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [next.id, sessionId, next.role, next.content, next.reasoning ?? null, next.model ?? null, next.timestamp, nextSeq]
+        `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [next.id, sessionId, next.role, next.content, next.reasoning ?? null, next.model ?? null, next.timestamp, nextSeq, next.toolRounds ? JSON.stringify(next.toolRounds) : null]
       );
     }
 
@@ -498,6 +512,16 @@ export class ChatStorage {
       CREATE INDEX IF NOT EXISTS idx_sessions_assistant_updated ON sessions_meta(assistant_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_messages_session_seq ON messages(session_id, seq);
     `);
+
+    // Schema migration: add tool_rounds column
+    const currentVersion = Number(this.getKv('schemaVersion')) || 1;
+    if (currentVersion < 2) {
+      try {
+        db.run(`ALTER TABLE messages ADD COLUMN tool_rounds TEXT`);
+      } catch {
+        // Column may already exist from a previous attempt.
+      }
+    }
   }
 
   private mapSummaryRow(row: Record<string, unknown>): ChatSessionSummary {
@@ -517,7 +541,7 @@ export class ChatStorage {
   private buildDetailFromMeta(meta: Record<string, unknown>): ChatSessionDetail {
     const sessionId = toStringValue(meta.id);
     const messages = this.queryAll(
-      `SELECT id, role, content, reasoning, model, ts
+      `SELECT id, role, content, reasoning, model, ts, tool_rounds
          FROM messages
         WHERE session_id = ?
         ORDER BY seq ASC`,
@@ -567,8 +591,8 @@ export class ChatStorage {
     }
     const db = this.ensureDb();
     const stmt = db.prepare(
-      `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     try {
       for (let index = 0; index < messages.length; index += 1) {
@@ -581,7 +605,8 @@ export class ChatStorage {
           message.reasoning ?? null,
           message.model ?? null,
           message.timestamp,
-          index
+          index,
+          message.toolRounds ? JSON.stringify(message.toolRounds) : null
         ]);
       }
     } finally {
