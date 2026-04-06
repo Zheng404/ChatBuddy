@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
-import { createModelRef, dedupeModels, normalizeApiType, parseModelRef } from './modelCatalog';
+import { getCodiconStyleText } from './codicon';
+import { createModelRef, DEFAULT_TITLE_SUMMARY_PROMPT, dedupeModels, normalizeApiType, parseModelRef } from './modelCatalog';
 import { formatString, getLanguageOptions, getStrings, resolveLocale } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { McpRuntime } from './mcpRuntime';
@@ -26,27 +27,17 @@ type SettingsActionResult = {
   tone?: 'success' | 'error' | 'info';
 };
 
-type GeneralSettingsPayload = {
-  locale: ChatBuddyLocaleSetting;
-  sendShortcut: ChatSendShortcut;
-  chatTabMode: ChatTabMode;
-};
-
 type McpToolRoundsPayload = { maxToolRounds: number };
 
 type SettingsCenterMessage =
   | { type: 'ready' }
   | { type: 'switchSection'; section: SettingsCenterSection }
-  | {
-      type: 'saveGeneral';
-      payload: GeneralSettingsPayload;
-    }
-  | {
-      type: 'saveDefaultModels';
-      payload: {
-        assistant: string;
-      };
-    }
+  | { type: 'saveLocale'; payload: { locale: ChatBuddyLocaleSetting } }
+  | { type: 'saveSendShortcut'; payload: { sendShortcut: ChatSendShortcut } }
+  | { type: 'saveChatTabMode'; payload: { chatTabMode: ChatTabMode } }
+  | { type: 'saveDefaultAssistant'; payload: { assistant: string } }
+  | { type: 'saveDefaultTitleSummary'; payload: { titleSummary: string } }
+  | { type: 'saveTitleSummaryPrompt'; payload: { titleSummaryPrompt: string } }
   | {
       type: 'saveProvider';
       payload: {
@@ -84,7 +75,14 @@ type SettingsCenterMessage =
   | { type: 'saveMcpServers'; payload: McpServerProfile[] }
   | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
   | { type: 'probeMcpServers' }
-  | { type: 'testMcpServer'; payload: { server: McpServerProfile } };
+  | { type: 'testMcpServer'; payload: { server: McpServerProfile } }
+  | {
+      type: 'deleteMcpServer';
+      payload: {
+        serverId: string;
+        serverName: string;
+      };
+    };
 
 type SettingsCenterState = {
   strings: RuntimeStrings;
@@ -153,15 +151,6 @@ function normalizeSection(section: SettingsCenterSection | string | undefined): 
   return 'general';
 }
 
-function normalizeGeneralSettings(input: GeneralSettingsPayload, fallback: ChatBuddySettings): ChatBuddySettings {
-  return {
-    ...fallback,
-    locale: input.locale,
-    sendShortcut: input.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
-    chatTabMode: input.chatTabMode === 'multi' ? 'multi' : 'single'
-  };
-}
-
 function normalizeMcpServers(servers: McpServerProfile[], fallback: ChatBuddySettings): ChatBuddySettings {
   return {
     ...fallback,
@@ -179,15 +168,6 @@ function normalizeMcpToolRounds(input: McpToolRoundsPayload, fallback: ChatBuddy
     mcp: {
       ...fallback.mcp,
       maxToolRounds: Math.max(1, Math.min(20, raw))
-    }
-  };
-}
-
-function normalizeDefaultModels(assistantRef: string, fallback: ChatBuddySettings): ChatBuddySettings {
-  return {
-    ...fallback,
-    defaultModels: {
-      assistant: parseModelRef(assistantRef.trim())
     }
   };
 }
@@ -290,17 +270,65 @@ export class SettingsCenterPanelController {
       return;
     }
 
-    if (message.type === 'saveGeneral') {
-      const next = normalizeGeneralSettings(message.payload, this.repository.getSettings());
+    if (message.type === 'saveLocale') {
+      const next = { ...this.repository.getSettings(), locale: message.payload.locale };
       this.onSave(next);
-      this.postState(this.getStrings().settingsSaved, 'success');
+      this.postState(this.getStrings().localeSaved, 'success');
       return;
     }
 
-    if (message.type === 'saveDefaultModels') {
-      const next = normalizeDefaultModels(message.payload.assistant, this.repository.getSettings());
+    if (message.type === 'saveSendShortcut') {
+      const sendShortcut: ChatSendShortcut = message.payload.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter';
+      const next: ChatBuddySettings = { ...this.repository.getSettings(), sendShortcut };
       this.onSave(next);
-      this.postState(this.getStrings().defaultModelsSaved, 'success');
+      this.postState(this.getStrings().sendShortcutSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'saveChatTabMode') {
+      const chatTabMode: ChatTabMode = message.payload.chatTabMode === 'multi' ? 'multi' : 'single';
+      const next: ChatBuddySettings = { ...this.repository.getSettings(), chatTabMode };
+      this.onSave(next);
+      this.postState(this.getStrings().chatTabModeSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'saveDefaultAssistant') {
+      const current = this.repository.getSettings();
+      this.onSave({
+        ...current,
+        defaultModels: {
+          ...current.defaultModels,
+          assistant: parseModelRef(message.payload.assistant.trim())
+        }
+      });
+      this.postState(this.getStrings().defaultAssistantModelSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'saveDefaultTitleSummary') {
+      const current = this.repository.getSettings();
+      this.onSave({
+        ...current,
+        defaultModels: {
+          ...current.defaultModels,
+          titleSummary: parseModelRef(message.payload.titleSummary.trim()) || undefined
+        }
+      });
+      this.postState(this.getStrings().defaultTitleSummaryModelSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'saveTitleSummaryPrompt') {
+      const current = this.repository.getSettings();
+      this.onSave({
+        ...current,
+        defaultModels: {
+          ...current.defaultModels,
+          titleSummaryPrompt: message.payload.titleSummaryPrompt.trim() || undefined
+        }
+      });
+      this.postState(this.getStrings().defaultTitleSummaryPromptSaved, 'success');
       return;
     }
 
@@ -423,6 +451,44 @@ export class SettingsCenterPanelController {
         providers: nextProviders
       });
       this.postState(this.getStrings().providerDeleted, 'success');
+      return;
+    }
+
+    if (message.type === 'deleteMcpServer') {
+      const serverId = message.payload.serverId.trim();
+      const serverName = message.payload.serverName.trim();
+      const strings = this.getStrings();
+      if (!serverId) {
+        this.postState(strings.mcpServerIdRequired || 'Server ID is required', 'error');
+        return;
+      }
+
+      const confirmDelete = await vscode.window.showWarningMessage(
+        formatString(strings.mcpDeleteConfirm || 'Are you sure you want to delete server "{name}"?', {
+          name: serverName || serverId
+        }),
+        { modal: true },
+        strings.mcpDeleteServerAction || 'Delete'
+      );
+      if (confirmDelete !== (strings.mcpDeleteServerAction || 'Delete')) {
+        return;
+      }
+
+      const current = this.repository.getSettings();
+      const nextServers = current.mcp.servers.filter((item) => item.id !== serverId);
+      if (nextServers.length === current.mcp.servers.length) {
+        this.postState();
+        return;
+      }
+
+      this.onSave({
+        ...current,
+        mcp: {
+          ...current.mcp,
+          servers: nextServers
+        }
+      });
+      this.postState(strings.mcpServerDeleted || 'MCP server deleted', 'success');
       return;
     }
 
@@ -637,8 +703,10 @@ export class SettingsCenterPanelController {
     const csp = [
       "default-src 'none'",
       `style-src ${webview.cspSource} 'unsafe-inline'`,
+      `font-src ${webview.cspSource} data:`,
       `script-src 'nonce-${nonce}'`
     ].join('; ');
+    const codiconStyle = getCodiconStyleText();
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -646,6 +714,7 @@ export class SettingsCenterPanelController {
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>${codiconStyle}</style>
     <style>
       :root {
         --bg: var(--vscode-editor-background);
@@ -686,22 +755,7 @@ export class SettingsCenterPanelController {
         margin: 0 auto;
       }
 
-      .page-header {
-        margin-bottom: 16px;
-      }
 
-      .page-title {
-        margin: 0;
-        font-size: 24px;
-        font-weight: 700;
-      }
-
-      .page-description {
-        margin: 8px 0 0;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.6;
-      }
 
       .frame {
         border: 1px solid var(--border);
@@ -745,7 +799,9 @@ export class SettingsCenterPanelController {
         padding: 12px;
         cursor: pointer;
         display: grid;
-        gap: 6px;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        align-items: center;
       }
 
       .nav-item:hover {
@@ -756,6 +812,26 @@ export class SettingsCenterPanelController {
         background: var(--vscode-list-activeSelectionBackground);
         color: var(--vscode-list-activeSelectionForeground);
         border-color: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 75%, white 25%);
+      }
+
+      .nav-item-content {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .nav-item-icon {
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.8;
+      }
+
+      .nav-item.active .nav-item-icon {
+        opacity: 1;
       }
 
       .nav-item-title {
@@ -790,11 +866,7 @@ export class SettingsCenterPanelController {
         margin-bottom: 12px;
       }
 
-      .primary-btn,
-      .secondary-btn,
-      .ghost-btn,
-      .danger-btn,
-      .action-btn {
+      .btn-primary {
         border: 1px solid transparent;
         border-radius: 8px;
         padding: 8px 14px;
@@ -804,25 +876,40 @@ export class SettingsCenterPanelController {
         white-space: nowrap;
       }
 
-      .primary-btn:hover,
-      .secondary-btn:hover,
-      .ghost-btn:hover,
-      .danger-btn:hover,
-      .action-btn:hover {
+      .btn-primary:hover {
         background: var(--button-hover);
       }
 
-      .secondary-btn,
-      .ghost-btn {
+      .btn-secondary {
+        border: 1px solid var(--input-border);
+        border-radius: 8px;
+        padding: 8px 14px;
         background: transparent;
         color: var(--fg);
-        border-color: var(--input-border);
+        cursor: pointer;
+        white-space: nowrap;
       }
 
-      .danger-btn {
+      .btn-secondary:hover {
+        background: var(--panel-bg-strong);
+      }
+
+      .btn-danger {
+        border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+        border-radius: 8px;
+        padding: 8px 14px;
         background: transparent;
         color: var(--vscode-inputValidation-errorForeground, var(--fg));
-        border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .btn-danger:hover {
+        background: var(--panel-bg-strong);
+      }
+
+      .btn-danger.filled {
+        background: var(--vscode-inputValidation-errorBackground, rgba(190, 17, 0, 0.1));
       }
 
       .section-grid {
@@ -867,13 +954,20 @@ export class SettingsCenterPanelController {
       }
 
       input,
-      select {
+      select,
+      textarea {
         width: 100%;
         border: 1px solid var(--input-border);
         border-radius: 8px;
         padding: 9px 10px;
         background: var(--input-bg);
         color: var(--input-fg);
+      }
+
+      textarea {
+        min-height: 72px;
+        resize: vertical;
+        font: inherit;
       }
 
       .help {
@@ -884,6 +978,35 @@ export class SettingsCenterPanelController {
 
       .help.invalid {
         color: var(--vscode-inputValidation-errorForeground, #be1100);
+      }
+
+      .collapsible-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .collapsible-header:hover {
+        opacity: 0.85;
+      }
+
+      .collapsible-arrow {
+        font-size: 10px;
+        transition: transform 0.15s ease;
+      }
+
+      .collapsible-arrow.open {
+        transform: rotate(90deg);
+      }
+
+      .collapsible-body {
+        display: none;
+      }
+
+      .collapsible-body.open {
+        display: block;
       }
 
       .data-actions,
@@ -1202,24 +1325,16 @@ ${SHARED_TOAST_STYLE}
         flex-shrink: 0;
       }
 
-      .mcp-action-btn {
-        border: 1px solid var(--input-border);
-        border-radius: 6px;
+      .mcp-server-actions .btn-secondary {
         padding: 3px 8px;
-        background: transparent;
-        color: var(--fg);
-        cursor: pointer;
         font-size: 11px;
-        white-space: nowrap;
+        border-radius: 6px;
       }
 
-      .mcp-action-btn:hover {
-        background: var(--panel-bg-strong);
-      }
-
-      .mcp-action-btn.danger {
-        color: var(--vscode-inputValidation-errorForeground, var(--fg));
-        border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+      .mcp-server-actions .btn-danger {
+        padding: 3px 8px;
+        font-size: 11px;
+        border-radius: 6px;
       }
 
       .mcp-status-dot {
@@ -1355,31 +1470,38 @@ ${SHARED_TOAST_STYLE}
   </head>
   <body>
     <div class="shell">
-      <div class="page-header">
-        <h1 class="page-title" id="pageTitle"></h1>
-        <p class="page-description" id="pageDescription"></p>
-      </div>
-
       <div class="frame">
         <aside class="settings-nav">
           <div class="nav-heading">
             <h2 class="nav-heading-title" id="navHeading"></h2>
           </div>
           <button class="nav-item" id="navModelConfig" type="button" data-section="modelConfig">
-            <span class="nav-item-title" id="navModelConfigTitle"></span>
-            <span class="nav-item-desc" id="navModelConfigDescription"></span>
+            <span class="nav-item-icon"><span class="codicon codicon-hubot"></span></span>
+            <span class="nav-item-content">
+              <span class="nav-item-title" id="navModelConfigTitle"></span>
+              <span class="nav-item-desc" id="navModelConfigDescription"></span>
+            </span>
           </button>
           <button class="nav-item" id="navDefaultModels" type="button" data-section="defaultModels">
-            <span class="nav-item-title" id="navDefaultModelsTitle"></span>
-            <span class="nav-item-desc" id="navDefaultModelsDescription"></span>
-          </button>
-          <button class="nav-item" id="navGeneral" type="button" data-section="general">
-            <span class="nav-item-title" id="navGeneralTitle"></span>
-            <span class="nav-item-desc" id="navGeneralDescription"></span>
+            <span class="nav-item-icon"><span class="codicon codicon-symbol-constant"></span></span>
+            <span class="nav-item-content">
+              <span class="nav-item-title" id="navDefaultModelsTitle"></span>
+              <span class="nav-item-desc" id="navDefaultModelsDescription"></span>
+            </span>
           </button>
           <button class="nav-item" id="navMcp" type="button" data-section="mcp">
-            <span class="nav-item-title" id="navMcpTitle"></span>
-            <span class="nav-item-desc" id="navMcpDescription"></span>
+            <span class="nav-item-icon"><span class="codicon codicon-plug"></span></span>
+            <span class="nav-item-content">
+              <span class="nav-item-title" id="navMcpTitle"></span>
+              <span class="nav-item-desc" id="navMcpDescription"></span>
+            </span>
+          </button>
+          <button class="nav-item" id="navGeneral" type="button" data-section="general">
+            <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
+            <span class="nav-item-content">
+              <span class="nav-item-title" id="navGeneralTitle"></span>
+              <span class="nav-item-desc" id="navGeneralDescription"></span>
+            </span>
           </button>
         </aside>
 
@@ -1388,7 +1510,7 @@ ${SHARED_TOAST_STYLE}
             <div class="provider-workspace">
               <aside class="provider-nav">
                 <div class="toolbar">
-                  <button class="action-btn" id="addProviderBtn" type="button"></button>
+                  <button class="btn-primary" id="addProviderBtn" type="button"></button>
                 </div>
                 <input id="providerSearch" class="provider-search" type="text" />
                 <div class="provider-list" id="providerList"></div>
@@ -1399,8 +1521,8 @@ ${SHARED_TOAST_STYLE}
                   <div class="panel-header">
                     <h2 class="panel-title" id="providerPanelTitle"></h2>
                     <div class="panel-actions">
-                      <button class="action-btn" id="saveProviderBtn" type="button"></button>
-                      <button class="danger-btn" id="deleteProviderBtn" type="button"></button>
+                      <button class="btn-primary" id="saveProviderBtn" type="button"></button>
+                      <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
                     </div>
                   </div>
                   <div class="field-grid">
@@ -1431,8 +1553,8 @@ ${SHARED_TOAST_STYLE}
                   <div class="panel-header">
                     <h2 class="panel-title" id="modelsPanelTitle"></h2>
                     <div class="panel-actions">
-                      <button class="ghost-btn" id="testConnectionBtn" type="button"></button>
-                      <button class="ghost-btn" id="fetchModelsBtn" type="button"></button>
+                      <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
+                      <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
                     </div>
                   </div>
                   <div class="help" id="modelsHelp"></div>
@@ -1450,26 +1572,33 @@ ${SHARED_TOAST_STYLE}
                 <div class="help" id="defaultAssistantModelHelp"></div>
               </div>
             </section>
+            <section class="section-card" style="margin-top: 12px;">
+              <div class="field">
+                <label for="defaultTitleSummaryModel" id="defaultTitleSummaryModelLabel"></label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <select id="defaultTitleSummaryModel" style="flex:1;"></select>
+                  <button class="btn-secondary" id="editTitleSummaryPromptBtn" type="button"></button>
+                </div>
+                <div class="help" id="defaultTitleSummaryModelHelp"></div>
+              </div>
+            </section>
           </section>
 
           <section class="settings-pane" id="paneMcp" data-section="mcp">
             <div class="section-grid">
               <section class="section-card">
                 <h2 class="section-title" id="mcpMaxToolRoundsTitle"></h2>
-                <div class="field">
-                  <label for="mcpMaxToolRounds" id="mcpMaxToolRoundsLabel"></label>
+                <div style="display:flex;align-items:center;gap:8px;">
                   <input id="mcpMaxToolRounds" type="number" min="1" max="20" />
+                  <button class="btn-primary" id="mcpSaveToolRoundsBtn" type="button"></button>
                 </div>
                 <div class="help" id="mcpMaxToolRoundsHelp"></div>
-                <div style="margin-top: 8px;">
-                  <button class="primary-btn" id="mcpSaveToolRoundsBtn" type="button"></button>
-                </div>
               </section>
 
               <section class="section-card">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
                   <h2 class="section-title" id="mcpServersTitle" style="margin:0;flex:1"></h2>
-                  <button class="primary-btn" id="mcpAddServerBtn" type="button"></button>
+                  <button class="btn-primary" id="mcpAddServerBtn" type="button"></button>
                 </div>
                 <div id="mcpServerList"></div>
               </section>
@@ -1481,7 +1610,6 @@ ${SHARED_TOAST_STYLE}
               <section class="section-card">
                 <h2 class="section-title" id="languageSectionTitle"></h2>
                 <div class="field">
-                  <label for="locale" id="languageLabel"></label>
                   <select id="locale"></select>
                 </div>
                 <div class="help" id="languageHelp"></div>
@@ -1490,7 +1618,6 @@ ${SHARED_TOAST_STYLE}
               <section class="section-card">
                 <h2 class="section-title" id="sendShortcutSectionTitle"></h2>
                 <div class="field">
-                  <label for="sendShortcut" id="sendShortcutLabel"></label>
                   <select id="sendShortcut"></select>
                 </div>
                 <div class="help" id="sendShortcutHelp"></div>
@@ -1499,7 +1626,6 @@ ${SHARED_TOAST_STYLE}
               <section class="section-card">
                 <h2 class="section-title" id="chatTabModeSectionTitle"></h2>
                 <div class="field">
-                  <label for="chatTabMode" id="chatTabModeLabel"></label>
                   <select id="chatTabMode"></select>
                 </div>
                 <div class="help" id="chatTabModeHelp"></div>
@@ -1509,8 +1635,8 @@ ${SHARED_TOAST_STYLE}
                 <h2 class="section-title" id="dataTransferSectionTitle"></h2>
                 <div class="help" id="dataTransferDescription"></div>
                 <div class="data-actions" style="margin-top: 12px;">
-                  <button class="secondary-btn" id="exportBtn" type="button"></button>
-                  <button class="secondary-btn" id="importBtn" type="button"></button>
+                  <button class="btn-secondary" id="exportBtn" type="button"></button>
+                  <button class="btn-secondary" id="importBtn" type="button"></button>
                 </div>
               </section>
 
@@ -1518,7 +1644,7 @@ ${SHARED_TOAST_STYLE}
                 <h2 class="section-title" id="dangerSectionTitle"></h2>
                 <div class="danger-copy" id="resetDataDescription"></div>
                 <div class="danger-actions" style="margin-top: 12px;">
-                  <button class="danger-btn" id="resetBtn" type="button"></button>
+                  <button class="btn-danger" id="resetBtn" type="button"></button>
                 </div>
               </section>
             </div>
@@ -1536,8 +1662,8 @@ ${SHARED_TOAST_STYLE}
           <select id="testModelModalSelect"></select>
         </div>
         <div class="panel-actions">
-          <button class="ghost-btn" id="cancelTestModelBtn" type="button"></button>
-          <button class="action-btn" id="confirmTestModelBtn" type="button"></button>
+          <button class="btn-secondary" id="cancelTestModelBtn" type="button"></button>
+          <button class="btn-primary" id="confirmTestModelBtn" type="button"></button>
         </div>
       </div>
     </div>
@@ -1547,8 +1673,8 @@ ${SHARED_TOAST_STYLE}
         <h3 class="modal-title" id="discardChangesModalTitle"></h3>
         <p class="modal-copy" id="discardChangesModalDescription"></p>
         <div class="panel-actions">
-          <button class="ghost-btn" id="discardChangesStayBtn" type="button"></button>
-          <button class="danger-btn" id="discardChangesConfirmBtn" type="button"></button>
+          <button class="btn-secondary" id="discardChangesStayBtn" type="button"></button>
+          <button class="btn-danger" id="discardChangesConfirmBtn" type="button"></button>
         </div>
       </div>
     </div>
@@ -1573,19 +1699,23 @@ ${SHARED_TOAST_STYLE}
           <div class="field full" id="mcpModalFields"></div>
         </div>
         <div class="panel-actions">
-          <button class="ghost-btn" id="mcpModalCancelBtn" type="button"></button>
-          <button class="action-btn" id="mcpModalSaveBtn" type="button"></button>
+          <button class="btn-secondary" id="mcpModalCancelBtn" type="button"></button>
+          <button class="btn-primary" id="mcpModalSaveBtn" type="button"></button>
         </div>
       </div>
     </div>
 
-    <div class="modal-backdrop" id="mcpDeleteConfirmModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="mcpDeleteConfirmTitle">
-        <h3 class="modal-title" id="mcpDeleteConfirmTitle"></h3>
-        <p class="modal-copy" id="mcpDeleteConfirmDescription"></p>
+    <div class="modal-backdrop" id="titleSummaryPromptModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true">
+        <h3 class="modal-title" id="titleSummaryPromptModalTitle"></h3>
+        <p class="modal-copy" id="titleSummaryPromptModalDescription"></p>
+        <div class="field">
+          <textarea id="titleSummaryPromptModalTextarea" rows="8"></textarea>
+        </div>
         <div class="panel-actions">
-          <button class="ghost-btn" id="mcpDeleteCancelBtn" type="button"></button>
-          <button class="danger-btn" id="mcpDeleteConfirmBtn" type="button"></button>
+          <button class="btn-secondary" id="cancelTitleSummaryPromptBtn" type="button"></button>
+          <button class="btn-secondary" id="resetTitleSummaryPromptBtn" type="button"></button>
+          <button class="btn-primary" id="saveTitleSummaryPromptBtn" type="button"></button>
         </div>
       </div>
     </div>
@@ -1595,8 +1725,6 @@ ${SHARED_TOAST_STYLE}
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
       const dom = {
-        pageTitle: document.getElementById('pageTitle'),
-        pageDescription: document.getElementById('pageDescription'),
         navHeading: document.getElementById('navHeading'),
         navModelConfig: document.getElementById('navModelConfig'),
         navModelConfigTitle: document.getElementById('navModelConfigTitle'),
@@ -1611,13 +1739,13 @@ ${SHARED_TOAST_STYLE}
         paneDefaultModels: document.getElementById('paneDefaultModels'),
         paneGeneral: document.getElementById('paneGeneral'),
         languageSectionTitle: document.getElementById('languageSectionTitle'),
-        languageLabel: document.getElementById('languageLabel'),
+
         languageHelp: document.getElementById('languageHelp'),
         sendShortcutSectionTitle: document.getElementById('sendShortcutSectionTitle'),
-        sendShortcutLabel: document.getElementById('sendShortcutLabel'),
+
         sendShortcutHelp: document.getElementById('sendShortcutHelp'),
         chatTabModeSectionTitle: document.getElementById('chatTabModeSectionTitle'),
-        chatTabModeLabel: document.getElementById('chatTabModeLabel'),
+
         chatTabModeHelp: document.getElementById('chatTabModeHelp'),
         dataTransferSectionTitle: document.getElementById('dataTransferSectionTitle'),
         dataTransferDescription: document.getElementById('dataTransferDescription'),
@@ -1632,6 +1760,17 @@ ${SHARED_TOAST_STYLE}
         defaultAssistantModelLabel: document.getElementById('defaultAssistantModelLabel'),
         defaultAssistantModel: document.getElementById('defaultAssistantModel'),
         defaultAssistantModelHelp: document.getElementById('defaultAssistantModelHelp'),
+        defaultTitleSummaryModelLabel: document.getElementById('defaultTitleSummaryModelLabel'),
+        defaultTitleSummaryModel: document.getElementById('defaultTitleSummaryModel'),
+        defaultTitleSummaryModelHelp: document.getElementById('defaultTitleSummaryModelHelp'),
+        editTitleSummaryPromptBtn: document.getElementById('editTitleSummaryPromptBtn'),
+        titleSummaryPromptModal: document.getElementById('titleSummaryPromptModal'),
+        titleSummaryPromptModalTitle: document.getElementById('titleSummaryPromptModalTitle'),
+        titleSummaryPromptModalDescription: document.getElementById('titleSummaryPromptModalDescription'),
+        titleSummaryPromptModalTextarea: document.getElementById('titleSummaryPromptModalTextarea'),
+        cancelTitleSummaryPromptBtn: document.getElementById('cancelTitleSummaryPromptBtn'),
+        resetTitleSummaryPromptBtn: document.getElementById('resetTitleSummaryPromptBtn'),
+        saveTitleSummaryPromptBtn: document.getElementById('saveTitleSummaryPromptBtn'),
         addProviderBtn: document.getElementById('addProviderBtn'),
         providerSearch: document.getElementById('providerSearch'),
         providerList: document.getElementById('providerList'),
@@ -1669,7 +1808,7 @@ ${SHARED_TOAST_STYLE}
         navMcpDescription: document.getElementById('navMcpDescription'),
         paneMcp: document.getElementById('paneMcp'),
         mcpMaxToolRoundsTitle: document.getElementById('mcpMaxToolRoundsTitle'),
-        mcpMaxToolRoundsLabel: document.getElementById('mcpMaxToolRoundsLabel'),
+
         mcpMaxToolRoundsHelp: document.getElementById('mcpMaxToolRoundsHelp'),
         mcpMaxToolRounds: document.getElementById('mcpMaxToolRounds'),
         mcpSaveToolRoundsBtn: document.getElementById('mcpSaveToolRoundsBtn'),
@@ -1685,11 +1824,6 @@ ${SHARED_TOAST_STYLE}
         mcpModalTransport: document.getElementById('mcpModalTransport'),
         mcpModalCancelBtn: document.getElementById('mcpModalCancelBtn'),
         mcpModalSaveBtn: document.getElementById('mcpModalSaveBtn'),
-        mcpDeleteConfirmModal: document.getElementById('mcpDeleteConfirmModal'),
-        mcpDeleteConfirmTitle: document.getElementById('mcpDeleteConfirmTitle'),
-        mcpDeleteConfirmDescription: document.getElementById('mcpDeleteConfirmDescription'),
-        mcpDeleteCancelBtn: document.getElementById('mcpDeleteCancelBtn'),
-        mcpDeleteConfirmBtn: document.getElementById('mcpDeleteConfirmBtn'),
         toastStack: document.getElementById('toastStack')
       };
 
@@ -1728,7 +1862,6 @@ ${SHARED_TOAST_STYLE}
       let mcpModalDraft = null;
       let mcpProbeResults = [];
       let expandedToolServerIdx = -1;
-      let mcpDeleteResolver = null;
 
       function showToast(message, tone = 'info') {
         const text = String(message || '').trim();
@@ -1760,38 +1893,6 @@ ${SHARED_TOAST_STYLE}
         return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' ? section : 'general';
       }
 
-      function getSectionMeta(section) {
-        const strings = runtimeState.strings || {};
-        if (section === 'modelConfig') {
-          return {
-            title: strings.modelConfigTitle || '',
-            description: strings.modelConfigDescription || ''
-          };
-        }
-        if (section === 'defaultModels') {
-          return {
-            title: strings.defaultModelsTitle || '',
-            description: strings.defaultModelsDescription || ''
-          };
-        }
-        if (section === 'mcp') {
-          return {
-            title: strings.mcpTitle || 'MCP',
-            description: strings.mcpDescription || ''
-          };
-        }
-        return {
-          title: strings.settingsTitle || '',
-          description: strings.settingsDescription || ''
-        };
-      }
-
-      function renderHeader() {
-        const meta = getSectionMeta(activeSection);
-        dom.pageTitle.textContent = meta.title;
-        dom.pageDescription.textContent = meta.description;
-      }
-
       function renderNav() {
         const strings = runtimeState.strings || {};
         dom.navHeading.textContent = strings.settingsViewTitle || '';
@@ -1804,7 +1905,7 @@ ${SHARED_TOAST_STYLE}
         dom.navMcpTitle.textContent = strings.mcpTitle || 'MCP';
         dom.navMcpDescription.textContent = strings.mcpDescription || '';
 
-        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navGeneral, dom.navMcp];
+        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navGeneral];
         for (const item of items) {
           const isActive = item.getAttribute('data-section') === activeSection;
           item.classList.toggle('active', isActive);
@@ -1822,7 +1923,6 @@ ${SHARED_TOAST_STYLE}
 
       function activateSection(section, notifyHost) {
         activeSection = normalizeSectionValue(section);
-        renderHeader();
         renderNav();
         renderSectionVisibility();
         if (notifyHost) {
@@ -1836,13 +1936,13 @@ ${SHARED_TOAST_STYLE}
       function renderGeneralText() {
         const strings = runtimeState.strings || {};
         dom.languageSectionTitle.textContent = strings.languageSection || '';
-        dom.languageLabel.textContent = strings.languageLabel || '';
+
         dom.languageHelp.textContent = strings.languageHelp || '';
         dom.sendShortcutSectionTitle.textContent = strings.sendShortcutSection || '';
-        dom.sendShortcutLabel.textContent = strings.sendShortcutLabel || '';
+
         dom.sendShortcutHelp.textContent = strings.sendShortcutHelp || '';
         dom.chatTabModeSectionTitle.textContent = strings.chatTabModeSection || '';
-        dom.chatTabModeLabel.textContent = strings.chatTabModeLabel || '';
+
         dom.chatTabModeHelp.textContent = strings.chatTabModeHelp || '';
         dom.dataTransferSectionTitle.textContent = strings.dataTransferSectionTitle || '';
         dom.dataTransferDescription.textContent = strings.dataTransferDescription || '';
@@ -1916,6 +2016,36 @@ ${SHARED_TOAST_STYLE}
         dom.defaultAssistantModel.value = currentRef || '';
         dom.defaultAssistantModelHelp.textContent = invalidRef ? strings.invalidDefaultModelHint || '' : '';
         dom.defaultAssistantModelHelp.className = invalidRef ? 'help invalid' : 'help';
+
+        // Title summary section
+        dom.defaultTitleSummaryModelLabel.textContent = strings.defaultTitleSummaryModelLabel || '';
+
+        const titleSummaryRef =
+          defaults.titleSummary && defaults.titleSummary.providerId && defaults.titleSummary.modelId
+            ? defaults.titleSummary.providerId + ':' + defaults.titleSummary.modelId
+            : '';
+        const seenTs = new Set();
+        dom.defaultTitleSummaryModel.innerHTML = options
+          .filter((option) => {
+            if (seenTs.has(option.ref)) {
+              return false;
+            }
+            seenTs.add(option.ref);
+            return true;
+          })
+          .map((option) => '<option value="' + escapeHtml(option.ref) + '">' + escapeHtml(option.label) + '</option>')
+          .join('');
+        dom.defaultTitleSummaryModel.value = titleSummaryRef || '';
+        dom.defaultTitleSummaryModelHelp.textContent = '';
+        dom.defaultTitleSummaryModelHelp.className = 'help';
+
+        // Prompt modal button and labels
+        dom.editTitleSummaryPromptBtn.textContent = strings.editTitleSummaryPromptAction || '';
+        dom.titleSummaryPromptModalTitle.textContent = strings.titleSummaryPromptModalTitle || '';
+        dom.titleSummaryPromptModalDescription.textContent = strings.titleSummaryPromptModalDescription || '';
+        dom.cancelTitleSummaryPromptBtn.textContent = strings.cancelAction || 'Cancel';
+        dom.resetTitleSummaryPromptBtn.textContent = strings.resetToDefaultAction || 'Reset to Default';
+        dom.saveTitleSummaryPromptBtn.textContent = strings.saveAction || 'Save';
       }
 
       function cloneMcpServers(items) {
@@ -1949,7 +2079,7 @@ ${SHARED_TOAST_STYLE}
       function renderMcp() {
         var strings = runtimeState.strings || {};
         dom.mcpMaxToolRoundsTitle.textContent = strings.mcpMaxToolRoundsTitle || '';
-        dom.mcpMaxToolRoundsLabel.textContent = strings.mcpMaxToolRoundsLabel || '';
+
         dom.mcpMaxToolRoundsHelp.textContent = strings.mcpMaxToolRoundsHelp || '';
         dom.mcpSaveToolRoundsBtn.textContent = strings.saveAction || 'Save';
         dom.mcpServersTitle.textContent = strings.mcpServersTitle || '';
@@ -1994,9 +2124,9 @@ ${SHARED_TOAST_STYLE}
                   '<span>' + escapeHtml(enabledLabel) + '</span>' +
                 '</label>' +
                 '<div class="mcp-server-actions">' +
-                  '<button class="mcp-action-btn" data-mcp-action="test" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpTestServerAction || 'Test') + '</button>' +
-                  '<button class="mcp-action-btn" data-mcp-action="edit" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpEditServerAction || 'Edit') + '</button>' +
-                  '<button class="mcp-action-btn" data-mcp-action="delete" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpDeleteServerAction || 'Delete') + '</button>' +
+                  '<button class="btn-secondary" data-mcp-action="test" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpTestServerAction || 'Test') + '</button>' +
+                  '<button class="btn-secondary" data-mcp-action="edit" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpEditServerAction || 'Edit') + '</button>' +
+                  '<button class="btn-danger" data-mcp-action="delete" data-idx="' + idx + '" type="button">' + escapeHtml(strings.mcpDeleteServerAction || 'Delete') + '</button>' +
                 '</div>' +
               '</div>' +
               toolsHtml +
@@ -2262,31 +2392,6 @@ ${SHARED_TOAST_STYLE}
             type: 'testMcpServer',
             payload: { server: savedServer }
           });
-        }
-      }
-
-      function openMcpDeleteConfirmModal(serverName) {
-        if (mcpDeleteResolver) { return Promise.resolve(false); }
-        var strings = runtimeState.strings || {};
-        dom.mcpDeleteConfirmTitle.textContent = (strings.mcpDeleteServerAction || 'Delete') + ': ' + serverName;
-        dom.mcpDeleteConfirmDescription.textContent = strings.mcpDeleteConfirm || 'Are you sure you want to delete this server?';
-        dom.mcpDeleteCancelBtn.textContent = strings.cancelAction || 'Cancel';
-        dom.mcpDeleteConfirmBtn.textContent = strings.confirmAction || 'Confirm';
-        dom.mcpDeleteConfirmModal.classList.add('visible');
-        dom.mcpDeleteConfirmModal.setAttribute('aria-hidden', 'false');
-        dom.mcpDeleteConfirmBtn.focus();
-        return new Promise(function(resolve) {
-          mcpDeleteResolver = resolve;
-        });
-      }
-
-      function closeMcpDeleteConfirmModal(confirmed) {
-        dom.mcpDeleteConfirmModal.classList.remove('visible');
-        dom.mcpDeleteConfirmModal.setAttribute('aria-hidden', 'true');
-        if (mcpDeleteResolver) {
-          var resolve = mcpDeleteResolver;
-          mcpDeleteResolver = null;
-          resolve(!!confirmed);
         }
       }
 
@@ -2842,7 +2947,6 @@ ${SHARED_TOAST_STYLE}
       }
 
       function renderAll() {
-        renderHeader();
         renderNav();
         renderSectionVisibility();
         renderGeneralText();
@@ -2914,19 +3018,15 @@ ${SHARED_TOAST_STYLE}
         activateSection('mcp', true);
       });
 
-      function autoSaveGeneral() {
-        vscode.postMessage({
-          type: 'saveGeneral',
-          payload: {
-            locale: dom.locale.value,
-            sendShortcut: dom.sendShortcut.value,
-            chatTabMode: dom.chatTabMode.value === 'multi' ? 'multi' : 'single'
-          }
-        });
-      }
-      dom.locale.addEventListener('change', autoSaveGeneral);
-      dom.sendShortcut.addEventListener('change', autoSaveGeneral);
-      dom.chatTabMode.addEventListener('change', autoSaveGeneral);
+      dom.locale.addEventListener('change', () => {
+        vscode.postMessage({ type: 'saveLocale', payload: { locale: dom.locale.value } });
+      });
+      dom.sendShortcut.addEventListener('change', () => {
+        vscode.postMessage({ type: 'saveSendShortcut', payload: { sendShortcut: dom.sendShortcut.value } });
+      });
+      dom.chatTabMode.addEventListener('change', () => {
+        vscode.postMessage({ type: 'saveChatTabMode', payload: { chatTabMode: dom.chatTabMode.value === 'multi' ? 'multi' : 'single' } });
+      });
 
       dom.exportBtn.addEventListener('click', () => {
         vscode.postMessage({ type: 'exportData' });
@@ -2982,14 +3082,13 @@ ${SHARED_TOAST_STYLE}
         }
         if (action === 'delete') {
           var server = mcpServers[idx];
-          openMcpDeleteConfirmModal(server ? server.name : '').then(function(confirmed) {
-            if (!confirmed) { return; }
-            mcpServers.splice(idx, 1);
-            if (expandedToolServerIdx >= mcpServers.length) { expandedToolServerIdx = -1; }
-            if (expandedToolServerIdx === idx) { expandedToolServerIdx = -1; }
-            else if (expandedToolServerIdx > idx) { expandedToolServerIdx -= 1; }
-            renderMcpServerList();
-            autoSaveMcpServers();
+          if (!server) { return; }
+          vscode.postMessage({
+            type: 'deleteMcpServer',
+            payload: {
+              serverId: server.id,
+              serverName: server.name
+            }
           });
           return;
         }
@@ -3028,27 +3127,50 @@ ${SHARED_TOAST_STYLE}
         }
       });
 
-      dom.mcpDeleteCancelBtn.addEventListener('click', () => {
-        closeMcpDeleteConfirmModal(false);
-      });
-
-      dom.mcpDeleteConfirmBtn.addEventListener('click', () => {
-        closeMcpDeleteConfirmModal(true);
-      });
-
-      dom.mcpDeleteConfirmModal.addEventListener('click', (event) => {
-        if (event.target === dom.mcpDeleteConfirmModal) {
-          closeMcpDeleteConfirmModal(false);
-        }
-      });
-
       dom.defaultAssistantModel.addEventListener('change', () => {
-        vscode.postMessage({
-          type: 'saveDefaultModels',
-          payload: {
-            assistant: dom.defaultAssistantModel.value
-          }
-        });
+        vscode.postMessage({ type: 'saveDefaultAssistant', payload: { assistant: dom.defaultAssistantModel.value } });
+      });
+
+      dom.defaultTitleSummaryModel.addEventListener('change', () => {
+        vscode.postMessage({ type: 'saveDefaultTitleSummary', payload: { titleSummary: dom.defaultTitleSummaryModel.value } });
+      });
+
+      // Title summary prompt modal
+      function openTitleSummaryPromptModal() {
+        const defaults = (runtimeState.settings && runtimeState.settings.defaultModels) || {};
+        dom.titleSummaryPromptModalTextarea.value = defaults.titleSummaryPrompt || ${JSON.stringify(DEFAULT_TITLE_SUMMARY_PROMPT)};
+        dom.titleSummaryPromptModal.classList.add('visible');
+        dom.titleSummaryPromptModal.setAttribute('aria-hidden', 'false');
+        dom.titleSummaryPromptModalTextarea.focus();
+      }
+
+      function closeTitleSummaryPromptModal() {
+        dom.titleSummaryPromptModal.classList.remove('visible');
+        dom.titleSummaryPromptModal.setAttribute('aria-hidden', 'true');
+      }
+
+      dom.editTitleSummaryPromptBtn.addEventListener('click', () => {
+        openTitleSummaryPromptModal();
+      });
+
+      dom.cancelTitleSummaryPromptBtn.addEventListener('click', () => {
+        closeTitleSummaryPromptModal();
+      });
+
+      dom.resetTitleSummaryPromptBtn.addEventListener('click', () => {
+        dom.titleSummaryPromptModalTextarea.value = ${JSON.stringify(DEFAULT_TITLE_SUMMARY_PROMPT)};
+      });
+
+      dom.saveTitleSummaryPromptBtn.addEventListener('click', () => {
+        const value = dom.titleSummaryPromptModalTextarea.value;
+        closeTitleSummaryPromptModal();
+        vscode.postMessage({ type: 'saveTitleSummaryPrompt', payload: { titleSummaryPrompt: value } });
+      });
+
+      dom.titleSummaryPromptModal.addEventListener('click', (event) => {
+        if (event.target === dom.titleSummaryPromptModal) {
+          closeTitleSummaryPromptModal();
+        }
       });
 
       dom.providerSearch.addEventListener('input', () => {
@@ -3253,6 +3375,10 @@ ${SHARED_TOAST_STYLE}
       });
 
       window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && dom.titleSummaryPromptModal.classList.contains('visible')) {
+          closeTitleSummaryPromptModal();
+          return;
+        }
         if (event.key === 'Escape' && dom.testModelModal.classList.contains('visible')) {
           closeTestModelModal();
           return;

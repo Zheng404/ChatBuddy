@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { getCodiconRootUri } from './codicon';
 import { buildRemotePassthroughTools, McpRuntime } from './mcpRuntime';
-import { parseModelRef } from './modelCatalog';
+import { parseModelRef, DEFAULT_TITLE_SUMMARY_PROMPT } from './modelCatalog';
 import { formatString, getAssistantLocalization, getDefaultSessionTitle, getStrings, resolveLocale } from './i18n';
 import {
   OpenAICompatibleClient,
@@ -1419,6 +1419,57 @@ export class ChatController {
       this.abortController = undefined;
       this.abortReason = undefined;
       this.postState(undefined, context);
+      // Trigger background title generation after response completes
+      const currentSession = this.repository.getSessionById(selectedSession.id);
+      if (currentSession && currentSession.titleSource === 'default') {
+        this.triggerTitleGeneration(assistant.id, currentSession.id).catch(() => {});
+      }
+    }
+  }
+
+  private async triggerTitleGeneration(assistantId: string, sessionId: string): Promise<void> {
+    const settings = this.repository.getSettings();
+    const titleBinding = settings.defaultModels.titleSummary;
+    if (!titleBinding) {
+      return;
+    }
+    const session = this.repository.getSessionById(sessionId);
+    if (!session || session.assistantId !== assistantId || session.titleSource !== 'default') {
+      return;
+    }
+
+    const { config, meta } = resolveModelBindingConfig(settings, titleBinding, {
+      maxTokens: 50,
+      temperature: 0.5,
+      contextCount: 4,
+      timeoutMs: 30000
+    });
+    if (!meta.providerExists || !meta.providerEnabled || !meta.modelExists) {
+      return;
+    }
+
+    const locale = this.getLocale();
+    const strings = getStrings(locale);
+    const prompt = settings.defaultModels.titleSummaryPrompt?.trim() || DEFAULT_TITLE_SUMMARY_PROMPT;
+
+    try {
+      const contextMessages = session.messages
+        .slice(-6)
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+      const result = await this.providerClient.chat(
+        [{ role: 'system', content: prompt }, ...contextMessages],
+        config,
+        locale,
+        AbortSignal.timeout(15000)
+      );
+
+      const title = result.text?.trim();
+      if (title) {
+        this.repository.generateSessionTitle(assistantId, sessionId, title);
+      }
+    } catch {
+      // Silently ignore title generation failures
     }
   }
 

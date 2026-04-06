@@ -419,10 +419,9 @@ export class ModelConfigPanelController {
         line-height: 1.5;
       }
 
-      .save-btn,
-      .action-btn,
-      .ghost-btn,
-      .danger-btn {
+      .btn-primary,
+      .btn-secondary,
+      .btn-danger {
         border: 1px solid transparent;
         border-radius: 8px;
         padding: 8px 14px;
@@ -432,20 +431,19 @@ export class ModelConfigPanelController {
         white-space: nowrap;
       }
 
-      .save-btn:hover,
-      .action-btn:hover,
-      .ghost-btn:hover,
-      .danger-btn:hover {
+      .btn-primary:hover,
+      .btn-secondary:hover,
+      .btn-danger:hover {
         background: var(--button-hover);
       }
 
-      .ghost-btn {
+      .btn-secondary {
         background: transparent;
         color: var(--fg);
         border-color: var(--input-border);
       }
 
-      .danger-btn {
+      .btn-danger {
         background: transparent;
         color: var(--vscode-inputValidation-errorForeground, var(--fg));
         border-color: var(--vscode-inputValidation-errorBorder, #be1100);
@@ -787,7 +785,7 @@ ${SHARED_TOAST_STYLE}
       <div class="workspace">
         <aside class="provider-nav">
           <div class="toolbar">
-            <button class="action-btn" id="addProviderBtn" type="button"></button>
+            <button class="btn-primary" id="addProviderBtn" type="button"></button>
           </div>
           <input id="providerSearch" class="provider-search" type="text" />
           <div class="provider-list" id="providerList"></div>
@@ -798,8 +796,8 @@ ${SHARED_TOAST_STYLE}
             <div class="panel-header">
               <h2 class="panel-title" id="providerPanelTitle"></h2>
               <div class="panel-actions">
-                <button class="action-btn" id="saveProviderBtn" type="button"></button>
-                <button class="danger-btn" id="deleteProviderBtn" type="button"></button>
+                <button class="btn-primary" id="saveProviderBtn" type="button"></button>
+                <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
               </div>
             </div>
             <div class="field-grid">
@@ -830,8 +828,8 @@ ${SHARED_TOAST_STYLE}
             <div class="panel-header">
               <h2 class="panel-title" id="modelsPanelTitle"></h2>
               <div class="panel-actions">
-                <button class="ghost-btn" id="testConnectionBtn" type="button"></button>
-                <button class="ghost-btn" id="fetchModelsBtn" type="button"></button>
+                <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
+                <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
               </div>
             </div>
             <div class="help" id="modelsHelp"></div>
@@ -850,8 +848,8 @@ ${SHARED_TOAST_STYLE}
           <select id="testModelModalSelect"></select>
         </div>
         <div class="panel-actions">
-          <button class="ghost-btn" id="cancelTestModelBtn" type="button"></button>
-          <button class="action-btn" id="confirmTestModelBtn" type="button"></button>
+          <button class="btn-secondary" id="cancelTestModelBtn" type="button"></button>
+          <button class="btn-primary" id="confirmTestModelBtn" type="button"></button>
         </div>
       </div>
     </div>
@@ -861,8 +859,8 @@ ${SHARED_TOAST_STYLE}
         <h3 class="modal-title" id="discardChangesModalTitle"></h3>
         <p class="modal-copy" id="discardChangesModalDescription"></p>
         <div class="panel-actions">
-          <button class="ghost-btn" id="discardChangesStayBtn" type="button"></button>
-          <button class="danger-btn" id="discardChangesConfirmBtn" type="button"></button>
+          <button class="btn-secondary" id="discardChangesStayBtn" type="button"></button>
+          <button class="btn-danger" id="discardChangesConfirmBtn" type="button"></button>
         </div>
       </div>
     </div>

@@ -249,7 +249,7 @@ export class SettingsPanelController {
         line-height: 1.6;
       }
 
-      .save-btn {
+      .btn-primary {
         border: 1px solid transparent;
         border-radius: 8px;
         padding: 9px 14px;
@@ -259,7 +259,7 @@ export class SettingsPanelController {
         white-space: nowrap;
       }
 
-      .save-btn:hover {
+      .btn-primary:hover {
         background: var(--button-hover);
       }
 
@@ -322,30 +322,30 @@ export class SettingsPanelController {
         line-height: 1.6;
       }
 
-      .secondary-btn,
-      .danger-btn {
+      .btn-secondary,
+      .btn-danger {
         border-radius: 8px;
         padding: 8px 12px;
         cursor: pointer;
       }
 
-      .secondary-btn {
+      .btn-secondary {
         border: 1px solid var(--input-border);
         background: transparent;
         color: var(--fg);
       }
 
-      .secondary-btn:hover {
+      .btn-secondary:hover {
         background: var(--button-hover);
       }
 
-      .danger-btn {
+      .btn-danger {
         border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
         background: transparent;
         color: var(--vscode-inputValidation-errorForeground, var(--fg));
       }
 
-      .danger-btn:hover {
+      .btn-danger:hover {
         background: var(--vscode-inputValidation-errorBackground, var(--button-hover));
       }
 
@@ -359,14 +359,13 @@ ${SHARED_TOAST_STYLE}
           <h1 class="hero-title" id="title"></h1>
           <div class="hero-copy" id="description"></div>
         </div>
-        <button class="save-btn" id="saveBtn" type="button"></button>
+        <button class="btn-primary" id="saveBtn" type="button"></button>
       </div>
 
       <div class="grid">
         <section class="section">
           <h2 class="section-title" id="languageSectionTitle"></h2>
           <div class="field">
-            <label for="locale" id="languageLabel"></label>
             <select id="locale"></select>
           </div>
           <div class="help" id="languageHelp"></div>
@@ -375,7 +374,6 @@ ${SHARED_TOAST_STYLE}
         <section class="section">
           <h2 class="section-title" id="sendShortcutSectionTitle"></h2>
           <div class="field">
-            <label for="sendShortcut" id="sendShortcutLabel"></label>
             <select id="sendShortcut"></select>
           </div>
           <div class="help" id="sendShortcutHelp"></div>
@@ -384,7 +382,6 @@ ${SHARED_TOAST_STYLE}
         <section class="section">
           <h2 class="section-title" id="chatTabModeSectionTitle"></h2>
           <div class="field">
-            <label for="chatTabMode" id="chatTabModeLabel"></label>
             <select id="chatTabMode"></select>
           </div>
           <div class="help" id="chatTabModeHelp"></div>
@@ -394,8 +391,8 @@ ${SHARED_TOAST_STYLE}
           <h2 class="section-title" id="dataTransferSectionTitle"></h2>
           <div class="help" id="dataTransferDescription"></div>
           <div class="data-actions">
-            <button class="secondary-btn" id="exportBtn" type="button"></button>
-            <button class="secondary-btn" id="importBtn" type="button"></button>
+            <button class="btn-secondary" id="exportBtn" type="button"></button>
+            <button class="btn-secondary" id="importBtn" type="button"></button>
           </div>
         </section>
 
@@ -403,7 +400,7 @@ ${SHARED_TOAST_STYLE}
           <h2 class="section-title" id="dangerSectionTitle"></h2>
           <div class="danger-copy" id="resetDataDescription"></div>
           <div class="danger-actions">
-            <button class="danger-btn" id="resetBtn" type="button"></button>
+            <button class="btn-danger" id="resetBtn" type="button"></button>
           </div>
         </section>
       </div>
@@ -417,10 +414,8 @@ ${SHARED_TOAST_STYLE}
         title: document.getElementById('title'),
         description: document.getElementById('description'),
         languageSectionTitle: document.getElementById('languageSectionTitle'),
-        languageLabel: document.getElementById('languageLabel'),
         languageHelp: document.getElementById('languageHelp'),
         sendShortcutSectionTitle: document.getElementById('sendShortcutSectionTitle'),
-        sendShortcutLabel: document.getElementById('sendShortcutLabel'),
         sendShortcutHelp: document.getElementById('sendShortcutHelp'),
         dataTransferSectionTitle: document.getElementById('dataTransferSectionTitle'),
         dataTransferDescription: document.getElementById('dataTransferDescription'),
@@ -432,7 +427,6 @@ ${SHARED_TOAST_STYLE}
         locale: document.getElementById('locale'),
         sendShortcut: document.getElementById('sendShortcut'),
         chatTabModeSectionTitle: document.getElementById('chatTabModeSectionTitle'),
-        chatTabModeLabel: document.getElementById('chatTabModeLabel'),
         chatTabModeHelp: document.getElementById('chatTabModeHelp'),
         chatTabMode: document.getElementById('chatTabMode'),
         saveBtn: document.getElementById('saveBtn'),
@@ -475,13 +469,10 @@ ${SHARED_TOAST_STYLE}
         dom.title.textContent = state.strings.settingsTitle;
         dom.description.textContent = state.strings.settingsDescription;
         dom.languageSectionTitle.textContent = state.strings.languageSection;
-        dom.languageLabel.textContent = state.strings.languageLabel;
         dom.languageHelp.textContent = state.strings.languageHelp;
         dom.sendShortcutSectionTitle.textContent = state.strings.sendShortcutSection;
-        dom.sendShortcutLabel.textContent = state.strings.sendShortcutLabel;
         dom.sendShortcutHelp.textContent = state.strings.sendShortcutHelp;
         dom.chatTabModeSectionTitle.textContent = state.strings.chatTabModeSection;
-        dom.chatTabModeLabel.textContent = state.strings.chatTabModeLabel;
         dom.chatTabModeHelp.textContent = state.strings.chatTabModeHelp;
         dom.dataTransferSectionTitle.textContent = state.strings.dataTransferSectionTitle;
         dom.dataTransferDescription.textContent = state.strings.dataTransferDescription;
@@ -491,8 +482,8 @@ ${SHARED_TOAST_STYLE}
         dom.importBtn.textContent = state.strings.importDataAction;
         dom.resetBtn.textContent = state.strings.resetDataAction;
         dom.saveBtn.textContent = state.strings.saveSettings;
-        dom.locale.title = state.strings.languageLabel;
-        dom.sendShortcut.title = state.strings.sendShortcutLabel;
+        dom.locale.title = state.strings.languageSection;
+        dom.sendShortcut.title = state.strings.sendShortcutSection;
         dom.exportBtn.title = state.strings.exportDataAction;
         dom.importBtn.title = state.strings.importDataAction;
         dom.resetBtn.title = state.strings.resetDataAction;

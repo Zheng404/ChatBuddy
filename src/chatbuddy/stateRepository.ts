@@ -453,7 +453,9 @@ function sanitizeProviders(input: unknown): ProviderProfile[] {
 function sanitizeDefaultModels(raw: unknown, legacyAssistantBinding?: ModelBinding): DefaultModelSettings {
   const source = raw && typeof raw === 'object' ? (raw as Partial<DefaultModelSettings>) : {};
   return {
-    assistant: normalizeModelBinding(source.assistant) ?? legacyAssistantBinding
+    assistant: normalizeModelBinding(source.assistant) ?? legacyAssistantBinding,
+    titleSummary: normalizeModelBinding(source.titleSummary),
+    titleSummaryPrompt: typeof source.titleSummaryPrompt === 'string' ? source.titleSummaryPrompt.trim() || undefined : undefined
   };
 }
 
@@ -468,7 +470,7 @@ function sanitizeSettings(raw: unknown): ChatBuddySettings {
         }
       : undefined;
   const defaultModels = sanitizeDefaultModels(saved.defaultModels, legacyAssistantBinding);
-  const hydratedProviders = mergeModelBindingsIntoProviders(providers, Object.values(defaultModels));
+  const hydratedProviders = mergeModelBindingsIntoProviders(providers, [defaultModels.assistant, defaultModels.titleSummary]);
   const mcp = sanitizeMcpSettings(saved.mcp);
 
   return {
@@ -1342,6 +1344,30 @@ export class ChatStateRepository {
     void this.persist();
   }
 
+  public generateSessionTitle(assistantId: string, sessionId: string, title: string): void {
+    if (!this.storageReady) {
+      return;
+    }
+    const normalized = title.trim();
+    if (!normalized) {
+      return;
+    }
+    const session = this.getSessionById(sessionId);
+    if (!session || session.assistantId !== assistantId) {
+      return;
+    }
+    if (session.titleSource !== 'default') {
+      return;
+    }
+    const updatedAt = nowTs();
+    const changed = this.storage.renameSession(assistantId, sessionId, normalized, 'generated', updatedAt);
+    if (!changed) {
+      return;
+    }
+    this.markAssistantInteracted(assistantId, false);
+    void this.persist();
+  }
+
   public deleteSession(assistantId: string, sessionId: string): void {
     if (!this.storageReady) {
       return;
@@ -1540,7 +1566,7 @@ export class ChatStateRepository {
     const assistants = migrateAssistants(source.assistants, settings, groupIds, timestamp);
     const mergedProviders = mergeModelBindingsIntoProviders(
       settings.providers,
-      Object.values(settings.defaultModels),
+      [settings.defaultModels.assistant, settings.defaultModels.titleSummary],
       assistants.map((assistant) => assistant.modelRef)
     );
     settings.providers = mergedProviders;

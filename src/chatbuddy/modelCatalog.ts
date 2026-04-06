@@ -9,6 +9,13 @@ import {
   RuntimeStrings
 } from './types';
 
+export const DEFAULT_TITLE_SUMMARY_PROMPT =
+  'Summarize the following conversation into a short title.\n' +
+  '1. Use the same language as the user\n' +
+  '2. No punctuation or special symbols\n' +
+  '3. Maximum 10 characters\n' +
+  '4. Reply with only the title text';
+
 export function normalizeApiType(value: unknown, fallback: ProviderApiType = 'chat_completions'): ProviderApiType {
   return value === 'responses' || value === 'chat_completions' ? value : fallback;
 }
@@ -126,13 +133,17 @@ export function resolveModelOption(
 
 export function createEmptyDefaultModels(): DefaultModelSettings {
   return {
-    assistant: undefined
+    assistant: undefined,
+    titleSummary: undefined,
+    titleSummaryPrompt: undefined
   };
 }
 
 export function cloneDefaultModels(defaultModels: DefaultModelSettings): DefaultModelSettings {
   return {
-    assistant: defaultModels.assistant ? { ...defaultModels.assistant } : undefined
+    assistant: defaultModels.assistant ? { ...defaultModels.assistant } : undefined,
+    titleSummary: defaultModels.titleSummary ? { ...defaultModels.titleSummary } : undefined,
+    titleSummaryPrompt: defaultModels.titleSummaryPrompt
   };
 }
 

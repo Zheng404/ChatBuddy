@@ -73,6 +73,8 @@ export interface ModelBinding {
 
 export interface DefaultModelSettings {
   assistant?: ModelBinding;
+  titleSummary?: ModelBinding;
+  titleSummaryPrompt?: string;
 }
 
 export interface ProviderModelOption {

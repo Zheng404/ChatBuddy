@@ -465,7 +465,7 @@ export class AssistantEditorPanelController {
         line-height: 1.6;
       }
 
-      .save-btn {
+      .btn-primary {
         border: 1px solid transparent;
         border-radius: 8px;
         padding: 9px 14px;
@@ -475,7 +475,7 @@ export class AssistantEditorPanelController {
         white-space: nowrap;
       }
 
-      .save-btn:hover {
+      .btn-primary:hover {
         background: var(--button-hover);
       }
 
@@ -574,7 +574,7 @@ export class AssistantEditorPanelController {
         font-size: 12px;
       }
 
-      .secondary-btn {
+      .btn-secondary {
         border: 1px solid var(--input-border);
         border-radius: 8px;
         background: var(--input-bg);
@@ -584,7 +584,7 @@ export class AssistantEditorPanelController {
         white-space: nowrap;
       }
 
-      .secondary-btn:hover {
+      .btn-secondary:hover {
         background: var(--button-hover);
       }
 
@@ -666,7 +666,7 @@ ${SHARED_TOAST_STYLE}
           <h1 class="hero-title" id="title"></h1>
           <div class="hero-copy" id="description"></div>
         </div>
-        <button class="save-btn" id="saveBtn" type="button"></button>
+        <button class="btn-primary" id="saveBtn" type="button"></button>
       </div>
 
       <div class="grid">
@@ -684,7 +684,7 @@ ${SHARED_TOAST_STYLE}
                   <span class="avatar-preview-icon codicon" id="avatarPreviewIcon"></span>
                   <span class="avatar-preview-text" id="avatarPreviewText"></span>
                 </div>
-                <button id="avatarSelectBtn" class="secondary-btn" type="button"></button>
+                <button id="avatarSelectBtn" class="btn-secondary" type="button"></button>
               </div>
               <input id="avatar" type="hidden" />
             </div>
