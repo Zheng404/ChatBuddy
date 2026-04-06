@@ -827,6 +827,7 @@ export class ChatStateRepository {
     this.hydrateProviderApiKeysFromSqlite();
     this.applyProviderApiKeys(this.providerApiKeys);
     this.normalizeLocalizedDefaultTitles(this.state.settings.locale);
+    this.normalizeTitleSourceConsistency(this.state.settings.locale);
     await this.persistSecrets();
     await this.persist();
   }
@@ -921,6 +922,7 @@ export class ChatStateRepository {
     this.storage.replaceAllSessions(merged.sessions, false);
     await this.storage.flush();
     this.normalizeLocalizedDefaultTitles(this.state.settings.locale);
+    this.normalizeTitleSourceConsistency(this.state.settings.locale);
     await this.persistSecrets();
     await this.persist();
   }
@@ -1627,6 +1629,34 @@ export class ChatStateRepository {
           continue;
         }
         this.storage.renameSession(session.assistantId, session.id, untitledSessionTitle, 'default', session.updatedAt);
+      }
+    }
+  }
+
+  /**
+   * Fix sessions that have default/untitled titles but titleSource !== 'default'.
+   * This handles data inconsistency from version upgrades or imports where old
+   * sessions with default-looking titles got titleSource set to 'custom'.
+   */
+  private normalizeTitleSourceConsistency(localeSetting: ChatBuddyLocaleSetting | undefined): void {
+    if (!this.storageReady) {
+      return;
+    }
+    const untitledSessionTitle = resolveUntitledSessionTitle(localeSetting);
+    const sessions = this.storage.listAllSessions();
+    for (const session of sessions) {
+      if (session.titleSource === 'default') {
+        continue;
+      }
+      const title = session.title.trim();
+      if (!title || title === untitledSessionTitle || LEGACY_UNTITLED_SESSION_TITLES.has(title)) {
+        this.storage.renameSession(
+          session.assistantId,
+          session.id,
+          title || untitledSessionTitle,
+          'default',
+          session.updatedAt
+        );
       }
     }
   }

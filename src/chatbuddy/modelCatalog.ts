@@ -14,7 +14,8 @@ export const DEFAULT_TITLE_SUMMARY_PROMPT =
   '1. Use the same language as the user\n' +
   '2. No punctuation or special symbols\n' +
   '3. Maximum 10 characters\n' +
-  '4. Reply with only the title text';
+  '4. Reply with only the title text\n' +
+  '5. Do not use reasoning or thinking process, output the title directly';
 
 export function normalizeApiType(value: unknown, fallback: ProviderApiType = 'chat_completions'): ProviderApiType {
   return value === 'responses' || value === 'chat_completions' ? value : fallback;

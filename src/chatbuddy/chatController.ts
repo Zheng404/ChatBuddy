@@ -1439,7 +1439,7 @@ export class ChatController {
     }
 
     const { config, meta } = resolveModelBindingConfig(settings, titleBinding, {
-      maxTokens: 50,
+      maxTokens: 4000,
       temperature: 0.5,
       contextCount: 4,
       timeoutMs: 30000
@@ -1449,7 +1449,6 @@ export class ChatController {
     }
 
     const locale = this.getLocale();
-    const strings = getStrings(locale);
     const prompt = settings.defaultModels.titleSummaryPrompt?.trim() || DEFAULT_TITLE_SUMMARY_PROMPT;
 
     try {
@@ -1468,9 +1467,7 @@ export class ChatController {
       if (title) {
         this.repository.generateSessionTitle(assistantId, sessionId, title);
       }
-    } catch {
-      // Silently ignore title generation failures
-    }
+    } catch {}
   }
 
   private async regenerateReply(context?: PanelMessageContext): Promise<void> {

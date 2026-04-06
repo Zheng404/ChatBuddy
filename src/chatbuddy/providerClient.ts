@@ -537,6 +537,8 @@ function extractChatCompletionResult(data: unknown): ProviderChatResult {
       };
     }>;
   };
+
+
   const message = payload.choices?.[0]?.message;
   if (!message) {
     return { text: '' };
@@ -589,11 +591,13 @@ function extractChatCompletionResult(data: unknown): ProviderChatResult {
     }
   }
 
-  return {
+  const result = {
     text: joinChunks(textChunks) || '',
     reasoning: joinChunks(reasoningChunks),
     toolCalls: extractChatCompletionToolCalls(message)
   };
+
+  return result;
 }
 
 function extractResponsesResult(data: unknown): ProviderChatResult {
