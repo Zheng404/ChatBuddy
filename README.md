@@ -9,9 +9,30 @@
 </p>
 
 <p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=Zheng404.chatbuddy">
+    <img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-blue.svg" alt="VS Code Marketplace">
+  </a>
+  <a href="https://open-vsx.org/extension/Zheng404/chatbuddy">
+    <img src="https://img.shields.io/badge/Open%20VSX-Install-orange.svg" alt="Open VSX">
+  </a>
   <img src="https://img.shields.io/badge/VS%20Code-1.85.0+-blue.svg" alt="VS Code Version">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p>
+
+## 🚀 Quick Start
+
+### Installation
+
+- **VS Code**: Search for "ChatBuddy" in the VS Code Marketplace, or [install online](https://marketplace.visualstudio.com/items?itemName=Zheng404.chatbuddy)
+- **VSCodium/Others**: [Install from Open VSX](https://open-vsx.org/extension/Zheng404/chatbuddy)
+- **Manual Install**: Download VSIX from [GitHub Releases](https://github.com/Zheng404/ChatBuddy/releases) and install from VSIX
+
+### Configuration
+
+1. Open the ChatBuddy panel in VS Code sidebar
+2. **Model Config** — Configure your AI service provider and API key
+3. Create a new assistant in the assistant list
+4. Start chatting!
 
 ## 📸 Screenshots
 
@@ -21,6 +42,9 @@
 ### Default Models
 ![Default Models](https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Default%20Models.png)
 
+### MCP Config
+![MCP Configuration](https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/MCP%20Config.png)
+
 ### Other Settings
 ![Other Settings](https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Other%20Settings.png)
 
@@ -29,12 +53,6 @@
 
 ### Sessions
 ![Sessions](https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Sessions.png)
-
-## 🚀 Quick Start
-
-1. Download the latest VSIX file and install from VSIX
-2. Open the ChatBuddy panel, click on Model Config to set up your AI service
-3. Create a new assistant in the assistant list and start chatting
 
 ## 📄 License
 
