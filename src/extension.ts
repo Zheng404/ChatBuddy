@@ -11,6 +11,7 @@ import { McpRuntime } from './chatbuddy/mcpRuntime';
 import { OpenAICompatibleClient } from './chatbuddy/providerClient';
 import { SessionNode, SessionsTreeProvider } from './chatbuddy/sessionsView';
 import { SettingsCenterPanelController } from './chatbuddy/settingsCenterPanel';
+import { resolveLocaleString, warn } from './chatbuddy/utils';
 import { ChatStateRepository } from './chatbuddy/stateRepository';
 import { ChatBuddySettings, ChatSessionDetail } from './chatbuddy/types';
 
@@ -54,7 +55,7 @@ function escapeHtml(input: string): string {
 }
 
 function formatMessageTime(timestamp: number, locale: string): string {
-  const targetLocale = locale === 'zh-CN' ? 'zh-CN' : 'en-US';
+  const targetLocale = resolveLocaleString(locale, 'zh-CN', 'en-US');
   try {
     return new Date(timestamp).toLocaleString(targetLocale);
   } catch {
@@ -143,7 +144,7 @@ function buildSessionHtmlExport(
     .join('\n');
 
   return `<!DOCTYPE html>
-<html lang="${locale === 'zh-CN' ? 'zh-CN' : 'en'}">
+<html lang="${resolveLocaleString(locale, 'zh-CN', 'en')}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -213,7 +214,7 @@ function asAssistantNode(arg: unknown): AssistantNode | undefined {
     typeof node.assistant.name !== 'string' ||
     !node.assistant.id.trim()
   ) {
-    console.warn('[ChatBuddy] Invalid assistant node structure:', node);
+    warn('Invalid assistant node structure:', node);
     return undefined;
   }
   return node as AssistantNode;
@@ -238,7 +239,7 @@ function asGroupNode(arg: unknown): AssistantGroupNode | undefined {
     typeof node.group.name !== 'string' ||
     !node.group.id.trim()
   ) {
-    console.warn('[ChatBuddy] Invalid group node structure:', node);
+    warn('Invalid group node structure:', node);
     return undefined;
   }
   return node as AssistantGroupNode;

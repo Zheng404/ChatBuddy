@@ -4,6 +4,7 @@ import { getCodiconRootUri } from './codicon';
 import { buildRemotePassthroughTools, McpRuntime } from './mcpRuntime';
 import { parseModelRef, DEFAULT_TITLE_SUMMARY_PROMPT } from './modelCatalog';
 import { formatString, getAssistantLocalization, getDefaultSessionTitle, getStrings, resolveLocale } from './i18n';
+import { applyQuestionPrefix, mergeReasoningParts, splitThinkTaggedContent, toProviderMessages } from './chatUtils';
 import {
   OpenAICompatibleClient,
   ProviderChatResult,
@@ -15,7 +16,7 @@ import {
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository } from './stateRepository';
 import { getChatWebviewHtml } from './webview';
-import { createId, nowTs } from './utils';
+import { createId, nowTs } from './utils/id';
 import {
   AssistantProfile,
   ChatBuddySettings,
@@ -29,6 +30,7 @@ import {
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
+import { getLocaleFromSettings } from './utils';
 
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
 const STREAM_FLUSH_INTERVAL_MS = 50;
@@ -56,149 +58,6 @@ type PendingToolContinuation = {
   result: ProviderChatResult;
 };
 
-function applyQuestionPrefix(content: string, questionPrefix: string): string {
-  const prefix = questionPrefix.trim();
-  if (!prefix) {
-    return content;
-  }
-  if (content.startsWith(prefix)) {
-    return content;
-  }
-  const separator = /[:：]$/.test(prefix) ? '' : ' ';
-  return `${prefix}${separator}${content}`;
-}
-
-function toProviderConversationMessages(questionPrefix: string, messages: ChatMessage[]): ProviderMessage[] {
-  const result: ProviderMessage[] = [];
-  for (const message of messages) {
-    if (message.content.trim().length === 0 || message.role === 'system') {
-      continue;
-    }
-    if (message.role === 'user') {
-      result.push({
-        role: 'user',
-        content: applyQuestionPrefix(message.content, questionPrefix)
-      });
-      continue;
-    }
-    result.push({
-      role: 'assistant',
-      content: message.content
-    });
-  }
-  return result;
-}
-
-function toProviderMessages(
-  systemPrompt: string,
-  questionPrefix: string,
-  messages: ChatMessage[],
-  contextCount: number
-): ProviderMessage[] {
-  const normalizedSystemPrompt = systemPrompt.trim();
-  const conversationMessages = toProviderConversationMessages(questionPrefix, messages);
-  const normalizedContextCount = Number.isFinite(contextCount) && contextCount > 0 ? Math.floor(contextCount) : 0;
-  const limitedMessages =
-    normalizedContextCount === 0
-      ? conversationMessages
-      : conversationMessages.slice(-normalizedContextCount);
-
-  return [
-    ...(normalizedSystemPrompt
-      ? [
-          {
-            role: 'system' as const,
-            content: normalizedSystemPrompt
-          }
-        ]
-      : []),
-    ...limitedMessages
-  ];
-}
-
-function splitThinkTaggedContent(rawText: string): { content: string; reasoning: string } {
-  if (!rawText || !/[<]/.test(rawText)) {
-    return {
-      content: rawText,
-      reasoning: ''
-    };
-  }
-
-  // Only treat as reasoning when the message starts with a think block.
-  if (!/^\s*<think\b[^>]*>/i.test(rawText)) {
-    return {
-      content: rawText,
-      reasoning: ''
-    };
-  }
-
-  const tagPattern = /<think\b[^>]*>|<\/think>/gi;
-  let thinkDepth = 0;
-  let cursor = 0;
-  let matchedThinkOpenTag = false;
-  const contentParts: string[] = [];
-  const reasoningParts: string[] = [];
-
-  for (const match of rawText.matchAll(tagPattern)) {
-    const index = match.index ?? 0;
-    const segment = rawText.slice(cursor, index);
-    if (segment) {
-      if (thinkDepth > 0) {
-        reasoningParts.push(segment);
-      } else {
-        contentParts.push(segment);
-      }
-    }
-
-    const tag = match[0].toLowerCase();
-    if (tag.startsWith('</think')) {
-      if (thinkDepth === 0) {
-        return {
-          content: rawText,
-          reasoning: ''
-        };
-      }
-      thinkDepth -= 1;
-    } else {
-      matchedThinkOpenTag = true;
-      thinkDepth += 1;
-    }
-    cursor = index + match[0].length;
-  }
-
-  if (!matchedThinkOpenTag || thinkDepth !== 0) {
-    return {
-      content: rawText,
-      reasoning: ''
-    };
-  }
-
-  const tail = rawText.slice(cursor);
-  if (tail) {
-    if (thinkDepth > 0) {
-      reasoningParts.push(tail);
-    } else {
-      contentParts.push(tail);
-    }
-  }
-
-  return {
-    content: contentParts.join(''),
-    reasoning: reasoningParts.join('')
-  };
-}
-
-function mergeReasoningParts(...parts: Array<string | undefined>): string | undefined {
-  let merged = parts
-    .map((part) => part?.trim())
-    .filter((part): part is string => Boolean(part))
-    .join('\n')
-    .trim();
-  // Strip model-specific tool call XML (e.g. <minimax:tool_call>...</minimax:tool_call>)
-  merged = merged.replace(/<[a-zA-Z_-]+:tool_call>[\s\S]*?<\/[a-zA-Z_-]+:tool_call>/g, '').trim();
-  return merged || undefined;
-}
-
 export class ChatController {
   private panel: vscode.WebviewPanel | undefined;
   private panelsByAssistantId = new Map<string, vscode.WebviewPanel>();
@@ -220,7 +79,7 @@ export class ChatController {
   }
 
   private getLocale(): RuntimeLocale {
-    return resolveLocale(this.repository.getSettings().locale, vscode.env.language);
+    return getLocaleFromSettings(this.repository.getSettings());
   }
 
   public openAssistantChat(assistantId?: string): void {
@@ -257,19 +116,20 @@ export class ChatController {
         newPanel.iconPath = panelIcon;
         newPanel.webview.html = getChatWebviewHtml(newPanel.webview);
         const assistantIdRef = assistant.id;
-        newPanel.onDidDispose(() => {
-          this.stopGeneration('manual');
-          this.panelsByAssistantId.delete(assistantIdRef);
-          if (this.panel === newPanel) {
-            this.panel = undefined;
-          }
-        });
-        newPanel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
+        const messageListener = newPanel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
           this.panel = newPanel;
           void this.handleWebviewMessage(message, {
             panel: newPanel,
             assistantId: assistantIdRef
           });
+        });
+        newPanel.onDidDispose(() => {
+          this.stopGeneration('manual');
+          messageListener.dispose();
+          this.panelsByAssistantId.delete(assistantIdRef);
+          if (this.panel === newPanel) {
+            this.panel = undefined;
+          }
         });
         this.panelsByAssistantId.set(assistant.id, newPanel);
         this.panel = newPanel;
@@ -284,15 +144,16 @@ export class ChatController {
         });
         this.panel.iconPath = panelIcon;
         this.panel.webview.html = getChatWebviewHtml(this.panel.webview);
-        this.panel.onDidDispose(() => {
-          this.stopGeneration('manual');
-          this.panel = undefined;
-        });
         const panelRef = this.panel;
-        this.panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
+        const messageListener = this.panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
           void this.handleWebviewMessage(message, {
             panel: panelRef
           });
+        });
+        this.panel.onDidDispose(() => {
+          this.stopGeneration('manual');
+          messageListener.dispose();
+          this.panel = undefined;
         });
       } else {
         this.panel.title = panelTitle;

@@ -1,28 +1,12 @@
 import * as vscode from 'vscode';
 import { getCodiconStyleText } from './codicon';
-import { SHARED_TOAST_STYLE } from './toastTheme';
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let text = '';
-  for (let i = 0; i < 32; i += 1) {
-    text += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return text;
-}
+import { buildCsp, getNonce } from './utils';
+import { SHARED_TOAST_STYLE, TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
 
 export function getChatWebviewHtml(webview: vscode.Webview): string {
   const nonce = getNonce();
   const codiconStyleText = getCodiconStyleText();
-  const csp = [
-    "default-src 'none'",
-    `style-src ${webview.cspSource} 'unsafe-inline'`,
-    `font-src ${webview.cspSource} data:`,
-    `script-src 'nonce-${nonce}'`,
-    `img-src ${webview.cspSource} https: data:`,
-    `media-src ${webview.cspSource} https: data:`,
-    'connect-src https:'
-  ].join('; ');
+  const csp = buildCsp(webview, nonce);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -712,7 +696,7 @@ ${SHARED_TOAST_STYLE}
         </div>
       </footer>
     </div>
-    <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+${TOAST_CONTAINER_HTML}
     <div class="raw-modal-overlay" id="rawModalOverlay">
       <div class="raw-modal">
         <div class="raw-modal-header">
@@ -818,22 +802,7 @@ ${SHARED_TOAST_STYLE}
         return Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, Math.round(value)));
       }
 
-      function showToast(message, tone = 'error') {
-        const text = String(message || '').trim();
-        if (!text) {
-          return;
-        }
-        const toast = document.createElement('div');
-        toast.className = 'toast ' + (tone === 'success' || tone === 'error' ? tone : 'info');
-        toast.textContent = text;
-        dom.toastStack.appendChild(toast);
-        while (dom.toastStack.children.length > 4) {
-          dom.toastStack.removeChild(dom.toastStack.firstElementChild);
-        }
-        window.setTimeout(() => {
-          toast.remove();
-        }, 3200);
-      }
+${getToastScript()}
 
       function escapeHtml(input) {
         return String(input)

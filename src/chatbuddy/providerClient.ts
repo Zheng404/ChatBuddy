@@ -16,6 +16,7 @@ import {
   ProviderToolResult,
   RuntimeLocale
 } from './types';
+import { clamp, resolveLocaleString, retryWithBackoff } from './utils';
 
 export interface StreamHandlers {
   onDelta: (text: string) => void;
@@ -72,13 +73,6 @@ function toErrorMessage(status: number, fallback: string, locale: RuntimeLocale)
     return strings.serviceUnavailable;
   }
   return fallback;
-}
-
-function clamp(value: number, min: number, max: number, fallback: number): number {
-  if (!Number.isFinite(value)) {
-    return fallback;
-  }
-  return Math.max(min, Math.min(max, value));
 }
 
 function normalizeBaseUrlForDetect(baseUrl: string | undefined): string {
@@ -957,6 +951,16 @@ function parseOllamaModels(data: unknown): ProviderModelProfile[] {
   return result;
 }
 
+/** Error carrying the HTTP status code for retry logic. */
+export class HttpError extends Error {
+  public readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
+
 async function ensureSuccess(response: Response, locale: RuntimeLocale): Promise<void> {
   if (response.ok) {
     return;
@@ -966,7 +970,7 @@ async function ensureSuccess(response: Response, locale: RuntimeLocale): Promise
     locale === 'zh-CN'
       ? `请求失败（${response.status}）：${text.slice(0, 160)}`
       : `Request failed (${response.status}): ${text.slice(0, 160)}`;
-  throw new Error(toErrorMessage(response.status, fallback, locale));
+  throw new HttpError(response.status, toErrorMessage(response.status, fallback, locale));
 }
 
 export function resolveProviderConfig(
@@ -1175,16 +1179,18 @@ export class OpenAICompatibleClient {
       apiKey: providerConfig.apiKey,
       baseUrl: providerConfig.baseUrl
     };
-    const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
-      method: 'POST',
-      headers: createHeaders(provider),
-      body: JSON.stringify(
-        toChatCompletionBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])
-      ),
-      signal
+    return retryWithBackoff(async () => {
+      const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
+        method: 'POST',
+        headers: createHeaders(provider),
+        body: JSON.stringify(
+          toChatCompletionBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])
+        ),
+        signal
+      });
+      await ensureSuccess(response, locale);
+      return extractChatCompletionResult(await response.json());
     });
-    await ensureSuccess(response, locale);
-    return extractChatCompletionResult(await response.json());
   }
 
   private async responses(
@@ -1202,14 +1208,16 @@ export class OpenAICompatibleClient {
       apiKey: providerConfig.apiKey,
       baseUrl: providerConfig.baseUrl
     };
-    const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
-      method: 'POST',
-      headers: createHeaders(provider),
-      body: JSON.stringify(toResponsesBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])),
-      signal
+    return retryWithBackoff(async () => {
+      const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
+        method: 'POST',
+        headers: createHeaders(provider),
+        body: JSON.stringify(toResponsesBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])),
+        signal
+      });
+      await ensureSuccess(response, locale);
+      return extractResponsesResult(await response.json());
     });
-    await ensureSuccess(response, locale);
-    return extractResponsesResult(await response.json());
   }
 
   private async chatCompletionsStream(
@@ -1228,17 +1236,20 @@ export class OpenAICompatibleClient {
       apiKey: providerConfig.apiKey,
       baseUrl: providerConfig.baseUrl
     };
-    const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
-      method: 'POST',
-      headers: createHeaders(provider),
-      body: JSON.stringify(
-        toChatCompletionBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])
-      ),
-      signal
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
+        method: 'POST',
+        headers: createHeaders(provider),
+        body: JSON.stringify(
+          toChatCompletionBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])
+        ),
+        signal
+      });
+      await ensureSuccess(res, locale);
+      return res;
     });
-    await ensureSuccess(response, locale);
     if (!response.body) {
-      throw new Error(locale === 'zh-CN' ? '服务端未返回可读流。' : 'The server did not return a readable stream.');
+      throw new Error(resolveLocaleString(locale, '服务端未返回可读流。', 'The server did not return a readable stream.'));
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
@@ -1303,15 +1314,18 @@ export class OpenAICompatibleClient {
       apiKey: providerConfig.apiKey,
       baseUrl: providerConfig.baseUrl
     };
-    const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
-      method: 'POST',
-      headers: createHeaders(provider),
-      body: JSON.stringify(toResponsesBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])),
-      signal
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
+        method: 'POST',
+        headers: createHeaders(provider),
+        body: JSON.stringify(toResponsesBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])),
+        signal
+      });
+      await ensureSuccess(res, locale);
+      return res;
     });
-    await ensureSuccess(response, locale);
     if (!response.body) {
-      throw new Error(locale === 'zh-CN' ? '服务端未返回可读流。' : 'The server did not return a readable stream.');
+      throw new Error(resolveLocaleString(locale, '服务端未返回可读流。', 'The server did not return a readable stream.'));
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');

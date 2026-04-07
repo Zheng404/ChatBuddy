@@ -16,6 +16,8 @@ interface SessionSpacerNode {
 
 type SessionsTreeNode = SessionNode | SessionSpacerNode;
 
+import { resolveLocaleString } from './utils';
+
 const MIN_SESSIONS_VIEW_ROWS = 4;
 
 type ProviderContext = {
@@ -26,7 +28,7 @@ type ProviderContext = {
 };
 
 function toDisplayLocale(locale: RuntimeLocale): string {
-  return locale === 'zh-CN' ? 'zh-CN' : 'en-US';
+  return resolveLocaleString(locale, 'zh-CN', 'en-US');
 }
 
 function formatSessionTooltip(strings: Record<string, string>, session: ChatSessionSummary, locale: RuntimeLocale): string {

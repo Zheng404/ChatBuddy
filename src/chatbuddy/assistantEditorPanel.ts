@@ -7,8 +7,9 @@ import { getCodiconRootUri, getCodiconStyleText } from './codicon';
 import { getStrings, resolveLocale } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository, UpdateAssistantInput } from './stateRepository';
-import { SHARED_TOAST_STYLE } from './toastTheme';
+import { SHARED_TOAST_STYLE, TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
 import { AssistantGroup, AssistantProfile, McpServerSummary, ProviderModelOption, RuntimeStrings } from './types';
+import { getNonce, clamp, buildCsp } from './utils';
 
 type AssistantEditorMessage =
   | { type: 'ready' }
@@ -129,22 +130,6 @@ function getAvailableAvatarIcons(): ReadonlyArray<string> {
     cachedAvailableAvatarIcons = AVATAR_ICON_OPTIONS;
   }
   return cachedAvailableAvatarIcons;
-}
-
-function clamp(value: number, min: number, max: number, fallback: number): number {
-  if (!Number.isFinite(value)) {
-    return fallback;
-  }
-  return Math.max(min, Math.min(max, value));
-}
-
-function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let text = '';
-  for (let i = 0; i < 32; i += 1) {
-    text += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return text;
 }
 
 function toUpdatePayload(input: AssistantEditorPayload, fallback: AssistantProfile): UpdateAssistantInput {
@@ -399,12 +384,7 @@ export class AssistantEditorPanelController {
   private getHtml(webview: vscode.Webview): string {
     const nonce = getNonce();
     const codiconStyleText = getCodiconStyleText();
-    const csp = [
-      "default-src 'none'",
-      `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `font-src ${webview.cspSource} data:`,
-      `script-src 'nonce-${nonce}'`
-    ].join('; ');
+    const csp = buildCsp(webview, nonce);
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -775,7 +755,7 @@ ${SHARED_TOAST_STYLE}
       </div>
 
     </div>
-    <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+${TOAST_CONTAINER_HTML}
 
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
@@ -829,22 +809,7 @@ ${SHARED_TOAST_STYLE}
       let state = null;
       let lastToastNotice = '';
 
-      function showToast(message, tone = 'info') {
-        const text = String(message || '').trim();
-        if (!text) {
-          return;
-        }
-        const toast = document.createElement('div');
-        toast.className = 'toast ' + (tone === 'success' || tone === 'error' ? tone : 'info');
-        toast.textContent = text;
-        dom.toastStack.appendChild(toast);
-        while (dom.toastStack.children.length > 4) {
-          dom.toastStack.removeChild(dom.toastStack.firstElementChild);
-        }
-        window.setTimeout(() => {
-          toast.remove();
-        }, 3200);
-      }
+${getToastScript()}
 
       function escapeHtml(input) {
         return String(input)

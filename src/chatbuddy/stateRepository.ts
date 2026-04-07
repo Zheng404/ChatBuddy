@@ -1,19 +1,14 @@
 import * as vscode from 'vscode';
 
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID } from './constants';
-import { getDefaultSessionTitle, getStrings, resolveLocale } from './i18n';
+import { resolveLocale } from './i18n';
 import {
   cloneDefaultModels,
-  createEmptyDefaultModels,
-  createModelRef,
-  dedupeModels,
   getProviderModelOptions,
-  normalizeApiType,
-  parseModelRef,
   resolveModelOption
 } from './modelCatalog';
-import { isValidModelName, isValidUrl, sanitizeAssistantName, sanitizeGroupName } from './security';
-import { createId, nowTs } from './utils';
+import { sanitizeAssistantName, sanitizeGroupName } from './security';
+import { clamp, createId, error, nowTs, resolveLocaleString } from './utils';
 import {
   AssistantGroup,
   AssistantProfile,
@@ -23,765 +18,41 @@ import {
   ChatSession,
   ChatSessionDetail,
   ChatSessionSummary,
-  DefaultModelSettings,
-  ModelBinding,
-  McpKeyValueEntry,
-  McpServerProfile,
-  McpSettings,
-  PersistedState,
-  PersistedStateLite,
-  ProviderKind,
   ProviderModelOption,
   ProviderProfile
 } from './types';
 import { ChatStorage } from './chatStorage';
+import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider, cloneSession, cloneSessionSummary } from './stateClone';
+import {
+  mergeModelBindingsIntoProviders,
+  parsePersistedStateLiteStore,
+  parseProviderApiKeysStore,
+  getDefaultAssistantModelRef,
+  resolveDefaultAssistantName,
+  resolveUntitledSessionTitle,
+  unwrapImportedState
+} from './stateHelpers';
+import {
+  createInitialState,
+  MAX_CONTEXT_COUNT,
+  migrateAssistants,
+  sanitizeGroups,
+  sanitizeSessions,
+  sanitizeSettings
+} from './stateSanitizers';
 
 const SQLITE_STATE_KEY = 'chatbuddy.sqlite.state.v1';
 const SQLITE_PROVIDER_API_KEYS_KEY = 'chatbuddy.sqlite.providerApiKeys.v1';
 const BACKUP_SCHEMA = 'chatbuddy.backup';
 const BACKUP_VERSION = 1;
-const MAX_CONTEXT_COUNT = Number.MAX_SAFE_INTEGER;
 const LEGACY_UNTITLED_SESSION_TITLES = new Set(['新会话', 'New Chat']);
-
-const DEFAULT_SETTINGS: ChatBuddySettings = {
-  providers: [],
-  defaultModels: createEmptyDefaultModels(),
-  mcp: {
-    servers: [],
-    maxToolRounds: 8
-  },
-  temperature: 0.7,
-  topP: 1,
-  maxTokens: 0,
-  presencePenalty: 0,
-  frequencyPenalty: 0,
-  timeoutMs: 60000,
-  streamingDefault: true,
-  locale: 'auto',
-  sendShortcut: 'enter',
-  chatTabMode: 'single' as const
-};
-
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
-
-function clamp(value: number, min: number, max: number, fallback: number): number {
-  if (!Number.isFinite(value)) {
-    return fallback;
-  }
-  return Math.max(min, Math.min(max, value));
-}
-
-function resolveUntitledSessionTitle(localeSetting: ChatBuddyLocaleSetting | undefined): string {
-  const locale = resolveLocale(localeSetting, vscode.env.language);
-  return getDefaultSessionTitle(locale);
-}
-
-function resolveDefaultAssistantName(localeSetting: ChatBuddyLocaleSetting | undefined): string {
-  const locale = resolveLocale(localeSetting, vscode.env.language);
-  const roleName = getStrings(locale).assistantRole;
-  if (typeof roleName === 'string' && roleName.trim()) {
-    return roleName.trim();
-  }
-  return locale === 'zh-CN' ? '助手' : 'Assistant';
-}
-
-function normalizeTitleSource(session: ChatSession, untitledSessionTitle: string): ChatSession['titleSource'] {
-  if (session.titleSource === 'default' || session.titleSource === 'generated' || session.titleSource === 'custom') {
-    return session.titleSource;
-  }
-  if (
-    session.messages.length === 0 &&
-    (session.title === untitledSessionTitle || LEGACY_UNTITLED_SESSION_TITLES.has(session.title))
-  ) {
-    return 'default';
-  }
-  return 'custom';
-}
-
-function createSystemGroups(timestamp: number): AssistantGroup[] {
-  return [
-    {
-      id: DEFAULT_GROUP_ID,
-      name: 'Default',
-      kind: 'default',
-      createdAt: timestamp,
-      updatedAt: timestamp
-    },
-    {
-      id: DELETED_GROUP_ID,
-      name: 'Deleted',
-      kind: 'deleted',
-      createdAt: timestamp,
-      updatedAt: timestamp
-    }
-  ];
-}
-
-function cloneProvider(provider: ProviderProfile): ProviderProfile {
-  return {
-    ...provider,
-    models: provider.models.map((model) => ({ ...model }))
-  };
-}
-
-function cloneGroup(group: AssistantGroup): AssistantGroup {
-  return {
-    ...group
-  };
-}
-
-function cloneAssistant(assistant: AssistantProfile): AssistantProfile {
-  return {
-    ...assistant,
-    enabledMcpServerIds: [...assistant.enabledMcpServerIds],
-    overrides: assistant.overrides ? { ...assistant.overrides } : undefined
-  };
-}
-
-function cloneMcpKeyValueEntries(entries: McpKeyValueEntry[]): McpKeyValueEntry[] {
-  return entries.map((entry) => ({
-    key: entry.key,
-    value: entry.value
-  }));
-}
-
-function cloneMcpServer(server: McpServerProfile): McpServerProfile {
-  return {
-    ...server,
-    args: [...server.args],
-    env: cloneMcpKeyValueEntries(server.env),
-    headers: cloneMcpKeyValueEntries(server.headers)
-  };
-}
-
-function cloneMcpSettings(settings: McpSettings): McpSettings {
-  return {
-    maxToolRounds: settings.maxToolRounds,
-    servers: settings.servers.map(cloneMcpServer)
-  };
-}
-
-function cloneSession(session: ChatSession): ChatSession {
-  return {
-    ...session,
-    messages: [...session.messages]
-  };
-}
-
-function cloneSessionSummary(session: ChatSessionSummary): ChatSessionSummary {
-  return {
-    ...session
-  };
-}
-
-function normalizeProviderBaseUrl(value: unknown, fallback = ''): string {
-  if (typeof value !== 'string') {
-    return fallback;
-  }
-  const normalized = value.trim();
-  if (!normalized) {
-    return fallback;
-  }
-  return isValidUrl(normalized) ? normalized : fallback;
-}
-
-function normalizeModelId(value: unknown, fallback = ''): string {
-  if (typeof value !== 'string') {
-    return fallback;
-  }
-  const normalized = value.trim();
-  if (!normalized) {
-    return fallback;
-  }
-  return isValidModelName(normalized) ? normalized : fallback;
-}
-
-function normalizeModelBinding(value: unknown): ModelBinding | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-  const binding = value as Partial<ModelBinding>;
-  const providerId = typeof binding.providerId === 'string' ? binding.providerId.trim() : '';
-  const modelId = normalizeModelId(binding.modelId);
-  if (!providerId || !modelId) {
-    return undefined;
-  }
-  return {
-    providerId,
-    modelId
-  };
-}
-
-function normalizeMcpKeyValueEntries(value: unknown): McpKeyValueEntry[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const result: McpKeyValueEntry[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-    const entry = item as Partial<McpKeyValueEntry>;
-    const key = typeof entry.key === 'string' ? entry.key.trim() : '';
-    if (!key) {
-      continue;
-    }
-    result.push({
-      key,
-      value: typeof entry.value === 'string' ? entry.value : ''
-    });
-  }
-  return result;
-}
-
-function sanitizeMcpServer(raw: unknown): McpServerProfile | undefined {
-  if (!raw || typeof raw !== 'object') {
-    return undefined;
-  }
-  const source = raw as Partial<McpServerProfile> & { args?: unknown };
-  const id = typeof source.id === 'string' ? source.id.trim() : '';
-  const name = typeof source.name === 'string' ? source.name.trim() : '';
-  if (!id || !name) {
-    return undefined;
-  }
-  const transport =
-    source.transport === 'streamableHttp' || source.transport === 'sse' || source.transport === 'stdio'
-      ? source.transport
-      : 'stdio';
-  const args = Array.isArray(source.args)
-    ? source.args
-        .map((item) => (typeof item === 'string' ? item.trim() : ''))
-        .filter(Boolean)
-    : [];
-  return {
-    id,
-    name,
-    enabled: source.enabled !== false,
-    transport,
-    command: typeof source.command === 'string' ? source.command.trim() : '',
-    args,
-    cwd: typeof source.cwd === 'string' ? source.cwd.trim() : '',
-    env: normalizeMcpKeyValueEntries(source.env),
-    url: typeof source.url === 'string' ? source.url.trim() : '',
-    headers: normalizeMcpKeyValueEntries(source.headers),
-    timeoutMs: clamp(typeof source.timeoutMs === 'number' ? source.timeoutMs : 60000, 1000, 600000, 60000),
-    remotePassthroughEnabled: source.remotePassthroughEnabled === true
-  };
-}
-
-function sanitizeMcpSettings(raw: unknown): McpSettings {
-  const source = raw && typeof raw === 'object' ? (raw as Partial<McpSettings>) : {};
-  const byId = new Map<string, McpServerProfile>();
-  for (const item of Array.isArray(source.servers) ? source.servers : []) {
-    const server = sanitizeMcpServer(item);
-    if (!server || byId.has(server.id)) {
-      continue;
-    }
-    byId.set(server.id, server);
-  }
-  return {
-    servers: [...byId.values()],
-    maxToolRounds: clamp(
-      typeof source.maxToolRounds === 'number' ? source.maxToolRounds : DEFAULT_SETTINGS.mcp.maxToolRounds,
-      1,
-      20,
-      DEFAULT_SETTINGS.mcp.maxToolRounds
-    )
-  };
-}
-
-function addModelToProvider(providers: ProviderProfile[], providerId: string, modelId: string): ProviderProfile[] {
-  if (!providerId || !modelId) {
-    return providers;
-  }
-  return providers.map((provider) => {
-    if (provider.id !== providerId) {
-      return provider;
-    }
-    return {
-      ...provider,
-      models: dedupeModels([...provider.models, { id: modelId, name: modelId }])
-    };
-  });
-}
-
-function mergeModelBindingsIntoProviders(
-  providers: ProviderProfile[],
-  bindings: Array<ModelBinding | undefined>,
-  refs: string[] = []
-): ProviderProfile[] {
-  let next = providers.map(cloneProvider);
-  for (const binding of bindings) {
-    if (!binding) {
-      continue;
-    }
-    next = addModelToProvider(next, binding.providerId, binding.modelId);
-  }
-  for (const ref of refs) {
-    const parsed = parseModelRef(ref);
-    if (!parsed) {
-      continue;
-    }
-    next = addModelToProvider(next, parsed.providerId, parsed.modelId);
-  }
-  return next;
-}
-
-function parseProviderApiKeysSecret(raw: string | undefined): Record<string, string> {
-  if (!raw) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
-      return {};
-    }
-    const result: Record<string, string> = {};
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value !== 'string') {
-        continue;
-      }
-      const providerId = key.trim();
-      const apiKey = value.trim();
-      if (providerId && apiKey) {
-        result[providerId] = apiKey;
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
-function parseProviderApiKeysStore(raw: string | undefined): Record<string, string> {
-  return parseProviderApiKeysSecret(raw);
-}
-
-function parsePersistedStateLiteStore(raw: string | undefined): PersistedStateLite | Record<string, unknown> | undefined {
-  if (!raw) {
-    return undefined;
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
-      return undefined;
-    }
-    return parsed as PersistedStateLite | Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
-
-function inferProviderKind(raw: Partial<ProviderProfile> & { defaultModel?: string }, id: string): ProviderKind {
-  if (raw.kind === 'openai' || raw.kind === 'gemini' || raw.kind === 'openrouter' || raw.kind === 'ollama') {
-    return raw.kind;
-  }
-  const normalizedId = id.toLowerCase();
-  const normalizedName = typeof raw.name === 'string' ? raw.name.toLowerCase() : '';
-  const normalizedBaseUrl = typeof raw.baseUrl === 'string' ? raw.baseUrl.toLowerCase() : '';
-  if (normalizedId === 'openai' || normalizedName.includes('openai') || normalizedBaseUrl.includes('api.openai.com')) {
-    return 'openai';
-  }
-  if (
-    normalizedId === 'gemini' ||
-    normalizedName.includes('gemini') ||
-    normalizedBaseUrl.includes('generativelanguage.googleapis.com')
-  ) {
-    return 'gemini';
-  }
-  if (
-    normalizedId === 'openrouter' ||
-    normalizedName.includes('openrouter') ||
-    normalizedBaseUrl.includes('openrouter.ai')
-  ) {
-    return 'openrouter';
-  }
-  if (
-    normalizedId === 'ollama' ||
-    normalizedName.includes('ollama') ||
-    normalizedBaseUrl.includes('127.0.0.1:11434') ||
-    normalizedBaseUrl.includes('/api/tags')
-  ) {
-    return 'ollama';
-  }
-  return 'custom';
-}
-
-function sanitizeProviders(input: unknown): ProviderProfile[] {
-  if (input === undefined) {
-    return [];
-  }
-  if (!Array.isArray(input)) {
-    return [];
-  }
-
-  const byId = new Map<string, ProviderProfile>();
-  for (const item of input) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-    const value = item as Partial<ProviderProfile> & { defaultModel?: string };
-    let id = typeof value.id === 'string' ? value.id.trim() : '';
-    if (!id) {
-      id = createId('provider');
-    }
-    while (byId.has(id)) {
-      id = createId('provider');
-    }
-    const legacyDefaultModel = normalizeModelId(value.defaultModel);
-    const models = dedupeModels([
-      ...(Array.isArray(value.models) ? value.models : []),
-      ...(legacyDefaultModel ? [legacyDefaultModel] : [])
-    ]);
-    const kind = inferProviderKind(value, id);
-    byId.set(id, {
-      id,
-      kind,
-      name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : 'Provider',
-      apiKey: typeof value.apiKey === 'string' ? value.apiKey.trim() : '',
-      baseUrl: normalizeProviderBaseUrl(value.baseUrl),
-      apiType: normalizeApiType(value.apiType, kind === 'ollama' ? 'chat_completions' : 'responses'),
-      enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
-      models,
-      modelLastSyncedAt: typeof value.modelLastSyncedAt === 'number' ? value.modelLastSyncedAt : undefined
-    });
-  }
-
-  return [...byId.values()];
-}
-
-function sanitizeDefaultModels(raw: unknown, legacyAssistantBinding?: ModelBinding): DefaultModelSettings {
-  const source = raw && typeof raw === 'object' ? (raw as Partial<DefaultModelSettings>) : {};
-  return {
-    assistant: normalizeModelBinding(source.assistant) ?? legacyAssistantBinding,
-    titleSummary: normalizeModelBinding(source.titleSummary),
-    titleSummaryPrompt: typeof source.titleSummaryPrompt === 'string' ? source.titleSummaryPrompt.trim() || undefined : undefined
-  };
-}
-
-function sanitizeSettings(raw: unknown): ChatBuddySettings {
-  const saved = (raw ?? {}) as Partial<ChatBuddySettings> & { defaultProviderId?: string; defaultModel?: string };
-  const providers = sanitizeProviders(saved.providers);
-  const legacyAssistantBinding =
-    typeof saved.defaultProviderId === 'string' && saved.defaultProviderId.trim() && normalizeModelId(saved.defaultModel)
-      ? {
-          providerId: saved.defaultProviderId.trim(),
-          modelId: normalizeModelId(saved.defaultModel)
-        }
-      : undefined;
-  const defaultModels = sanitizeDefaultModels(saved.defaultModels, legacyAssistantBinding);
-  const hydratedProviders = mergeModelBindingsIntoProviders(providers, [defaultModels.assistant, defaultModels.titleSummary]);
-  const mcp = sanitizeMcpSettings(saved.mcp);
-
-  return {
-    providers: hydratedProviders,
-    defaultModels,
-    mcp,
-    temperature: clamp(saved.temperature ?? DEFAULT_SETTINGS.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
-    topP: clamp(saved.topP ?? DEFAULT_SETTINGS.topP, 0, 1, DEFAULT_SETTINGS.topP),
-    maxTokens: clamp(saved.maxTokens ?? DEFAULT_SETTINGS.maxTokens, 0, 65535, DEFAULT_SETTINGS.maxTokens),
-    presencePenalty: clamp(
-      saved.presencePenalty ?? DEFAULT_SETTINGS.presencePenalty,
-      -2,
-      2,
-      DEFAULT_SETTINGS.presencePenalty
-    ),
-    frequencyPenalty: clamp(
-      saved.frequencyPenalty ?? DEFAULT_SETTINGS.frequencyPenalty,
-      -2,
-      2,
-      DEFAULT_SETTINGS.frequencyPenalty
-    ),
-    timeoutMs: clamp(saved.timeoutMs ?? DEFAULT_SETTINGS.timeoutMs, 5000, 300000, DEFAULT_SETTINGS.timeoutMs),
-    streamingDefault:
-      typeof saved.streamingDefault === 'boolean' ? saved.streamingDefault : DEFAULT_SETTINGS.streamingDefault,
-    locale:
-      saved.locale === 'zh-CN' || saved.locale === 'en' || saved.locale === 'auto'
-        ? saved.locale
-        : DEFAULT_SETTINGS.locale,
-    sendShortcut: saved.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
-    chatTabMode: saved.chatTabMode === 'multi' ? 'multi' : 'single'
-  };
-}
-
-function sanitizeGroups(rawGroups: unknown): AssistantGroup[] {
-  const timestamp = nowTs();
-  let defaultGroup: AssistantGroup = {
-    id: DEFAULT_GROUP_ID,
-    name: 'Default',
-    kind: 'default',
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-  let deletedGroup: AssistantGroup = {
-    id: DELETED_GROUP_ID,
-    name: 'Deleted',
-    kind: 'deleted',
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-  if (!Array.isArray(rawGroups)) {
-    return [defaultGroup, deletedGroup];
-  }
-
-  const customGroups: AssistantGroup[] = [];
-  for (const item of rawGroups) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-    const value = item as Partial<AssistantGroup>;
-    const id = typeof value.id === 'string' ? value.id.trim() : '';
-    const name = typeof value.name === 'string' ? value.name.trim() : '';
-    if (!id || !name) {
-      continue;
-    }
-    if (id === DEFAULT_GROUP_ID) {
-      defaultGroup = {
-        id: DEFAULT_GROUP_ID,
-        name,
-        kind: 'default',
-        createdAt: typeof value.createdAt === 'number' ? value.createdAt : timestamp,
-        updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : timestamp
-      };
-      continue;
-    }
-    if (id === DELETED_GROUP_ID) {
-      deletedGroup = {
-        id: DELETED_GROUP_ID,
-        name,
-        kind: 'deleted',
-        createdAt: typeof value.createdAt === 'number' ? value.createdAt : timestamp,
-        updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : timestamp
-      };
-      continue;
-    }
-    customGroups.push({
-      id,
-      name,
-      kind: 'custom',
-      createdAt: typeof value.createdAt === 'number' ? value.createdAt : timestamp,
-      updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : timestamp
-    });
-  }
-
-  return [defaultGroup, ...customGroups, deletedGroup];
-}
-
-function getDefaultAssistantModelRef(settings: ChatBuddySettings): string {
-  const binding = settings.defaultModels.assistant;
-  return binding ? createModelRef(binding.providerId, binding.modelId) : '';
-}
-
-function sanitizeAssistant(
-  raw: unknown,
-  settings: ChatBuddySettings,
-  groupIds: Set<string>,
-  timestamp: number
-): AssistantProfile | undefined {
-  if (!raw || typeof raw !== 'object') {
-    return undefined;
-  }
-
-  const source = raw as Partial<AssistantProfile> & { defaultModel?: string; bindProvider?: boolean; providerId?: string };
-  const id = typeof source.id === 'string' && source.id.trim() ? source.id.trim() : createId('assistant');
-  const isDeleted = source.isDeleted === true;
-  const defaultGroupId = groupIds.has(DEFAULT_GROUP_ID) ? DEFAULT_GROUP_ID : [...groupIds][0] ?? DEFAULT_GROUP_ID;
-  const normalizedGroupId = isDeleted
-    ? DELETED_GROUP_ID
-    : typeof source.groupId === 'string' && groupIds.has(source.groupId)
-      ? source.groupId
-      : defaultGroupId;
-  const legacyModelId = normalizeModelId(source.defaultModel);
-  const legacyProviderId =
-    typeof source.providerId === 'string' && source.providerId.trim()
-      ? source.providerId.trim()
-      : settings.defaultModels.assistant?.providerId ?? settings.providers[0]?.id ?? '';
-  const currentModelRef =
-    typeof source.modelRef === 'string' && parseModelRef(source.modelRef)
-      ? source.modelRef.trim()
-      : legacyModelId && legacyProviderId
-        ? createModelRef(legacyProviderId, legacyModelId)
-        : getDefaultAssistantModelRef(settings);
-  const enabledMcpServerIds = Array.isArray(source.enabledMcpServerIds)
-    ? source.enabledMcpServerIds
-        .map((item) => (typeof item === 'string' ? item.trim() : ''))
-        .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index)
-        .filter((item) => settings.mcp.servers.some((server) => server.id === item))
-    : [];
-  const defaultAssistantName = resolveDefaultAssistantName(settings.locale);
-
-  return {
-    id,
-    name: sanitizeAssistantName(typeof source.name === 'string' ? source.name : '') || defaultAssistantName,
-    note: sanitizeAssistantName(typeof source.note === 'string' ? source.note : ''),
-    avatar:
-      typeof source.avatar === 'string' && /^[a-z0-9-]+$/i.test(source.avatar.trim())
-        ? source.avatar.trim()
-        : undefined,
-    groupId: normalizedGroupId,
-    systemPrompt:
-      typeof source.systemPrompt === 'string' && source.systemPrompt.trim()
-        ? source.systemPrompt
-        : DEFAULT_ASSISTANT_SYSTEM_PROMPT,
-    greeting: typeof source.greeting === 'string' ? source.greeting : '',
-    questionPrefix: typeof source.questionPrefix === 'string' ? source.questionPrefix : '',
-    modelRef: currentModelRef,
-    temperature: clamp(source.temperature ?? settings.temperature, 0, 2, settings.temperature),
-    topP: clamp(source.topP ?? settings.topP, 0, 1, settings.topP),
-    maxTokens: clamp(source.maxTokens ?? 0, 0, 65535, 0),
-    contextCount: clamp(source.contextCount ?? 16, 0, MAX_CONTEXT_COUNT, 16),
-    presencePenalty: clamp(source.presencePenalty ?? settings.presencePenalty, -2, 2, settings.presencePenalty),
-    frequencyPenalty: clamp(source.frequencyPenalty ?? settings.frequencyPenalty, -2, 2, settings.frequencyPenalty),
-    streaming: typeof source.streaming === 'boolean' ? source.streaming : settings.streamingDefault,
-    enabledMcpServerIds,
-    pinned: isDeleted ? false : source.pinned === true,
-    isDeleted,
-    deletedAt: typeof source.deletedAt === 'number' ? source.deletedAt : undefined,
-    originalGroupId:
-      typeof source.originalGroupId === 'string' && groupIds.has(source.originalGroupId)
-        ? source.originalGroupId
-        : undefined,
-    createdAt: typeof source.createdAt === 'number' ? source.createdAt : timestamp,
-    updatedAt: typeof source.updatedAt === 'number' ? source.updatedAt : timestamp,
-    lastInteractedAt:
-      typeof source.lastInteractedAt === 'number'
-        ? source.lastInteractedAt
-        : typeof source.updatedAt === 'number'
-          ? source.updatedAt
-          : timestamp,
-    overrides: source.overrides
-  };
-}
-
-function migrateAssistants(
-  rawAssistants: unknown,
-  settings: ChatBuddySettings,
-  groupIds: Set<string>,
-  timestamp: number
-): AssistantProfile[] {
-  if (!Array.isArray(rawAssistants)) {
-    return [];
-  }
-  const assistants: AssistantProfile[] = [];
-  for (const raw of rawAssistants) {
-    const normalized = sanitizeAssistant(raw, settings, groupIds, timestamp);
-    if (normalized) {
-      assistants.push(normalized);
-    }
-  }
-  const seen = new Set<string>();
-  const deduped: AssistantProfile[] = [];
-  for (const assistant of assistants) {
-    if (seen.has(assistant.id)) {
-      continue;
-    }
-    seen.add(assistant.id);
-    deduped.push(assistant);
-  }
-  return deduped;
-}
-
-function sanitizeSessions(rawSessions: unknown, assistantIds: Set<string>, untitledSessionTitle: string): ChatSession[] {
-  if (!Array.isArray(rawSessions)) {
-    return [];
-  }
-
-  const sessions: ChatSession[] = [];
-  for (const item of rawSessions) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-    const session = item as Partial<ChatSession>;
-    if (
-      typeof session.id !== 'string' ||
-      typeof session.assistantId !== 'string' ||
-      !assistantIds.has(session.assistantId)
-    ) {
-      continue;
-    }
-    const rawTitle = typeof session.title === 'string' && session.title.trim() ? session.title : untitledSessionTitle;
-    const normalizedTitleSource = normalizeTitleSource({
-      id: session.id,
-      assistantId: session.assistantId,
-      title: rawTitle,
-      titleSource: session.titleSource ?? 'default',
-      createdAt: typeof session.createdAt === 'number' ? session.createdAt : nowTs(),
-      updatedAt: typeof session.updatedAt === 'number' ? session.updatedAt : nowTs(),
-      messages: Array.isArray(session.messages) ? (session.messages as ChatMessage[]) : []
-    }, untitledSessionTitle);
-    const normalizedTitle =
-      normalizedTitleSource === 'default' && LEGACY_UNTITLED_SESSION_TITLES.has(rawTitle)
-        ? untitledSessionTitle
-        : rawTitle;
-
-    sessions.push({
-      id: session.id,
-      assistantId: session.assistantId,
-      title: normalizedTitle,
-      titleSource: normalizedTitleSource,
-      createdAt: typeof session.createdAt === 'number' ? session.createdAt : nowTs(),
-      updatedAt: typeof session.updatedAt === 'number' ? session.updatedAt : nowTs(),
-      messages: Array.isArray(session.messages) ? [...(session.messages as ChatMessage[])] : []
-    });
-  }
-
-  return sessions;
-}
-
-function createInitialState(): PersistedStateLite {
-  const timestamp = nowTs();
-  const groups = createSystemGroups(timestamp);
-  const settings = sanitizeSettings(undefined);
-  return {
-    groups,
-    assistants: [],
-    selectedAssistantId: undefined,
-    selectedSessionIdByAssistant: {},
-    sessionPanelCollapsed: false,
-    settings
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function looksLikePersistedState(value: unknown): value is PersistedState | Record<string, unknown> {
-  if (!isRecord(value)) {
-    return false;
-  }
-  const keys = ['groups', 'assistants', 'sessions', 'settings', 'selectedAssistantId', 'selectedSessionIdByAssistant'];
-  return keys.some((key) => Object.prototype.hasOwnProperty.call(value, key));
-}
-
-function unwrapImportedState(input: unknown): PersistedState | Record<string, unknown> | undefined {
-  if (looksLikePersistedState(input)) {
-    return input;
-  }
-  if (!isRecord(input)) {
-    return undefined;
-  }
-  if (looksLikePersistedState(input.state)) {
-    return input.state;
-  }
-  if (looksLikePersistedState(input.data)) {
-    return input.data;
-  }
-  if (input.schema !== BACKUP_SCHEMA) {
-    return undefined;
-  }
-  const version = Number(input.version);
-  if (!Number.isFinite(version) || version > BACKUP_VERSION) {
-    return undefined;
-  }
-  return undefined;
-}
 
 export interface ChatBuddyBackupData {
   schema: typeof BACKUP_SCHEMA;
   version: typeof BACKUP_VERSION;
   exportedAt: string;
-  state: PersistedState;
+  state: import('./types').PersistedState;
 }
 
 export interface CreateAssistantInput {
@@ -810,7 +81,7 @@ export interface UpdateAssistantInput {
 }
 
 export class ChatStateRepository {
-  private state: PersistedStateLite;
+  private state: import('./types').PersistedStateLite;
   private readonly storage = new ChatStorage();
   private providerApiKeys: Record<string, string> = {};
   private persistQueue: Promise<void> = Promise.resolve();
@@ -832,7 +103,7 @@ export class ChatStateRepository {
     await this.persist();
   }
 
-  public getState(): PersistedStateLite {
+  public getState(): import('./types').PersistedStateLite {
     return {
       ...this.state,
       groups: this.state.groups.map(cloneGroup),
@@ -882,7 +153,7 @@ export class ChatStateRepository {
     void this.persist();
   }
 
-  public getMcpServers(): McpServerProfile[] {
+  public getMcpServers(): import('./types').McpServerProfile[] {
     return this.state.settings.mcp.servers.map(cloneMcpServer);
   }
 
@@ -1277,10 +548,10 @@ export class ChatStateRepository {
     const assistant = this.state.assistants.find((item) => item.id === assistantId);
     const locale = resolveLocale(this.state.settings.locale, vscode.env.language);
     if (!assistant) {
-      throw new Error(locale === 'zh-CN' ? '助手不存在' : 'Assistant not found');
+      throw new Error(resolveLocaleString(locale, '助手不存在', 'Assistant not found'));
     }
     if (assistant.isDeleted) {
-      throw new Error(locale === 'zh-CN' ? '已删除助手无法创建会话' : 'Cannot create session for deleted assistant');
+      throw new Error(resolveLocaleString(locale, '已删除助手无法创建会话', 'Cannot create session for deleted assistant'));
     }
     const timestamp = nowTs();
     const greeting = assistant.greeting.trim();
@@ -1552,8 +823,8 @@ export class ChatStateRepository {
   }
 
   private mergeState(
-    saved: PersistedState | PersistedStateLite | Record<string, unknown> | undefined
-  ): { state: PersistedStateLite; sessions: ChatSessionDetail[] } {
+    saved: import('./types').PersistedState | import('./types').PersistedStateLite | Record<string, unknown> | undefined
+  ): { state: import('./types').PersistedStateLite; sessions: ChatSessionDetail[] } {
     if (!saved) {
       return {
         state: createInitialState(),
@@ -1561,7 +832,7 @@ export class ChatStateRepository {
       };
     }
     const timestamp = nowTs();
-    const source = saved as Partial<PersistedState & PersistedStateLite>;
+    const source = saved as Partial<import('./types').PersistedState & import('./types').PersistedStateLite>;
     const settings = sanitizeSettings(source.settings);
     const groups = sanitizeGroups(source.groups);
     const groupIds = new Set(groups.map((group) => group.id));
@@ -1574,7 +845,7 @@ export class ChatStateRepository {
     settings.providers = mergedProviders;
     const assistantIds = new Set(assistants.map((assistant) => assistant.id));
     const untitledSessionTitle = resolveUntitledSessionTitle(settings.locale);
-    const sessions = sanitizeSessions((source as Partial<PersistedState>).sessions, assistantIds, untitledSessionTitle);
+    const sessions = sanitizeSessions((source as Partial<import('./types').PersistedState>).sessions, assistantIds, untitledSessionTitle);
     const sessionByAssistant = new Map<string, Set<string>>();
     for (const session of sessions) {
       const bucket = sessionByAssistant.get(session.assistantId) ?? new Set<string>();
@@ -1690,12 +961,47 @@ export class ChatStateRepository {
     }
   }
 
+  private readonly PERSIST_MAX_RETRIES = 2;
+  private readonly PERSIST_RETRY_DELAY_MS = 500;
+  private persistFailureNotified = false;
+
   private queuePersist(task: () => Promise<void>): Promise<void> {
-    const run = this.persistQueue.then(task, task);
-    this.persistQueue = run.catch((error) => {
-      console.error('[ChatBuddy] Persist queue error:', error);
+    const run = this.persistQueue.then(
+      () => this.executeWithRetry(task),
+      () => this.executeWithRetry(task)
+    );
+    this.persistQueue = run.catch((err) => {
+      error('Persist queue error:', err);
+      this.notifyPersistFailure();
     });
     return run;
+  }
+
+  private async executeWithRetry(task: () => Promise<void>): Promise<void> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= this.PERSIST_MAX_RETRIES; attempt++) {
+      try {
+        await task();
+        this.persistFailureNotified = false;
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < this.PERSIST_MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, this.PERSIST_RETRY_DELAY_MS * (attempt + 1)));
+        }
+      }
+    }
+    throw lastErr;
+  }
+
+  private notifyPersistFailure(): void {
+    if (this.persistFailureNotified) {
+      return;
+    }
+    this.persistFailureNotified = true;
+    void vscode.window.showWarningMessage(
+      'ChatBuddy: Failed to save data. Your changes may not be persisted.'
+    );
   }
 
   private async persistSecrets(): Promise<void> {
@@ -1721,7 +1027,7 @@ export class ChatStateRepository {
       return;
     }
     await this.queuePersist(async () => {
-      const persistedState: PersistedStateLite = {
+      const persistedState: import('./types').PersistedStateLite = {
         ...this.state,
         settings: {
           ...this.state.settings,

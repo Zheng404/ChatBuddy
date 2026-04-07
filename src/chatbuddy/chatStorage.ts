@@ -4,7 +4,7 @@ import * as path from 'path';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from './types';
-import { nowTs } from './utils';
+import { error, nowTs } from './utils';
 
 const DB_FILE_NAME = 'chatbuddy.sqlite';
 const SCHEMA_VERSION = 2;
@@ -631,8 +631,8 @@ export class ChatStorage {
         this.schedulePersist();
       }
       return true;
-    } catch (error) {
-      console.error('Failed to clear session messages:', error);
+    } catch (e) {
+      error('Failed to clear session messages:', e);
       return false;
     }
   }
@@ -651,8 +651,8 @@ export class ChatStorage {
         this.schedulePersist();
       }
       return true;
-    } catch (error) {
-      console.error('Failed to update message:', error);
+    } catch (e) {
+      error('Failed to update message:', e);
       return false;
     } finally {
       stmt.free();
@@ -742,8 +742,8 @@ export class ChatStorage {
       await fs.promises.writeFile(this.dbPath, Buffer.from(binary));
     };
     this.persistQueue = this.persistQueue.then(persistTask, persistTask);
-    this.persistQueue = this.persistQueue.catch((error) => {
-      console.error('[ChatBuddy] ChatStorage persist error:', error);
+    this.persistQueue = this.persistQueue.catch((err) => {
+      error('ChatStorage persist error:', err);
     });
     await this.persistQueue;
   }
