@@ -2,12 +2,12 @@ import * as vscode from 'vscode';
 
 import { createModelRef, DEFAULT_TITLE_SUMMARY_PROMPT, parseModelRef } from './modelCatalog';
 import { getCodiconStyleText } from './codicon';
-import { formatString, getLanguageOptions, getStrings, resolveLocale } from './i18n';
+import { formatString, getLanguageOptions, getStrings } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { McpRuntime } from './mcpRuntime';
 import { OpenAICompatibleClient } from './providerClient';
 import { ChatStateRepository } from './stateRepository';
-import { SHARED_TOAST_STYLE, TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
+import { TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
 import { getSettingsCenterCss } from './settingsCenterStyles';
 import { getSettingsCenterJs } from './settingsCenterJs';
 import {

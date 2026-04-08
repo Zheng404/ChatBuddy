@@ -1,3 +1,5 @@
+import { getHtmlEscaperScript } from '../utils/html';
+
 /**
  * Shared variables, utilities, and navigation for the settings center webview.
  * Must be loaded first as other modules depend on these declarations.
@@ -152,15 +154,7 @@ export function getSharedJs(): string {
 export function getSharedUtilsJs(toastScript: string): string {
   return `
       ${toastScript}
-
-      function escapeHtml(input) {
-        return String(input)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
-      }
+${getHtmlEscaperScript()}
 
       function normalizeSectionValue(section) {
         return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' ? section : 'general';

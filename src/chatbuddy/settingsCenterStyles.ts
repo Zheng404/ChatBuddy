@@ -1,4 +1,5 @@
 import { SHARED_TOAST_STYLE } from './toastTheme';
+import { SHARED_WEBVIEW_BASE } from './webviewBaseTheme';
 
 /**
  * Returns the CSS for the settings center webview panel.
@@ -7,38 +8,16 @@ import { SHARED_TOAST_STYLE } from './toastTheme';
  */
 export function getSettingsCenterCss(): string {
   return `
+      ${SHARED_WEBVIEW_BASE}
+
       :root {
-        --bg: var(--vscode-editor-background);
-        --fg: var(--vscode-editor-foreground);
-        --muted: var(--vscode-descriptionForeground);
-        --border: var(--vscode-panel-border);
-        --input-bg: var(--vscode-input-background);
-        --input-fg: var(--vscode-input-foreground);
-        --input-border: var(--vscode-input-border, var(--vscode-panel-border));
-        --button-bg: var(--vscode-button-background);
-        --button-fg: var(--vscode-button-foreground);
-        --button-hover: var(--vscode-button-hoverBackground);
         --panel-bg: color-mix(in srgb, var(--bg) 92%, white 8%);
         --panel-bg-strong: color-mix(in srgb, var(--bg) 86%, white 14%);
         --accent: var(--vscode-focusBorder, var(--vscode-button-background));
       }
 
-      * {
-        box-sizing: border-box;
-      }
-
       body {
-        margin: 0;
         padding: 18px;
-        background: var(--bg);
-        color: var(--fg);
-        font-family: var(--vscode-font-family);
-      }
-
-      button,
-      input,
-      select {
-        font: inherit;
       }
 
       .shell {

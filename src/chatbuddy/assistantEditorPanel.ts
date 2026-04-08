@@ -3,13 +3,14 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from './constants';
+import { SHARED_WEBVIEW_BASE } from './webviewBaseTheme';
 import { getCodiconRootUri, getCodiconStyleText } from './codicon';
 import { getStrings, resolveLocale } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository, UpdateAssistantInput } from './stateRepository';
 import { SHARED_TOAST_STYLE, TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
 import { AssistantGroup, AssistantProfile, McpServerSummary, ProviderModelOption, RuntimeStrings } from './types';
-import { getNonce, clamp, buildCsp } from './utils';
+import { getHtmlEscaperScript, getNonce, clamp, buildCsp } from './utils';
 
 type AssistantEditorMessage =
   | { type: 'ready' }
@@ -393,30 +394,9 @@ export class AssistantEditorPanelController {
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>${codiconStyleText}</style>
-    <style>
-      :root {
-        --bg: var(--vscode-editor-background);
-        --fg: var(--vscode-editor-foreground);
-        --muted: var(--vscode-descriptionForeground);
-        --border: var(--vscode-panel-border);
-        --input-bg: var(--vscode-input-background);
-        --input-fg: var(--vscode-input-foreground);
-        --input-border: var(--vscode-input-border, var(--vscode-panel-border));
-        --button-bg: var(--vscode-button-background);
-        --button-fg: var(--vscode-button-foreground);
-        --button-hover: var(--vscode-button-hoverBackground);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
+    <style>${SHARED_WEBVIEW_BASE}
       body {
-        margin: 0;
         padding: 24px;
-        background: var(--bg);
-        color: var(--fg);
-        font-family: var(--vscode-font-family);
       }
 
       .shell {
@@ -810,15 +790,7 @@ ${TOAST_CONTAINER_HTML}
       let lastToastNotice = '';
 
 ${getToastScript()}
-
-      function escapeHtml(input) {
-        return String(input)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
-      }
+${getHtmlEscaperScript()}
 
       function renderText(strings) {
         dom.title.textContent = strings.assistantEditorTitle;

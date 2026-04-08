@@ -93,9 +93,8 @@ let cachedMcpModule: Promise<McpModule> | undefined;
 
 async function loadMcpModule(): Promise<McpModule> {
   if (!cachedMcpModule) {
-    // Use Function constructor to dynamically import ES module from CommonJS context
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    cachedMcpModule = (new Function('return import("@modelcontextprotocol/client")')()) as Promise<McpModule>;
+    // @modelcontextprotocol/client is ESM-only; dynamic import() resolves at runtime
+    cachedMcpModule = import('@modelcontextprotocol/client') as Promise<McpModule>;
   }
   return cachedMcpModule;
 }
@@ -106,6 +105,27 @@ function toRecord(entries: Array<{ key: string; value: string }>): Record<string
       .map((entry) => [entry.key.trim(), entry.value] as const)
       .filter(([key]) => key.length > 0)
   );
+}
+
+function hasInvalidProcessText(value: string): boolean {
+  return value.includes('\0') || value.includes('\r') || value.includes('\n');
+}
+
+function validateStdioLaunchConfig(server: McpServerProfile): { command: string; args: string[] } {
+  const command = server.command.trim();
+  if (!command) {
+    throw new Error(`MCP server ${server.name} is missing command.`);
+  }
+  if (hasInvalidProcessText(command)) {
+    throw new Error(`MCP server ${server.name} command contains invalid control characters.`);
+  }
+  if (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string' || hasInvalidProcessText(arg))) {
+    throw new Error(`MCP server ${server.name} args must be an array of plain strings.`);
+  }
+  return {
+    command,
+    args: server.args
+  };
 }
 
 function getEnabledServers(settings: ChatBuddySettings, assistant: AssistantProfile): McpServerProfile[] {
@@ -499,12 +519,10 @@ export class McpRuntime {
   private async connectTransport(serverClient: McpClient, server: McpServerProfile) {
     const { SSEClientTransport, StdioClientTransport, StreamableHTTPClientTransport } = await loadMcpModule();
     if (server.transport === 'stdio') {
-      if (!server.command.trim()) {
-        throw new Error(`MCP server ${server.name} is missing command.`);
-      }
+      const { command, args } = validateStdioLaunchConfig(server);
       const transport = new StdioClientTransport({
-        command: server.command.trim(),
-        args: server.args,
+        command,
+        args,
         cwd: server.cwd.trim() || undefined,
         env: {
           ...getInheritedEnv(),

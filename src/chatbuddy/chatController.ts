@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { getCodiconRootUri } from './codicon';
 import { buildRemotePassthroughTools, McpRuntime } from './mcpRuntime';
 import { parseModelRef, DEFAULT_TITLE_SUMMARY_PROMPT } from './modelCatalog';
-import { formatString, getAssistantLocalization, getDefaultSessionTitle, getStrings, resolveLocale } from './i18n';
+import { formatString, getAssistantLocalization, getDefaultSessionTitle, getStrings } from './i18n';
 import { applyQuestionPrefix, mergeReasoningParts, splitThinkTaggedContent, toProviderMessages } from './chatUtils';
 import {
   OpenAICompatibleClient,
@@ -15,6 +15,7 @@ import {
 } from './providerClient';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository } from './stateRepository';
+import { TITLE_GENERATION } from './constants';
 import { getChatWebviewHtml } from './webview';
 import { createId, nowTs } from './utils/id';
 import {
@@ -27,13 +28,165 @@ import {
   ProviderConfig,
   ProviderToolDefinition,
   RuntimeLocale,
+  RuntimeStrings,
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
-import { getLocaleFromSettings } from './utils';
+import { getLocaleFromSettings, warn } from './utils';
 
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
 const STREAM_FLUSH_INTERVAL_MS = 50;
+type GenerationAbortReason = 'manual' | 'timeout';
+
+/** Shared state for incremental stream accumulation and throttled flush. */
+type StreamAccumulator = {
+  rawMerged: string;
+  rawPersisted: string;
+  reasoningMerged: string;
+  reasoningPersisted: string;
+  flushTimer: ReturnType<typeof setTimeout> | undefined;
+};
+
+/** Parameters that vary between sendMessage and streamFinalResponse. */
+type StreamFlushParams = {
+  assistantId: string;
+  sessionId: string;
+  fallbackMessageId: string;
+  modelLabel: string;
+  toolRounds?: ChatToolRound[];
+  context?: PanelMessageContext;
+};
+
+function createStreamAccumulator(): StreamAccumulator {
+  return {
+    rawMerged: '',
+    rawPersisted: '',
+    reasoningMerged: '',
+    reasoningPersisted: '',
+    flushTimer: undefined
+  };
+}
+
+/**
+ * Build a flush callback that parses think-tagged content, merges reasoning,
+ * persists the assistant message, and notifies the webview.
+ */
+function buildStreamFlush(
+  acc: StreamAccumulator,
+  params: StreamFlushParams,
+  repository: ChatStateRepository,
+  strings: RuntimeStrings
+): (persist: boolean) => void {
+  return (persist: boolean) => {
+    const thinkSplit = splitThinkTaggedContent(acc.rawMerged);
+    const contentValue = thinkSplit.content.trim() || strings.emptyResponse;
+    const reasoningValue = mergeReasoningParts(acc.reasoningMerged, thinkSplit.reasoning);
+    repository.updateLastAssistantMessage(
+      params.assistantId,
+      params.sessionId,
+      (current) => ({
+        id: current?.id ?? params.fallbackMessageId,
+        role: 'assistant',
+        content: contentValue,
+        timestamp: nowTs(),
+        model: params.modelLabel,
+        reasoning: reasoningValue,
+        ...(params.toolRounds ? { toolRounds: params.toolRounds } : {})
+      }),
+      persist
+    );
+    acc.rawPersisted = acc.rawMerged;
+    acc.reasoningPersisted = acc.reasoningMerged;
+  };
+}
+
+/**
+ * Schedule a throttled flush. Only one timer runs at a time; re-entrant calls are no-ops.
+ */
+function scheduleStreamFlush(acc: StreamAccumulator, flush: (persist: boolean) => void): void {
+  if (acc.flushTimer) { return; }
+  acc.flushTimer = setTimeout(() => {
+    acc.flushTimer = undefined;
+    if (acc.rawMerged !== acc.rawPersisted || acc.reasoningMerged !== acc.reasoningPersisted) {
+      flush(false);
+    }
+  }, STREAM_FLUSH_INTERVAL_MS);
+}
+
+/** Cancel a pending flush timer if one exists. */
+function clearStreamFlush(acc: StreamAccumulator): void {
+  if (acc.flushTimer) {
+    clearTimeout(acc.flushTimer);
+    acc.flushTimer = undefined;
+  }
+}
+
+/**
+ * Build stream callbacks (onDelta, onReasoningDelta, onDone) that feed into an accumulator.
+ */
+function buildStreamCallbacks(
+  acc: StreamAccumulator,
+  flush: (persist: boolean) => void
+): { onDelta: (delta: string) => void; onReasoningDelta: (delta: string) => void; onDone: () => void } {
+  return {
+    onDelta: (delta) => {
+      acc.rawMerged += delta;
+      scheduleStreamFlush(acc, flush);
+    },
+    onReasoningDelta: (delta) => {
+      acc.reasoningMerged += delta;
+      scheduleStreamFlush(acc, flush);
+    },
+    onDone: () => {
+      clearStreamFlush(acc);
+      flush(true);
+    }
+  };
+}
+
+/** Build a partial-error message from the current accumulated stream content. */
+function buildStreamErrorContent(
+  acc: StreamAccumulator,
+  userFacingError: string
+): { content: string; reasoning?: string } {
+  const partialSplit = splitThinkTaggedContent(acc.rawMerged);
+  const partial = partialSplit.content.trim();
+  const reasoningPartial = mergeReasoningParts(acc.reasoningMerged, partialSplit.reasoning);
+  return {
+    content: partial ? `${partial}\n\n${userFacingError}` : userFacingError,
+    reasoning: reasoningPartial || undefined
+  };
+}
+
+function resolveGenerationErrorMessage(
+  error: unknown,
+  abortReason: GenerationAbortReason | undefined,
+  strings: RuntimeStrings
+): string {
+  if (abortReason === 'manual') {
+    return strings.generationStopped;
+  }
+  if (abortReason === 'timeout') {
+    return strings.requestTimeout;
+  }
+  if (error instanceof Error) {
+    const errorMsg = error.message.toLowerCase();
+    if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
+      return strings.networkError || error.message;
+    }
+    if (errorMsg.includes('401') || errorMsg.includes('unauthorized')) {
+      return strings.authFailed || error.message;
+    }
+    if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+      return strings.rateLimitExceeded || error.message;
+    }
+    if (errorMsg.includes('timeout')) {
+      return strings.requestTimeout;
+    }
+    return error.message || strings.unknownError;
+  }
+  return strings.unknownError;
+}
 
 type PanelMessageContext = {
   panel: vscode.WebviewPanel;
@@ -65,7 +218,7 @@ export class ChatController {
   private isGenerating = false;
   private pendingToolContinuation: PendingToolContinuation | undefined;
   private abortController: AbortController | undefined;
-  private abortReason: 'manual' | 'timeout' | undefined;
+  private abortReason: GenerationAbortReason | undefined;
   private sessionTempModelRefBySession: Record<string, string> = {};
   private lastSelectedSessionIdByAssistant: Record<string, string | undefined> = {};
 
@@ -166,7 +319,7 @@ export class ChatController {
     this.postState();
   }
 
-  public stopGeneration(reason: 'manual' | 'timeout' = 'manual'): void {
+  public stopGeneration(reason: GenerationAbortReason = 'manual'): void {
     this.abortReason = reason;
     this.abortController?.abort();
   }
@@ -204,6 +357,21 @@ export class ChatController {
     const state = this.repository.getState();
     this.repository.setSessionPanelCollapsed(!state.sessionPanelCollapsed);
     this.postState();
+  }
+
+  /**
+   * Dispose the multi-tab panel for a given assistant (if any).
+   * Called when an assistant is permanently deleted to prevent stale references.
+   */
+  public disposePanelForAssistant(assistantId: string): void {
+    const panel = this.panelsByAssistantId.get(assistantId);
+    if (panel) {
+      this.panelsByAssistantId.delete(assistantId);
+      panel.dispose();
+      if (this.panel === panel) {
+        this.panel = undefined;
+      }
+    }
   }
 
   public applySettings(settings: ChatBuddySettings): void {
@@ -758,91 +926,42 @@ export class ChatController {
     chatToolRounds: ChatToolRound[],
     context?: PanelMessageContext
   ): Promise<void> {
-    let streamRawMerged = '';
-    let streamRawPersisted = '';
-    let streamReasoningDeltaMerged = '';
-    let streamReasoningDeltaPersisted = '';
-    let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
     const strings = getStrings(pending.locale);
-
-    const flushStreamMessage = (persist: boolean) => {
-      const thinkSplit = splitThinkTaggedContent(streamRawMerged);
-      const contentValue = thinkSplit.content.trim() || strings.emptyResponse;
-      const reasoningValue = mergeReasoningParts(streamReasoningDeltaMerged, thinkSplit.reasoning);
-      this.repository.updateLastAssistantMessage(
-        pending.assistant.id,
-        pending.sessionId,
-        (current) => ({
-          id: current?.id ?? pending.assistantMessageId,
-          role: 'assistant',
-          content: contentValue,
-          timestamp: nowTs(),
-          model: pending.providerConfig.modelLabel,
-          reasoning: reasoningValue,
-          toolRounds: chatToolRounds
-        }),
-        persist
-      );
-      streamRawPersisted = streamRawMerged;
-      streamReasoningDeltaPersisted = streamReasoningDeltaMerged;
-      this.postState(undefined, context);
+    const acc = createStreamAccumulator();
+    const params: StreamFlushParams = {
+      assistantId: pending.assistant.id,
+      sessionId: pending.sessionId,
+      fallbackMessageId: pending.assistantMessageId,
+      modelLabel: pending.providerConfig.modelLabel,
+      toolRounds: chatToolRounds,
+      context
     };
-
-    const scheduleStreamFlush = () => {
-      if (streamFlushTimer) { return; }
-      streamFlushTimer = setTimeout(() => {
-        streamFlushTimer = undefined;
-        if (streamRawMerged !== streamRawPersisted || streamReasoningDeltaMerged !== streamReasoningDeltaPersisted) {
-          flushStreamMessage(false);
-        }
-      }, STREAM_FLUSH_INTERVAL_MS);
-    };
+    const flush = buildStreamFlush(acc, params, this.repository, strings);
+    const callbacks = buildStreamCallbacks(acc, flush);
 
     try {
       await this.providerClient.chatStream(
         pending.providerMessages,
         pending.providerConfig,
-        {
-          onDelta: (delta) => {
-            streamRawMerged += delta;
-            scheduleStreamFlush();
-          },
-          onReasoningDelta: (delta) => {
-            streamReasoningDeltaMerged += delta;
-            scheduleStreamFlush();
-          },
-          onDone: () => {
-            if (streamFlushTimer) {
-              clearTimeout(streamFlushTimer);
-              streamFlushTimer = undefined;
-            }
-            flushStreamMessage(true);
-          }
-        },
+        callbacks,
         pending.locale,
         this.abortController?.signal,
         { toolRounds: pending.toolRounds }
       );
     } catch (error) {
-      if (streamFlushTimer) {
-        clearTimeout(streamFlushTimer);
-        streamFlushTimer = undefined;
-      }
-      const partialSplit = splitThinkTaggedContent(streamRawMerged);
-      const partial = partialSplit.content.trim();
-      const reasoningPartial = mergeReasoningParts(streamReasoningDeltaMerged, partialSplit.reasoning);
+      clearStreamFlush(acc);
       const errorMsg = error instanceof Error ? error.message : strings.unknownError;
-      const fallbackContent = partial ? `${partial}\n\n${errorMsg}` : errorMsg;
+      const partial = buildStreamErrorContent(acc, errorMsg);
       this.repository.updateLastAssistantMessage(
         pending.assistant.id,
         pending.sessionId,
         (current) => ({
           id: current?.id ?? pending.assistantMessageId,
           role: 'assistant',
-          content: fallbackContent,
+          content: partial.content,
           timestamp: nowTs(),
           model: pending.providerConfig.modelLabel,
-          reasoning: reasoningPartial || undefined,
+          reasoning: partial.reasoning,
           toolRounds: chatToolRounds
         }),
         true
@@ -877,27 +996,7 @@ export class ChatController {
     try {
       await this.runToolCallingBatch(pending, targetContext);
     } catch (error) {
-      let fallback: string;
-      if (this.abortReason === 'manual') {
-        fallback = strings.generationStopped;
-      } else if (this.abortReason === 'timeout') {
-        fallback = strings.requestTimeout;
-      } else if (error instanceof Error) {
-        const errorMsg = error.message.toLowerCase();
-        if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
-          fallback = strings.networkError || error.message;
-        } else if (errorMsg.includes('401') || errorMsg.includes('unauthorized')) {
-          fallback = strings.authFailed || error.message;
-        } else if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
-          fallback = strings.rateLimitExceeded || error.message;
-        } else if (errorMsg.includes('timeout')) {
-          fallback = strings.requestTimeout;
-        } else {
-          fallback = error.message || strings.unknownError;
-        }
-      } else {
-        fallback = strings.unknownError;
-      }
+      const fallback = resolveGenerationErrorMessage(error, this.abortReason, strings);
 
       this.applyProviderResultToAssistantMessage(
         pending.assistant.id,
@@ -1128,67 +1227,23 @@ export class ChatController {
 
     this.postState(undefined, context);
 
-    let streamRawMerged = '';
-    let streamRawPersisted = '';
-    let streamReasoningDeltaMerged = '';
-    let streamReasoningDeltaPersisted = '';
-    let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
-    const flushStreamMessage = (persist: boolean) => {
-      const thinkSplit = splitThinkTaggedContent(streamRawMerged);
-      const mergedTrimmed = thinkSplit.content.trim();
-      const contentValue = mergedTrimmed ? mergedTrimmed : strings.emptyResponse;
-      const reasoningValue = mergeReasoningParts(streamReasoningDeltaMerged, thinkSplit.reasoning);
-      this.repository.updateLastAssistantMessage(
-        assistant.id,
-        selectedSession.id,
-        (current) => ({
-          id: current?.id ?? assistantMessage.id,
-          role: 'assistant',
-          content: contentValue,
-          timestamp: nowTs(),
-          model: resolved.config.modelLabel,
-          reasoning: reasoningValue
-        }),
-        persist
-      );
-      streamRawPersisted = streamRawMerged;
-      streamReasoningDeltaPersisted = streamReasoningDeltaMerged;
-      this.postState(undefined, context);
+    const acc = createStreamAccumulator();
+    const streamParams: StreamFlushParams = {
+      assistantId: assistant.id,
+      sessionId: selectedSession.id,
+      fallbackMessageId: assistantMessage.id,
+      modelLabel: resolved.config.modelLabel,
+      context
     };
-    const scheduleStreamFlush = () => {
-      if (streamFlushTimer) {
-        return;
-      }
-      streamFlushTimer = setTimeout(() => {
-        streamFlushTimer = undefined;
-        if (streamRawMerged !== streamRawPersisted || streamReasoningDeltaMerged !== streamReasoningDeltaPersisted) {
-          flushStreamMessage(false);
-        }
-      }, STREAM_FLUSH_INTERVAL_MS);
-    };
+    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.repository, strings);
+    const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
 
     try {
       if (useStreaming) {
         await this.providerClient.chatStream(
           providerMessages,
           resolved.config,
-          {
-            onDelta: (delta) => {
-              streamRawMerged += delta;
-              scheduleStreamFlush();
-            },
-            onReasoningDelta: (delta) => {
-              streamReasoningDeltaMerged += delta;
-              scheduleStreamFlush();
-            },
-            onDone: () => {
-              if (streamFlushTimer) {
-                clearTimeout(streamFlushTimer);
-                streamFlushTimer = undefined;
-              }
-              flushStreamMessage(true);
-            }
-          },
+          streamCallbacks,
           locale,
           this.abortController.signal
         );
@@ -1232,44 +1287,17 @@ export class ChatController {
         );
       }
     } catch (error) {
-      if (streamFlushTimer) {
-        clearTimeout(streamFlushTimer);
-        streamFlushTimer = undefined;
-      }
+      clearStreamFlush(acc);
+      const fallback = resolveGenerationErrorMessage(error, this.abortReason, strings);
 
-      let fallback: string;
-      if (this.abortReason === 'manual') {
-        fallback = strings.generationStopped;
-      } else if (this.abortReason === 'timeout') {
-        fallback = strings.requestTimeout;
-      } else if (error instanceof Error) {
-        const errorMsg = error.message.toLowerCase();
-        if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
-          fallback = strings.networkError || error.message;
-        } else if (errorMsg.includes('401') || errorMsg.includes('unauthorized')) {
-          fallback = strings.authFailed || error.message;
-        } else if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
-          fallback = strings.rateLimitExceeded || error.message;
-        } else if (errorMsg.includes('timeout')) {
-          fallback = strings.requestTimeout;
-        } else {
-          fallback = error.message || strings.unknownError;
-        }
-      } else {
-        fallback = strings.unknownError;
-      }
-
-      const partialSplit = splitThinkTaggedContent(streamRawMerged);
-      const partial = partialSplit.content.trim();
-      const reasoningPartial = mergeReasoningParts(streamReasoningDeltaMerged, partialSplit.reasoning);
-      const fallbackMessage = partial ? `${partial}\n\n${fallback}` : fallback;
+      const partial = buildStreamErrorContent(acc, fallback);
       this.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
         id: current?.id ?? assistantMessage.id,
         role: 'assistant',
-        content: fallbackMessage,
+        content: partial.content,
         timestamp: nowTs(),
         model: resolved.config.modelLabel,
-        reasoning: reasoningPartial
+        reasoning: partial.reasoning
       }));
 
       this.postError(fallback, context);
@@ -1283,7 +1311,9 @@ export class ChatController {
       // Trigger background title generation after response completes
       const currentSession = this.repository.getSessionById(selectedSession.id);
       if (currentSession && currentSession.titleSource === 'default') {
-        this.triggerTitleGeneration(assistant.id, currentSession.id).catch(() => {});
+        this.triggerTitleGeneration(assistant.id, currentSession.id).catch((err) => {
+          warn('Background title generation failed:', err);
+        });
       }
     }
   }
@@ -1300,10 +1330,10 @@ export class ChatController {
     }
 
     const { config, meta } = resolveModelBindingConfig(settings, titleBinding, {
-      maxTokens: 4000,
-      temperature: 0.5,
-      contextCount: 4,
-      timeoutMs: 30000
+      maxTokens: TITLE_GENERATION.MAX_TOKENS,
+      temperature: TITLE_GENERATION.TEMPERATURE,
+      contextCount: TITLE_GENERATION.CONTEXT_COUNT,
+      timeoutMs: TITLE_GENERATION.TIMEOUT_MS
     });
     if (!meta.providerExists || !meta.providerEnabled || !meta.modelExists) {
       return;
@@ -1321,14 +1351,16 @@ export class ChatController {
         [{ role: 'system', content: prompt }, ...contextMessages],
         config,
         locale,
-        AbortSignal.timeout(15000)
+        AbortSignal.timeout(TITLE_GENERATION.ABORT_TIMEOUT_MS)
       );
 
       const title = result.text?.trim();
       if (title) {
         this.repository.generateSessionTitle(assistantId, sessionId, title);
       }
-    } catch {}
+    } catch (err) {
+      warn('Title generation failed:', err);
+    }
   }
 
   private async regenerateReply(context?: PanelMessageContext): Promise<void> {

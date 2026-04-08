@@ -198,11 +198,11 @@ export class ChatStorage {
   }
 
   public appendMessage(assistantId: string, sessionId: string, message: ChatMessage, updatedAt: number, persist = true): boolean {
-    const summary = this.getSessionSummary(assistantId, sessionId);
-    if (!summary) {
+    if (!this.sessionExists(assistantId, sessionId)) {
       return false;
     }
     const nextSeq = this.getNextSeq(sessionId);
+    const messageCount = nextSeq; // seq is 0-based, so count = nextSeq
     const db = this.ensureDb();
     db.run(
       `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq)
@@ -218,12 +218,13 @@ export class ChatStorage {
         nextSeq
       ]
     );
-    const preview = toStringValue(message.content).trim() ? toStringValue(message.content).trim().slice(0, PREVIEW_MAX_LENGTH) : summary.preview;
+    const messageContent = toStringValue(message.content).trim();
+    const preview = messageContent ? messageContent.slice(0, PREVIEW_MAX_LENGTH) : undefined;
     db.run(
       `UPDATE sessions_meta
           SET updated_at = ?, message_count = ?, preview = ?
         WHERE id = ?`,
-      [updatedAt, summary.messageCount + 1, preview ?? null, sessionId]
+      [updatedAt, messageCount, preview ?? null, sessionId]
     );
     if (persist) {
       this.schedulePersist();
@@ -238,10 +239,16 @@ export class ChatStorage {
     updatedAt: number,
     persist = true
   ): boolean {
-    const summary = this.getSessionSummary(assistantId, sessionId);
-    if (!summary) {
+    if (!this.sessionExists(assistantId, sessionId)) {
       return false;
     }
+
+    // Lightweight: only fetch message_count for fallbackCount computation
+    const metaRow = this.queryOne(
+      `SELECT message_count FROM sessions_meta WHERE id = ?`,
+      [sessionId]
+    );
+    const existingCount = toNumberValue(metaRow?.message_count, 0);
 
     const target = this.queryOne(
       `SELECT id, role, content, reasoning, model, ts, seq, tool_rounds
@@ -281,7 +288,8 @@ export class ChatStorage {
       );
     }
 
-    this.updateSessionMetaFromMessages(sessionId, updatedAt, summary.messageCount + (target ? 0 : 1));
+    // Pass fallbackCount so updateSessionMetaFromMessages can skip the COUNT query
+    this.updateSessionMetaFromMessages(sessionId, updatedAt, existingCount + (target ? 0 : 1));
     if (persist) {
       this.schedulePersist();
     }
@@ -670,9 +678,13 @@ export class ChatStorage {
   }
 
   private updateSessionMetaFromMessages(sessionId: string, updatedAt: number, fallbackCount?: number): void {
+    // Single query: get count, max seq, and latest message content in one pass
     const stats = this.queryOne(
       `SELECT COUNT(1) AS count,
-              MAX(seq) AS max_seq
+              MAX(seq) AS max_seq,
+              (SELECT content FROM messages m2
+                 WHERE m2.session_id = messages.session_id
+                 ORDER BY m2.seq DESC LIMIT 1) AS latest_content
          FROM messages
         WHERE session_id = ?`,
       [sessionId]
@@ -680,15 +692,7 @@ export class ChatStorage {
     const count = toNumberValue(stats?.count, fallbackCount ?? 0);
     let preview: string | undefined;
     if (count > 0) {
-      const latest = this.queryOne(
-        `SELECT content
-           FROM messages
-          WHERE session_id = ?
-          ORDER BY seq DESC
-          LIMIT 1`,
-        [sessionId]
-      );
-      const content = toStringValue(latest?.content).trim();
+      const content = toStringValue(stats?.latest_content).trim();
       preview = content ? content.slice(0, PREVIEW_MAX_LENGTH) : undefined;
     }
     const db = this.ensureDb();

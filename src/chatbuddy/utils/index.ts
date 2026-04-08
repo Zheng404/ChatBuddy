@@ -7,6 +7,9 @@ export { createId, nowTs } from './id';
 // CSP和安全
 export { getNonce, buildCsp } from './csp';
 
+// HTML工具
+export { escapeHtml, escapeHtmlAttr, getHtmlEscaperScript } from './html';
+
 // 本地化工具
 export {
   getLocaleFromSettings,

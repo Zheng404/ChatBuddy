@@ -1,6 +1,7 @@
 import { getStrings } from './i18n';
 import { hasAnyCapability } from './modelCapabilities';
 import { createModelRef, getModelDisplayLabel, parseModelRef } from './modelCatalog';
+import { TIMEOUT } from './constants';
 import {
   AssistantProfile,
   ChatBuddySettings,
@@ -56,6 +57,47 @@ export interface ProviderConnectionInput {
   baseUrl: string;
   modelId?: string;
 }
+
+type MediaKind = 'image' | 'video';
+
+type MediaSourceConfig = {
+  defaultDataMime: string;
+  directKeys: readonly string[];
+  nestedKeys: readonly string[];
+  encodedKeys: ReadonlyArray<{ key: string; appendKind?: boolean }>;
+};
+
+const HTTP_URL_RE = /^https?:\/\/\S+$/i;
+const DATA_IMAGE_URL_RE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i;
+const DATA_VIDEO_URL_RE = /^data:video\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i;
+const BASE64_RE = /^[a-z0-9+/]+=*$/i;
+const WHITESPACE_RE = /\s+/g;
+const MEDIA_SOURCE_MAX_DEPTH = 4;
+
+const MEDIA_SOURCE_CONFIG: Record<MediaKind, MediaSourceConfig> = {
+  image: {
+    defaultDataMime: 'image/png',
+    directKeys: ['url', 'image_url', 'imageUrl', 'image'],
+    nestedKeys: ['content', 'output', 'item', 'items', 'response', 'images'],
+    encodedKeys: [
+      { key: 'b64_json', appendKind: true },
+      { key: 'base64', appendKind: true },
+      { key: 'data', appendKind: true },
+      { key: 'result' }
+    ]
+  },
+  video: {
+    defaultDataMime: 'video/mp4',
+    directKeys: ['url', 'video_url', 'videoUrl', 'video'],
+    nestedKeys: ['content', 'output', 'item', 'items', 'response', 'videos'],
+    encodedKeys: [
+      { key: 'b64_json', appendKind: true },
+      { key: 'base64', appendKind: true },
+      { key: 'data', appendKind: true },
+      { key: 'result' }
+    ]
+  }
+};
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
@@ -236,109 +278,100 @@ function toTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/**
+ * Safely extract an object from an unknown value.
+ * Returns a Record (always truthy for property access) or null.
+ * Use this instead of raw `as` assertions when parsing external API responses.
+ */
+function toObject<T extends Record<string, unknown>>(value: unknown): T | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as T) : null;
+}
+
 function isHttpUrl(value: string): boolean {
-  return /^https?:\/\/\S+$/i.test(value);
+  return HTTP_URL_RE.test(value);
 }
 
 function isDataImageUrl(value: string): boolean {
-  return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(value);
+  return DATA_IMAGE_URL_RE.test(value);
 }
 
 function isDataVideoUrl(value: string): boolean {
-  return /^data:video\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(value);
+  return DATA_VIDEO_URL_RE.test(value);
 }
 
 function looksLikeBase64(value: string): boolean {
-  const normalized = value.replace(/\s+/g, '');
+  const normalized = value.replace(WHITESPACE_RE, '');
   if (normalized.length < 64 || normalized.length % 4 !== 0) {
     return false;
   }
-  return /^[a-z0-9+/]+=*$/i.test(normalized);
+  return BASE64_RE.test(normalized);
 }
 
-function toImageSource(value: unknown, typeHint = '', depth = 0): string | undefined {
-  if (depth > 4) {
+function toMediaSource(value: unknown, mediaKind: MediaKind, typeHint = '', depth = 0): string | undefined {
+  if (depth > MEDIA_SOURCE_MAX_DEPTH) {
     return undefined;
   }
+  const config = MEDIA_SOURCE_CONFIG[mediaKind];
+  const normalizedHint = typeHint.toLowerCase();
   if (typeof value === 'string') {
     const candidate = value.trim();
     if (!candidate) {
       return undefined;
     }
-    if (isHttpUrl(candidate) || isDataImageUrl(candidate)) {
+    const isDataUrl = mediaKind === 'image' ? isDataImageUrl(candidate) : isDataVideoUrl(candidate);
+    if (isHttpUrl(candidate) || isDataUrl) {
       return candidate;
     }
-    if (typeHint.includes('image') && looksLikeBase64(candidate)) {
-      return `data:image/png;base64,${candidate.replace(/\s+/g, '')}`;
+    if (normalizedHint.includes(mediaKind) && looksLikeBase64(candidate)) {
+      return `data:${config.defaultDataMime};base64,${candidate.replace(WHITESPACE_RE, '')}`;
     }
     return undefined;
   }
-  if (!value || typeof value !== 'object') {
+
+  const payload = toObject<Record<string, unknown>>(value);
+  if (!payload) {
     return undefined;
   }
 
-  const payload = value as {
-    type?: string;
-    kind?: string;
-    url?: string;
-    image_url?: string | { url?: string };
-    imageUrl?: string | { url?: string };
-    image?: unknown;
-    b64_json?: string;
-    base64?: string;
-    data?: string;
-    content?: unknown;
-    output?: unknown;
-    item?: unknown;
-    items?: unknown;
-    response?: unknown;
-    images?: unknown;
-    result?: string;
-  };
-  const nextHint = `${typeHint} ${toTrimmedString(payload.type).toLowerCase()} ${toTrimmedString(payload.kind).toLowerCase()}`.trim();
+  const nextHint = `${normalizedHint} ${toTrimmedString(payload.type).toLowerCase()} ${toTrimmedString(payload.kind).toLowerCase()}`.trim();
 
-  const directUrl =
-    toImageSource(payload.url, nextHint, depth + 1) ||
-    toImageSource(payload.image_url, nextHint, depth + 1) ||
-    toImageSource(payload.imageUrl, nextHint, depth + 1) ||
-    toImageSource(payload.image, nextHint, depth + 1) ||
-    toImageSource(
-      (payload.image_url && typeof payload.image_url === 'object' ? payload.image_url.url : undefined) ??
-        (payload.imageUrl && typeof payload.imageUrl === 'object' ? payload.imageUrl.url : undefined),
-      nextHint,
-      depth + 1
-    );
-  if (directUrl) {
-    return directUrl;
+  for (const key of config.directKeys) {
+    const source = toMediaSource(payload[key], mediaKind, nextHint, depth + 1);
+    if (source) {
+      return source;
+    }
   }
 
-  const encodedSource =
-    toImageSource(payload.b64_json, `${nextHint} image`, depth + 1) ||
-    toImageSource(payload.base64, `${nextHint} image`, depth + 1) ||
-    toImageSource(payload.data, `${nextHint} image`, depth + 1) ||
-    toImageSource(payload.result, nextHint, depth + 1);
-  if (encodedSource) {
-    return encodedSource;
+  for (const { key, appendKind } of config.encodedKeys) {
+    const hint = appendKind ? `${nextHint} ${mediaKind}`.trim() : nextHint;
+    const source = toMediaSource(payload[key], mediaKind, hint, depth + 1);
+    if (source) {
+      return source;
+    }
   }
 
-  const nestedCandidates = [payload.content, payload.output, payload.item, payload.items, payload.response, payload.images];
-  for (const candidate of nestedCandidates) {
+  for (const key of config.nestedKeys) {
+    const candidate = payload[key];
     if (Array.isArray(candidate)) {
       for (const item of candidate) {
-        const source = toImageSource(item, nextHint, depth + 1);
+        const source = toMediaSource(item, mediaKind, nextHint, depth + 1);
         if (source) {
           return source;
         }
       }
       continue;
     }
-    const source = toImageSource(candidate, nextHint, depth + 1);
+    const source = toMediaSource(candidate, mediaKind, nextHint, depth + 1);
     if (source) {
       return source;
     }
   }
 
   return undefined;
+}
+
+function toImageSource(value: unknown, typeHint = '', depth = 0): string | undefined {
+  return toMediaSource(value, 'image', typeHint, depth);
 }
 
 function toImageMarkdown(value: unknown, typeHint = ''): string | undefined {
@@ -350,88 +383,7 @@ function toImageMarkdown(value: unknown, typeHint = ''): string | undefined {
 }
 
 function toVideoSource(value: unknown, typeHint = '', depth = 0): string | undefined {
-  if (depth > 4) {
-    return undefined;
-  }
-  if (typeof value === 'string') {
-    const candidate = value.trim();
-    if (!candidate) {
-      return undefined;
-    }
-    if (isHttpUrl(candidate) || isDataVideoUrl(candidate)) {
-      return candidate;
-    }
-    if (typeHint.includes('video') && looksLikeBase64(candidate)) {
-      return `data:video/mp4;base64,${candidate.replace(/\s+/g, '')}`;
-    }
-    return undefined;
-  }
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-
-  const payload = value as {
-    type?: string;
-    kind?: string;
-    url?: string;
-    video_url?: string | { url?: string };
-    videoUrl?: string | { url?: string };
-    video?: unknown;
-    b64_json?: string;
-    base64?: string;
-    data?: string;
-    content?: unknown;
-    output?: unknown;
-    item?: unknown;
-    items?: unknown;
-    response?: unknown;
-    videos?: unknown;
-    result?: string;
-  };
-  const nextHint = `${typeHint} ${toTrimmedString(payload.type).toLowerCase()} ${toTrimmedString(payload.kind).toLowerCase()}`.trim();
-
-  const directUrl =
-    toVideoSource(payload.url, nextHint, depth + 1) ||
-    toVideoSource(payload.video_url, nextHint, depth + 1) ||
-    toVideoSource(payload.videoUrl, nextHint, depth + 1) ||
-    toVideoSource(payload.video, nextHint, depth + 1) ||
-    toVideoSource(
-      (payload.video_url && typeof payload.video_url === 'object' ? payload.video_url.url : undefined) ??
-        (payload.videoUrl && typeof payload.videoUrl === 'object' ? payload.videoUrl.url : undefined),
-      nextHint,
-      depth + 1
-    );
-  if (directUrl) {
-    return directUrl;
-  }
-
-  const encodedSource =
-    toVideoSource(payload.b64_json, `${nextHint} video`, depth + 1) ||
-    toVideoSource(payload.base64, `${nextHint} video`, depth + 1) ||
-    toVideoSource(payload.data, `${nextHint} video`, depth + 1) ||
-    toVideoSource(payload.result, nextHint, depth + 1);
-  if (encodedSource) {
-    return encodedSource;
-  }
-
-  const nestedCandidates = [payload.content, payload.output, payload.item, payload.items, payload.response, payload.videos];
-  for (const candidate of nestedCandidates) {
-    if (Array.isArray(candidate)) {
-      for (const item of candidate) {
-        const source = toVideoSource(item, nextHint, depth + 1);
-        if (source) {
-          return source;
-        }
-      }
-      continue;
-    }
-    const source = toVideoSource(candidate, nextHint, depth + 1);
-    if (source) {
-      return source;
-    }
-  }
-
-  return undefined;
+  return toMediaSource(value, 'video', typeHint, depth);
 }
 
 function toVideoMarkdown(value: unknown, typeHint = ''): string | undefined {
@@ -514,7 +466,7 @@ function extractResponsesToolCalls(payload: {
 }
 
 function extractChatCompletionResult(data: unknown): ProviderChatResult {
-  const payload = data as {
+  const payload = toObject<{
     choices?: Array<{
       message?: {
         content?: string | Array<{ type?: string; text?: string; value?: string; content?: string }>;
@@ -530,10 +482,9 @@ function extractChatCompletionResult(data: unknown): ProviderChatResult {
         }>;
       };
     }>;
-  };
+  }>(data);
 
-
-  const message = payload.choices?.[0]?.message;
+  const message = payload?.choices?.[0]?.message;
   if (!message) {
     return { text: '' };
   }
@@ -595,10 +546,7 @@ function extractChatCompletionResult(data: unknown): ProviderChatResult {
 }
 
 function extractResponsesResult(data: unknown): ProviderChatResult {
-  if (!data || typeof data !== 'object') {
-    return { text: '' };
-  }
-  const payload = data as {
+  const payload = toObject<{
     id?: string;
     output_text?: string;
     output?: Array<{
@@ -612,7 +560,10 @@ function extractResponsesResult(data: unknown): ProviderChatResult {
       summary?: Array<{ text?: string; value?: string }>;
       content?: Array<{ type?: string; text?: string; value?: string; content?: string }>;
     }>;
-  };
+  }>(data);
+  if (!payload) {
+    return { text: '' };
+  }
 
   const textChunks: string[] = [];
   const reasoningChunks: string[] = [];
@@ -688,19 +639,18 @@ type StreamDeltaResult = {
 
 function extractChatCompletionsStreamDelta(payload: unknown): StreamDeltaResult {
   const empty = { textDelta: '', reasoningDelta: '' };
-  if (!payload || typeof payload !== 'object') {
+  const choices = toObject<{ choices?: Array<{ delta?: unknown }> }>(payload)?.choices;
+  if (!choices?.length) {
     return empty;
   }
 
-  const delta = (payload as { choices?: Array<{ delta?: unknown }> }).choices?.[0]?.delta as
-    | {
-        content?: string | Array<{ type?: string; text?: string; value?: string; content?: string }>;
-        reasoning?: string;
-        reasoning_content?: string;
-      }
-    | undefined;
+  const delta = toObject<{
+    content?: string | Array<{ type?: string; text?: string; value?: string; content?: string }>;
+    reasoning?: string;
+    reasoning_content?: string;
+  }>(choices[0].delta);
 
-  if (!delta || typeof delta !== 'object') {
+  if (!delta) {
     return empty;
   }
 
@@ -753,7 +703,7 @@ function extractResponsesStreamEvent(payload: unknown): ResponsesStreamEvent {
     return { textDelta: '', reasoningDelta: '', done };
   }
 
-  const event = payload as {
+  const event = toObject<{
     type?: string;
     delta?: string;
     text?: string;
@@ -761,7 +711,10 @@ function extractResponsesStreamEvent(payload: unknown): ResponsesStreamEvent {
     output_item?: unknown;
     response?: unknown;
     output?: unknown;
-  };
+  }>(payload);
+  if (!event) {
+    return { textDelta: '', reasoningDelta: '', done };
+  }
   const eventType = toTrimmedString(event.type).toLowerCase();
   const deltaText = typeof event.delta === 'string' ? event.delta : typeof event.text === 'string' ? event.text : '';
 
@@ -808,11 +761,11 @@ function isResponsesDoneEvent(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') {
     return false;
   }
-  const event = payload as { type?: string };
+  const event = toObject<{ type?: string }>(payload);
   return (
-    event.type === 'response.completed' ||
-    event.type === 'response.output_text.done' ||
-    event.type === 'response.done'
+    event?.type === 'response.completed' ||
+    event?.type === 'response.output_text.done' ||
+    event?.type === 'response.done'
   );
 }
 
@@ -851,7 +804,10 @@ function parseStandardModelList(data: unknown): ProviderModelProfile[] {
   if (!data || typeof data !== 'object') {
     return [];
   }
-  const payload = data as { data?: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> };
+  const payload = toObject<{ data?: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>> }>(data);
+  if (!payload) {
+    return [];
+  }
   const result: ProviderModelProfile[] = [];
   for (const model of payload.data ?? []) {
     const id = typeof model.id === 'string' ? model.id.trim() : '';
@@ -893,7 +849,10 @@ function parseGeminiModels(data: unknown): ProviderModelProfile[] {
   if (!data || typeof data !== 'object') {
     return [];
   }
-  const payload = data as { models?: Array<Record<string, unknown>> };
+  const payload = toObject<{ models?: Array<Record<string, unknown>> }>(data);
+  if (!payload) {
+    return [];
+  }
   const result: ProviderModelProfile[] = [];
   for (const model of payload.models ?? []) {
     const rawName = typeof model.name === 'string' ? (model.name as string).trim() : '';
@@ -935,7 +894,10 @@ function parseOllamaModels(data: unknown): ProviderModelProfile[] {
   if (!data || typeof data !== 'object') {
     return [];
   }
-  const payload = data as { models?: Array<Record<string, unknown>> };
+  const payload = toObject<{ models?: Array<Record<string, unknown>> }>(data);
+  if (!payload) {
+    return [];
+  }
   const result: ProviderModelProfile[] = [];
   for (const model of payload.models ?? []) {
     const id = typeof model.name === 'string' ? (model.name as string).trim() : typeof model.model === 'string' ? (model.model as string).trim() : '';
@@ -1013,7 +975,7 @@ export function resolveProviderConfig(
       2,
       settings.frequencyPenalty
     ),
-    timeoutMs: clamp(settings.timeoutMs, 5000, 300000, 60000)
+    timeoutMs: clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS)
   };
   return {
     config,
@@ -1066,7 +1028,7 @@ export function resolveModelBindingConfig(
       2,
       settings.frequencyPenalty
     ),
-    timeoutMs: clamp(overrides?.timeoutMs ?? settings.timeoutMs, 5000, 300000, 60000)
+    timeoutMs: clamp(overrides?.timeoutMs ?? settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS)
   };
   return {
     config,
@@ -1128,7 +1090,7 @@ export class OpenAICompatibleClient {
       contextCount: 1,
       presencePenalty: 0,
       frequencyPenalty: 0,
-      timeoutMs: 30000
+      timeoutMs: TIMEOUT.CONNECTION_TEST_MS
     };
     await this.chat(
       [
