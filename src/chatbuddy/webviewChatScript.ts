@@ -52,7 +52,6 @@ export function getChatScript(nonce: string): string {
         locale: 'en',
         strings: {},
         assistants: [],
-        assistantMeta: {},
         selectedAssistant: undefined,
         selectedAssistantId: undefined,
         sessions: [],
@@ -84,6 +83,32 @@ export function getChatScript(nonce: string): string {
       let composerResizeStartY = 0;
       let composerResizeStartHeight = 0;
       let toolContinuationActionPending = false;
+      let editingMessageId = '';
+      let editingSessionId = '';
+
+      function clearMessageEditState(clearInput) {
+        editingMessageId = '';
+        editingSessionId = '';
+        if (clearInput) {
+          dom.composerInput.value = '';
+        }
+      }
+
+      function syncMessageEditState() {
+        if (!editingMessageId) {
+          return false;
+        }
+        if (!state.selectedSession || state.selectedSession.id !== editingSessionId) {
+          clearMessageEditState(true);
+          return true;
+        }
+        const exists = (state.selectedSession.messages || []).some((message) => message.id === editingMessageId);
+        if (exists) {
+          return false;
+        }
+        clearMessageEditState(true);
+        return true;
+      }
 
       function clampComposerHeight(value) {
         return Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, Math.round(value)));
@@ -270,6 +295,7 @@ ${getHtmlEscaperScript()}
           String(state.selectedAssistantId || ''),
           selectedAssistantName,
           String(state.selectedSessionId || ''),
+          String(state.selectedSession?.updatedAt || ''),
           state.canChat ? '1' : '0',
           String(state.readOnlyReason || ''),
           String(state.strings.emptyStateTitle || ''),
@@ -293,7 +319,10 @@ ${getHtmlEscaperScript()}
         const modelOptionsDigest = (state.modelOptions || [])
           .map((option) => option.ref + '~' + option.label + '~' + JSON.stringify(option.capabilities || {}))
           .join('^');
+        const isEditingMessage = !!editingMessageId;
         return [
+          isEditingMessage ? '1' : '0',
+          editingMessageId,
           state.canChat ? '1' : '0',
           state.isGenerating ? '1' : '0',
           state.streaming ? '1' : '0',
@@ -500,6 +529,7 @@ ${getHtmlEscaperScript()}
       }
 
       function renderComposer() {
+        const isEditingMessage = !!editingMessageId;
         const assistantModelRef = String(state.selectedAssistant?.modelRef || '').trim();
         const assistantModelLabel = state.modelLabel || '-';
         const activeModelRef = String(state.sessionTempModelRef || assistantModelRef || '').trim();
@@ -531,10 +561,13 @@ ${getHtmlEscaperScript()}
         dom.composerInput.placeholder = state.canChat
           ? state.strings.composerPlaceholder
           : (state.readOnlyReason || state.strings.noAssistantSelectedBody || state.strings.composerPlaceholder);
-        dom.sendBtn.innerHTML = icons.send + '<span>' + escapeHtml(state.strings.send || '') + '</span>';
+        const sendLabel = isEditingMessage
+          ? (state.strings.saveAction || state.strings.editMessageAction || state.strings.send || '')
+          : (state.strings.send || '');
+        dom.sendBtn.innerHTML = icons.send + '<span>' + escapeHtml(sendLabel) + '</span>';
         dom.stopBtn.innerHTML = icons.stop + '<span>' + escapeHtml(state.strings.stop || '') + '</span>';
         const sendShortcutText = getCurrentSendShortcutText();
-        dom.sendBtn.title = [state.strings.send || '', sendShortcutText].filter(Boolean).join(' · ');
+        dom.sendBtn.title = [sendLabel, sendShortcutText].filter(Boolean).join(' · ');
         dom.stopBtn.title = state.strings.stop || '';
         dom.streamingLabel.textContent = state.strings.streaming;
         const isTemporaryModel = !!state.sessionTempModelRef;
@@ -548,8 +581,10 @@ ${getHtmlEscaperScript()}
         dom.streamingToggle.disabled = !state.canChat || state.isGenerating;
         dom.sendBtn.disabled = state.isGenerating || !state.canChat;
         dom.stopBtn.disabled = !state.isGenerating;
-        dom.clearBtn.title = state.strings.clearSessionAction || '';
-        dom.clearBtn.disabled = !state.canChat || state.isGenerating || !state.selectedSession?.messages?.length;
+        dom.clearBtn.title = isEditingMessage ? (state.strings.cancelAction || '') : (state.strings.clearSessionAction || '');
+        dom.clearBtn.disabled = isEditingMessage
+          ? false
+          : (!state.canChat || state.isGenerating || !state.selectedSession?.messages?.length);
       }
 
       function renderByDiff(force) {
@@ -575,10 +610,11 @@ ${getHtmlEscaperScript()}
         if (message.type === 'state') {
           const wasGenerating = state.isGenerating;
           state = message.payload;
+          const editStateChanged = syncMessageEditState();
           if (!state.awaitingToolContinuation) {
             toolContinuationActionPending = false;
           }
-          renderByDiff(false);
+          renderByDiff(editStateChanged);
           if (wasGenerating && !state.isGenerating) {
             dom.messagesInner.querySelectorAll('.streaming-cursor, .loading-indicator-wrapper').forEach((el) => el.remove());
           }
@@ -630,11 +666,29 @@ ${getHtmlEscaperScript()}
         if (!content) {
           return;
         }
+        if (editingMessageId) {
+          const messageId = editingMessageId;
+          const currentContent = String(
+            state.selectedSession?.messages?.find((message) => message.id === messageId)?.content || ''
+          ).trim();
+          clearMessageEditState(true);
+          renderByDiff(true);
+          if (content === currentContent) {
+            return;
+          }
+          vscode.postMessage({ type: 'editMessage', messageId, newContent: content });
+          return;
+        }
         dom.composerInput.value = '';
         vscode.postMessage({ type: 'sendMessage', content });
       });
 
       dom.clearBtn.addEventListener('click', () => {
+        if (editingMessageId) {
+          clearMessageEditState(true);
+          renderByDiff(true);
+          return;
+        }
         if (!state.canChat || !state.selectedSession) {
           return;
         }
@@ -653,6 +707,12 @@ ${getHtmlEscaperScript()}
         const shouldSend = isCtrlEnterMode
           ? event.key === 'Enter' && event.ctrlKey && !event.shiftKey && !event.metaKey
           : event.key === 'Enter' && !event.ctrlKey && !event.shiftKey && !event.metaKey;
+        if (event.key === 'Escape' && editingMessageId) {
+          event.preventDefault();
+          clearMessageEditState(true);
+          renderByDiff(true);
+          return;
+        }
         if (shouldSend) {
           event.preventDefault();
           dom.sendBtn.click();
@@ -716,10 +776,13 @@ ${getHtmlEscaperScript()}
         if (action === 'edit-message') {
           const msg = state.selectedSession?.messages?.find((m) => m.id === messageId);
           if (msg && dom.composerInput) {
+            editingMessageId = messageId;
+            editingSessionId = state.selectedSession?.id || '';
             dom.composerInput.value = msg.content || '';
             dom.composerInput.focus();
+            dom.composerInput.setSelectionRange(dom.composerInput.value.length, dom.composerInput.value.length);
+            renderByDiff(true);
           }
-          vscode.postMessage({ type: 'editMessage', messageId, newContent: msg?.content || '' });
           return;
         }
         if (action === 'delete-message') {

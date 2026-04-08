@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { getCodiconRootUri } from './codicon';
 import { buildRemotePassthroughTools, McpRuntime } from './mcpRuntime';
 import { parseModelRef, DEFAULT_TITLE_SUMMARY_PROMPT } from './modelCatalog';
-import { formatString, getAssistantLocalization, getDefaultSessionTitle, getStrings } from './i18n';
+import { formatString, getDefaultSessionTitle, getStrings } from './i18n';
 import { applyQuestionPrefix, mergeReasoningParts, splitThinkTaggedContent, toProviderMessages } from './chatUtils';
 import {
   OpenAICompatibleClient,
@@ -22,6 +22,7 @@ import {
   AssistantProfile,
   ChatBuddySettings,
   ChatMessage,
+  ProviderModelOption,
   ChatStatePayload,
   ChatToolRound,
   ProviderMessage,
@@ -75,7 +76,8 @@ function buildStreamFlush(
   acc: StreamAccumulator,
   params: StreamFlushParams,
   repository: ChatStateRepository,
-  strings: RuntimeStrings
+  strings: RuntimeStrings,
+  notifyState?: () => void
 ): (persist: boolean) => void {
   return (persist: boolean) => {
     const thinkSplit = splitThinkTaggedContent(acc.rawMerged);
@@ -97,6 +99,7 @@ function buildStreamFlush(
     );
     acc.rawPersisted = acc.rawMerged;
     acc.reasoningPersisted = acc.reasoningMerged;
+    notifyState?.();
   };
 }
 
@@ -221,6 +224,7 @@ export class ChatController {
   private abortReason: GenerationAbortReason | undefined;
   private sessionTempModelRefBySession: Record<string, string> = {};
   private lastSelectedSessionIdByAssistant: Record<string, string | undefined> = {};
+  private modelOptions: ProviderModelOption[];
 
   constructor(
     private readonly repository: ChatStateRepository,
@@ -229,6 +233,7 @@ export class ChatController {
   ) {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? this.repository.getSettings().streamingDefault;
+    this.modelOptions = this.repository.getModelOptions();
   }
 
   private getLocale(): RuntimeLocale {
@@ -378,6 +383,7 @@ export class ChatController {
     this.repository.updateSettings(settings);
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? settings.streamingDefault;
+    this.modelOptions = this.repository.getModelOptions();
     this.postState();
   }
 
@@ -936,7 +942,9 @@ export class ChatController {
       toolRounds: chatToolRounds,
       context
     };
-    const flush = buildStreamFlush(acc, params, this.repository, strings);
+    const flush = buildStreamFlush(acc, params, this.repository, strings, () => {
+      this.postState(undefined, context);
+    });
     const callbacks = buildStreamCallbacks(acc, flush);
 
     try {
@@ -1046,7 +1054,7 @@ export class ChatController {
     const locale = this.getLocale();
     const strings = getStrings(locale);
     const raw = this.repository.getState();
-    const settings = this.repository.getSettings();
+    const settings = raw.settings;
     const assistant =
       (assistantIdOverride ? this.repository.getAssistantById(assistantIdOverride) : undefined) ??
       this.repository.getSelectedAssistant();
@@ -1082,20 +1090,6 @@ export class ChatController {
       readOnlyReason = strings.toolContinuationReadonly || strings.generationBusy;
     }
 
-    const assistantMeta = Object.fromEntries(
-      raw.assistants.map((item) => {
-        const localized = getAssistantLocalization(locale, item);
-        return [
-          item.id,
-          {
-            name: localized.name,
-            subtitle: localized.subtitle,
-            isDeleted: item.isDeleted
-          }
-        ];
-      })
-    );
-
     const selectedSessionId = selectedSession?.id || '';
 
     return {
@@ -1109,10 +1103,9 @@ export class ChatController {
       sessionPanelCollapsed: raw.sessionPanelCollapsed,
       locale,
       strings,
-      assistantMeta,
       providerLabel,
       modelLabel,
-      modelOptions: this.repository.getModelOptions(),
+      modelOptions: this.modelOptions,
       sessionTempModelRef: selectedSessionId ? this.sessionTempModelRefBySession[selectedSessionId] ?? '' : '',
       sendShortcut: settings.sendShortcut,
       streaming: assistant?.streaming ?? this.streamingEnabled,
@@ -1235,7 +1228,9 @@ export class ChatController {
       modelLabel: resolved.config.modelLabel,
       context
     };
-    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.repository, strings);
+    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.repository, strings, () => {
+      this.postState(undefined, context);
+    });
     const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
 
     try {

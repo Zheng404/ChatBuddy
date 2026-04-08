@@ -13,3 +13,5 @@ out
 .DS_Store
 Thumbs.db
 *.log
+
+.serena

@@ -202,7 +202,7 @@ export class ChatStorage {
       return false;
     }
     const nextSeq = this.getNextSeq(sessionId);
-    const messageCount = nextSeq; // seq is 0-based, so count = nextSeq
+    const messageCount = nextSeq + 1;
     const db = this.ensureDb();
     db.run(
       `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq)

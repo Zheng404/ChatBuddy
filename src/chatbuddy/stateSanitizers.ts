@@ -8,14 +8,12 @@ import {
 } from './modelCatalog';
 import { isValidModelName, isValidUrl, sanitizeAssistantName } from './security';
 import { clamp, createId, nowTs } from './utils';
-import { cloneProvider } from './stateClone';
 import {
   getDefaultAssistantModelRef,
   inferProviderKind,
   mergeModelBindingsIntoProviders,
   normalizeTitleSource,
   resolveDefaultAssistantName,
-  resolveUntitledSessionTitle,
   createSystemGroups
 } from './stateHelpers';
 import {

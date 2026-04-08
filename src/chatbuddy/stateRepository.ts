@@ -130,6 +130,10 @@ export class ChatStateRepository {
     };
   }
 
+  public getLocaleSetting(): ChatBuddyLocaleSetting {
+    return this.state.settings.locale;
+  }
+
   public getModelOptions(includeDisabled = false): ProviderModelOption[] {
     return getProviderModelOptions(this.state.settings.providers, includeDisabled);
   }
@@ -215,6 +219,16 @@ export class ChatStateRepository {
     }
     const fallback = this.state.assistants.find((assistant) => !assistant.isDeleted) ?? this.state.assistants[0];
     return fallback ? cloneAssistant(fallback) : undefined;
+  }
+
+  public getSelectedAssistantId(): string | undefined {
+    if (!this.state.assistants.length) {
+      return undefined;
+    }
+    if (this.state.selectedAssistantId && this.state.assistants.some((assistant) => assistant.id === this.state.selectedAssistantId)) {
+      return this.state.selectedAssistantId;
+    }
+    return (this.state.assistants.find((assistant) => !assistant.isDeleted) ?? this.state.assistants[0])?.id;
   }
 
   public getAssistantById(assistantId: string): AssistantProfile | undefined {
@@ -533,6 +547,21 @@ export class ChatStateRepository {
     }
     const detail = this.storage.getSessionDetail(targetAssistantId, latest.id);
     return detail ? cloneSession(detail) : undefined;
+  }
+
+  public getSelectedSessionId(assistantId?: string): string | undefined {
+    if (!this.storageReady) {
+      return undefined;
+    }
+    const targetAssistantId = assistantId ?? this.getSelectedAssistantId();
+    if (!targetAssistantId) {
+      return undefined;
+    }
+    const selectedSessionId = this.state.selectedSessionIdByAssistant[targetAssistantId];
+    if (selectedSessionId && this.storage.sessionExists(targetAssistantId, selectedSessionId)) {
+      return selectedSessionId;
+    }
+    return this.getLatestSessionForAssistantRaw(targetAssistantId)?.id;
   }
 
   public getSessionById(sessionId: string): ChatSessionDetail | undefined {

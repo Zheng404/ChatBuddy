@@ -9,3 +9,4 @@ img/**
 **/*.ts
 package-lock.json
 out/test/**
+.serena

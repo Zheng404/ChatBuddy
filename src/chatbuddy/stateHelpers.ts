@@ -1,11 +1,9 @@
-import { getDefaultSessionTitle } from './i18n';
 import { createModelRef, dedupeModels, parseModelRef } from './modelCatalog';
 import { cloneProvider } from './stateClone';
 import { PersistedStateLiteSchema } from './schemas';
-import { nowTs, warn } from './utils';
+import { warn } from './utils';
 import type {
   ChatBuddySettings,
-  ChatSession,
   ModelBinding,
   PersistedState,
   PersistedStateLite,

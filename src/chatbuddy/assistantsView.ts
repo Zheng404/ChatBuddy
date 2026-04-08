@@ -26,7 +26,6 @@ export type AssistantsTreeMode = 'main' | 'recycle';
 type ProviderContext = {
   getGroups: () => AssistantGroup[];
   getAssistants: () => AssistantProfile[];
-  getSelectedAssistantId: () => string | undefined;
   getLocaleSetting: () => 'auto' | 'zh-CN' | 'en';
 };
 

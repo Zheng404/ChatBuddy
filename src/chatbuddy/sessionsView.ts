@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { getStrings, resolveLocale } from './i18n';
-import { AssistantProfile, ChatSessionDetail, ChatSessionSummary, ChatBuddyLocaleSetting, RuntimeLocale } from './types';
+import { AssistantProfile, ChatSessionSummary, ChatBuddyLocaleSetting, RuntimeLocale } from './types';
 
 export interface SessionNode {
   kind: 'session';
@@ -23,7 +23,7 @@ const MIN_SESSIONS_VIEW_ROWS = 4;
 type ProviderContext = {
   getSelectedAssistant: () => AssistantProfile | undefined;
   getSessionsForAssistant: (assistantId: string) => ChatSessionSummary[];
-  getSelectedSession: (assistantId?: string) => ChatSessionDetail | undefined;
+  getSelectedSessionId: (assistantId?: string) => string | undefined;
   getLocaleSetting: () => ChatBuddyLocaleSetting;
 };
 
@@ -58,8 +58,7 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionsTre
 
     const locale = resolveLocale(this.context.getLocaleSetting(), vscode.env.language);
     const strings = getStrings(locale);
-    const selected = this.context.getSelectedSession(element.assistantId);
-    const isSelected = selected?.id === element.session.id;
+    const isSelected = this.context.getSelectedSessionId(element.assistantId) === element.session.id;
     const title = element.session.title?.trim() || strings.untitledSession;
 
     const item = new vscode.TreeItem(title, vscode.TreeItemCollapsibleState.None);

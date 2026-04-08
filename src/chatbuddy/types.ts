@@ -279,12 +279,6 @@ export interface McpPromptEntry {
 
 export type RuntimeStrings = Record<string, string>;
 
-export interface AssistantViewMeta {
-  name: string;
-  subtitle: string;
-  isDeleted: boolean;
-}
-
 export interface ProviderMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -301,7 +295,6 @@ export interface ChatStatePayload {
   sessionPanelCollapsed: boolean;
   locale: RuntimeLocale;
   strings: RuntimeStrings;
-  assistantMeta: Record<string, AssistantViewMeta>;
   providerLabel: string;
   modelLabel: string;
   modelOptions: ProviderModelOption[];
