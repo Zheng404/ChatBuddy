@@ -72,6 +72,18 @@ export function getChatScript(nonce: string): string {
         toolRoundLimit: 0,
         readOnlyReason: ''
       };
+
+      // Initialize Mermaid with VS Code theme detection
+      if (typeof mermaid !== 'undefined') {
+        var bg = getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-background').trim();
+        var isDark = !bg || bg < '#888888';
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: isDark ? 'dark' : 'default',
+          fontFamily: 'var(--vscode-font-family)'
+        });
+      }
+
       const renderSigs = {
         messages: '',
         composer: ''
@@ -159,12 +171,54 @@ ${getHtmlEscaperScript()}
 
       function markdownToHtml(input) {
         const source = String(input || '');
+
+        // ---- Phase 0: Extract LaTeX expressions before HTML escaping ----
+        // Order matters: extract wrapping delimiters first, then \begin{env} last
+        // to avoid markers being captured inside other patterns
+        const latexBlocks = [];
+        var protectedSource = source;
+        // Display math \[...\]
+        protectedSource = protectedSource.replace(/\\\\\\[([\\s\\S]+?)\\\\\\]/g, function(_, tex) {
+          var marker = '@@LATEX_' + latexBlocks.length + '@@';
+          latexBlocks.push({ display: true, tex: tex });
+          return marker;
+        });
+        // Inline math \(...\)
+        protectedSource = protectedSource.replace(/\\\\\\(([\\s\\S]+?)\\\\\\)/g, function(_, tex) {
+          var marker = '@@LATEX_' + latexBlocks.length + '@@';
+          latexBlocks.push({ display: false, tex: tex });
+          return marker;
+        });
+        // Display math $$...$$
+        protectedSource = protectedSource.replace(/\\$\\$([\\s\\S]+?)\\$\\$/g, function(_, tex) {
+          var marker = '@@LATEX_' + latexBlocks.length + '@@';
+          latexBlocks.push({ display: true, tex: tex });
+          return marker;
+        });
+        // Inline math $...$ (avoid matching currency like $5.00)
+        protectedSource = protectedSource.replace(/(?<![a-zA-Z0-9_$])\\$(?!\\$)([^$\\n]+?)\\$(?![a-zA-Z0-9_$])/g, function(_, tex) {
+          var marker = '@@LATEX_' + latexBlocks.length + '@@';
+          latexBlocks.push({ display: false, tex: tex });
+          return marker;
+        });
+        // LaTeX environments \begin{env}...\end{env} (LAST: only matches standalone)
+        protectedSource = protectedSource.replace(/\\\\begin\\{(equation|align\\*?|gather\\*?|aligned|cases)\\}([\\s\\S]+?)\\\\end\\{\\1\\}/g, function(match) {
+          var marker = '@@LATEX_' + latexBlocks.length + '@@';
+          latexBlocks.push({ display: true, tex: match });
+          return marker;
+        });
+
+        // ---- Phase 1: Extract code blocks, intercept mermaid ----
         const codeBlocks = [];
         const codeBlockPattern = new RegExp('[\\\\x60]{3}([a-zA-Z0-9_-]*)\\\\n([\\\\s\\\\S]*?)[\\\\x60]{3}', 'g');
-        let escaped = escapeHtml(source).replace(codeBlockPattern, (_, lang, code) => {
-          const cls = lang ? ' class="lang-' + lang + '"' : '';
-          const marker = '@@CODE_BLOCK_' + codeBlocks.length + '@@';
-          codeBlocks.push('<pre><code' + cls + '>' + code + '</code></pre>');
+        let escaped = escapeHtml(protectedSource).replace(codeBlockPattern, (_, lang, code) => {
+          var marker = '@@CODE_BLOCK_' + codeBlocks.length + '@@';
+          if (lang === 'mermaid') {
+            codeBlocks.push('<div class="mermaid-placeholder" data-mermaid>' + code + '</div>');
+          } else {
+            const cls = lang ? ' class="lang-' + lang + '"' : '';
+            codeBlocks.push('<pre><code' + cls + '>' + code + '</code></pre>');
+          }
           return marker;
         });
 
@@ -250,6 +304,16 @@ ${getHtmlEscaperScript()}
         escaped = escaped.replace(/@@CODE_BLOCK_(\\d+)@@/g, (_, index) => {
           const value = codeBlocks[Number(index)];
           return typeof value === 'string' ? value : '';
+        });
+
+        // ---- Phase 2: Restore LaTeX placeholders as semantic elements ----
+        escaped = escaped.replace(/@@LATEX_(\\d+)@@/g, function(_, index) {
+          var item = latexBlocks[Number(index)];
+          if (!item) { return ''; }
+          if (item.display) {
+            return '<div class="katex-display" data-latex-display>' + escapeHtml(item.tex) + '</div>';
+          }
+          return '<span class="katex-inline" data-latex-inline>' + escapeHtml(item.tex) + '</span>';
         });
 
         // Remove <br/> directly before/after block-level elements to prevent extra spacing
@@ -526,6 +590,61 @@ ${getHtmlEscaperScript()}
 
 
         dom.messages.scrollTop = dom.messages.scrollHeight;
+        renderEnhancedContent();
+      }
+
+      /**
+       * Post-render: hydrate LaTeX and Mermaid placeholder elements into rendered output.
+       * Called after every renderMessages() DOM update.
+       */
+      function renderEnhancedContent() {
+        // Render inline LaTeX
+        dom.messagesInner.querySelectorAll('[data-latex-inline]').forEach(function(el) {
+          if (el.getAttribute('data-rendered')) { return; }
+          if (typeof katex === 'undefined') { return; }
+          try {
+            katex.render(el.textContent, el, { throwOnError: false, displayMode: false });
+            el.setAttribute('data-rendered', 'true');
+            el.removeAttribute('data-latex-inline');
+          } catch (e) {
+            el.textContent = '$' + el.textContent + '$';
+            el.removeAttribute('data-latex-inline');
+          }
+        });
+        // Render display LaTeX
+        dom.messagesInner.querySelectorAll('[data-latex-display]').forEach(function(el) {
+          if (el.getAttribute('data-rendered')) { return; }
+          if (typeof katex === 'undefined') { return; }
+          try {
+            katex.render(el.textContent, el, { throwOnError: false, displayMode: true });
+            el.setAttribute('data-rendered', 'true');
+            el.removeAttribute('data-latex-display');
+          } catch (e) {
+            el.textContent = '$$' + el.textContent + '$$';
+            el.removeAttribute('data-latex-display');
+          }
+        });
+        // Render Mermaid diagrams
+        dom.messagesInner.querySelectorAll('[data-mermaid]').forEach(function(el) {
+          if (el.getAttribute('data-rendered')) { return; }
+          if (typeof mermaid === 'undefined') { return; }
+          var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+          try {
+            mermaid.render(id, el.textContent).then(function(result) {
+              el.innerHTML = result.svg;
+              el.setAttribute('data-rendered', 'true');
+              el.removeAttribute('data-mermaid');
+            }).catch(function() {
+              var pre = document.createElement('pre');
+              pre.textContent = el.textContent;
+              el.replaceWith(pre);
+            });
+          } catch (e) {
+            var pre = document.createElement('pre');
+            pre.textContent = el.textContent;
+            el.replaceWith(pre);
+          }
+        });
       }
 
       function renderComposer() {

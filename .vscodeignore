@@ -10,3 +10,7 @@ img/**
 package-lock.json
 out/test/**
 .serena
+
+# Include rendering library dist files in VSIX
+!node_modules/katex/dist/**
+!node_modules/mermaid/dist/**

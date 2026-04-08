@@ -23,7 +23,7 @@ export function buildCsp(webview: vscode.Webview, nonce: string): string {
     "default-src 'none'",
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `font-src ${webview.cspSource} data:`,
-    `script-src 'nonce-${nonce}'`,
+    `script-src 'nonce-${nonce}' ${webview.cspSource}`,
     `img-src ${webview.cspSource} https: data:`,
     `media-src ${webview.cspSource} https: data:`,
     'connect-src https:'

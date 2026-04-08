@@ -229,7 +229,8 @@ export class ChatController {
   constructor(
     private readonly repository: ChatStateRepository,
     private readonly providerClient: OpenAICompatibleClient,
-    private readonly mcpRuntime: McpRuntime
+    private readonly mcpRuntime: McpRuntime,
+    private readonly extensionUri: vscode.Uri
   ) {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? this.repository.getSettings().streamingDefault;
@@ -269,10 +270,10 @@ export class ChatController {
         const newPanel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
           enableScripts: true,
           retainContextWhenHidden: true,
-          localResourceRoots: [getCodiconRootUri()]
+          localResourceRoots: [getCodiconRootUri(), vscode.Uri.joinPath(this.extensionUri, 'node_modules')]
         });
         newPanel.iconPath = panelIcon;
-        newPanel.webview.html = getChatWebviewHtml(newPanel.webview);
+        newPanel.webview.html = getChatWebviewHtml(newPanel.webview, this.extensionUri);
         const assistantIdRef = assistant.id;
         const messageListener = newPanel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
           this.panel = newPanel;
@@ -298,10 +299,10 @@ export class ChatController {
         this.panel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
           enableScripts: true,
           retainContextWhenHidden: true,
-          localResourceRoots: [getCodiconRootUri()]
+          localResourceRoots: [getCodiconRootUri(), vscode.Uri.joinPath(this.extensionUri, 'node_modules')]
         });
         this.panel.iconPath = panelIcon;
-        this.panel.webview.html = getChatWebviewHtml(this.panel.webview);
+        this.panel.webview.html = getChatWebviewHtml(this.panel.webview, this.extensionUri);
         const panelRef = this.panel;
         const messageListener = this.panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
           void this.handleWebviewMessage(message, {

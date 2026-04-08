@@ -352,6 +352,44 @@ ${SHARED_WEBVIEW_BASE}
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
       }
 
+      /* LaTeX display math */
+      .message-text .katex-display {
+        margin: 12px 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 8px 0;
+        text-align: center;
+      }
+      /* Unrendered LaTeX fallback */
+      .message-text [data-latex-display] {
+        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        margin: 10px 0 0;
+        overflow-x: auto;
+        text-align: center;
+      }
+      .message-text [data-latex-inline] {
+        font-family: "Cascadia Code", "JetBrains Mono", monospace;
+      }
+      /* Mermaid diagram container */
+      .message-text .mermaid-placeholder {
+        margin: 10px 0 0;
+        background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        overflow-x: auto;
+        text-align: center;
+      }
+      .message-text .mermaid-placeholder svg,
+      .message-text [data-rendered] svg {
+        max-width: 100%;
+        height: auto;
+      }
+
       /* Markdown: Headings */
       .message-text h1,.message-text h2,.message-text h3{margin:1em 0 .5em;font-weight:600}
       .message-text h1{font-size:2em}.message-text h2{font-size:1.5em}.message-text h3{font-size:1.25em}
@@ -606,7 +644,7 @@ ${SHARED_WEBVIEW_BASE}
 
 ${SHARED_TOAST_STYLE}
 
-      svg {
+      .codicon svg {
         width: 16px;
         height: 16px;
       }

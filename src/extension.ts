@@ -1036,7 +1036,7 @@ export async function activate(context: vscode.ExtensionContext) {
   await repository.initialize();
   const providerClient = new OpenAICompatibleClient();
   const mcpRuntime = new McpRuntime();
-  const chatController = new ChatController(repository, providerClient, mcpRuntime);
+  const chatController = new ChatController(repository, providerClient, mcpRuntime, context.extensionUri);
 
   const getRuntimeLocale = () => resolveLocale(repository.getLocaleSetting(), vscode.env.language);
   const getRuntimeStrings = () => getStrings(getRuntimeLocale());
