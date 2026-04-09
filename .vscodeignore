@@ -11,6 +11,22 @@ package-lock.json
 out/test/**
 .serena
 
-# Include rendering library dist files in VSIX
-!node_modules/katex/dist/**
-!node_modules/mermaid/dist/**
+# Exclude all katex/mermaid files, then re-include only what's needed
+node_modules/katex/**
+!node_modules/katex/dist/katex.min.js
+!node_modules/katex/dist/katex.min.css
+!node_modules/katex/dist/fonts/**
+node_modules/mermaid/**
+!node_modules/mermaid/dist/mermaid.min.js
+node_modules/@mermaid-js/**
+# Exclude debug/demo/unnecessary files from other dependencies
+node_modules/sql.js/dist/*-debug.*
+node_modules/sql.js/dist/*-memory-growth.*
+node_modules/sql.js/dist/sql-asm.js
+node_modules/sql.js/dist/worker.sql-asm.js
+node_modules/sql.js/dist/sql-wasm-browser-debug.wasm
+node_modules/sql.js/dist/sql-wasm-browser.wasm
+node_modules/cytoscape-fcose/demo/**
+node_modules/cytoscape/dist/cytoscape.umd.js
+node_modules/cytoscape/dist/cytoscape.cjs.js
+node_modules/cytoscape/dist/cytoscape.esm.mjs
