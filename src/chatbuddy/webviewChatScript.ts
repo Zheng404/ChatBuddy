@@ -80,7 +80,7 @@ export function getChatScript(nonce: string): string {
         mermaid.initialize({
           startOnLoad: false,
           theme: isDark ? 'dark' : 'default',
-          fontFamily: 'var(--vscode-font-family)'
+          securityLevel: 'loose'
         });
       }
 
@@ -173,10 +173,29 @@ ${getHtmlEscaperScript()}
         const source = String(input || '');
 
         // ---- Phase 0: Extract LaTeX expressions before HTML escaping ----
-        // Order matters: extract wrapping delimiters first, then \begin{env} last
-        // to avoid markers being captured inside other patterns
         const latexBlocks = [];
         var protectedSource = source;
+        // Phase 0a: Extract lang-latex/tex/math fenced code blocks as display LaTeX.
+        // These are whole-block LaTeX that may lack $ or \begin{env} wrappers.
+        // Must run before other LaTeX extraction so content is not double-parsed.
+        var latexCodeBlockRe = new RegExp('[\\\\x60]{3}(latex|tex|math)\\\\n([\\\\s\\\\S]*?)[\\\\x60]{3}', 'g');
+        protectedSource = protectedSource.replace(latexCodeBlockRe, function(_, lang, code) {
+          var tex = code.trim();
+          // Strip outer $$ wrapper if the entire content is wrapped in $$
+          if (/^\\$\\$([\\s\\S]+)\\$\\$$/.test(tex)) {
+            tex = tex.replace(/^\\$\\$/, '').replace(/\\$\\$$/, '').trim();
+          }
+          // Strip outer $ wrapper if the entire content is wrapped in single $
+          else if (/^\\$(?!\\$)([\\s\\S]+)\\$$/.test(tex)) {
+            tex = tex.replace(/^\\$/, '').replace(/\\$$/, '').trim();
+          }
+          var marker = '@@LATEX_' + latexBlocks.length + '@@';
+          latexBlocks.push({ display: true, tex: tex });
+          return marker;
+        });
+        // Phase 0b: Extract inline/delimited LaTeX
+        // Order matters: extract wrapping delimiters first, then \begin{env} last
+        // to avoid markers being captured inside other patterns
         // Display math \[...\]
         protectedSource = protectedSource.replace(/\\\\\\[([\\s\\S]+?)\\\\\\]/g, function(_, tex) {
           var marker = '@@LATEX_' + latexBlocks.length + '@@';
@@ -202,7 +221,7 @@ ${getHtmlEscaperScript()}
           return marker;
         });
         // LaTeX environments \begin{env}...\end{env} (LAST: only matches standalone)
-        protectedSource = protectedSource.replace(/\\\\begin\\{(equation|align\\*?|gather\\*?|aligned|cases)\\}([\\s\\S]+?)\\\\end\\{\\1\\}/g, function(match) {
+        protectedSource = protectedSource.replace(/\\\\begin\\{(equation\\*?|align\\*?|gather\\*?|aligned|cases|split|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|cd|CD|darray)\\}([\\s\\S]+?)\\\\end\\{\\1\\}/g, function(match) {
           var marker = '@@LATEX_' + latexBlocks.length + '@@';
           latexBlocks.push({ display: true, tex: match });
           return marker;
@@ -311,9 +330,9 @@ ${getHtmlEscaperScript()}
           var item = latexBlocks[Number(index)];
           if (!item) { return ''; }
           if (item.display) {
-            return '<div class="katex-display" data-latex-display>' + escapeHtml(item.tex) + '</div>';
+            return '<div class="math-block" data-latex-display data-raw-tex="' + escapeHtmlAttr(item.tex) + '">' + escapeHtml(item.tex) + '</div>';
           }
-          return '<span class="katex-inline" data-latex-inline>' + escapeHtml(item.tex) + '</span>';
+          return '<span class="katex-inline" data-latex-inline data-raw-tex="' + escapeHtmlAttr(item.tex) + '">' + escapeHtml(item.tex) + '</span>';
         });
 
         // Remove <br/> directly before/after block-level elements to prevent extra spacing
@@ -598,16 +617,29 @@ ${getHtmlEscaperScript()}
        * Called after every renderMessages() DOM update.
        */
       function renderEnhancedContent() {
+        // Unwrap LaTeX elements from lang-latex/tex/math code blocks.
+        // When LLM wraps LaTeX in fenced code blocks, the LaTeX markers end up
+        // inside <pre><code class="lang-latex"> which causes spacing issues.
+        // Replace the entire <pre> with just the inner content so LaTeX renders cleanly.
+        dom.messagesInner.querySelectorAll('pre code.lang-latex, pre code.lang-tex, pre code.lang-math').forEach(function(codeEl) {
+          var preEl = codeEl.parentNode;
+          if (preEl && preEl.tagName === 'PRE') {
+            preEl.outerHTML = codeEl.innerHTML;
+          }
+        });
         // Render inline LaTeX
         dom.messagesInner.querySelectorAll('[data-latex-inline]').forEach(function(el) {
           if (el.getAttribute('data-rendered')) { return; }
           if (typeof katex === 'undefined') { return; }
+          var raw = el.getAttribute('data-raw-tex') || el.textContent;
           try {
-            katex.render(el.textContent, el, { throwOnError: false, displayMode: false });
+            katex.render(el.textContent, el, { throwOnError: true, displayMode: false });
             el.setAttribute('data-rendered', 'true');
             el.removeAttribute('data-latex-inline');
+            el.removeAttribute('data-raw-tex');
           } catch (e) {
-            el.textContent = '$' + el.textContent + '$';
+            // Render failed — show source with code style
+            el.textContent = '$' + raw + '$';
             el.removeAttribute('data-latex-inline');
           }
         });
@@ -615,12 +647,16 @@ ${getHtmlEscaperScript()}
         dom.messagesInner.querySelectorAll('[data-latex-display]').forEach(function(el) {
           if (el.getAttribute('data-rendered')) { return; }
           if (typeof katex === 'undefined') { return; }
+          var raw = el.getAttribute('data-raw-tex') || el.textContent;
           try {
-            katex.render(el.textContent, el, { throwOnError: false, displayMode: true });
+            katex.render(el.textContent, el, { throwOnError: true, displayMode: true });
             el.setAttribute('data-rendered', 'true');
             el.removeAttribute('data-latex-display');
+            el.removeAttribute('data-raw-tex');
           } catch (e) {
-            el.textContent = '$$' + el.textContent + '$$';
+            // Render failed — keep fallback code-block style
+            el.textContent = raw;
+            el.setAttribute('data-latex-failed', 'true');
             el.removeAttribute('data-latex-display');
           }
         });

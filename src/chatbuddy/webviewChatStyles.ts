@@ -352,24 +352,29 @@ ${SHARED_WEBVIEW_BASE}
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
       }
 
-      /* LaTeX display math */
-      .message-text .katex-display {
-        margin: 12px 0;
-        overflow-x: auto;
-        overflow-y: hidden;
-        padding: 8px 0;
+      /* Display math wrapper (our outer container, not KaTeX's internal .katex-display) */
+      .message-text .math-block {
+        margin: 8px 0;
+        padding: 4px 0;
+        overflow: hidden;
         text-align: center;
       }
-      /* Unrendered LaTeX fallback */
-      .message-text [data-latex-display] {
+      /* Reset KaTeX's default .katex-display margin inside our wrapper */
+      .message-text .math-block > .katex-display {
+        margin: 0;
+      }
+      /* Unrendered LaTeX fallback (also used for render failures via data-latex-failed) */
+      .message-text [data-latex-display],
+      .message-text [data-latex-failed] {
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
         background: var(--code-bg);
         border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 10px;
-        margin: 10px 0 0;
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin: 8px 0;
         overflow-x: auto;
         text-align: center;
+        color: var(--fg);
       }
       .message-text [data-latex-inline] {
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
