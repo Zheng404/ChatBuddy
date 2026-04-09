@@ -395,6 +395,128 @@ ${SHARED_WEBVIEW_BASE}
         height: auto;
       }
 
+      .message-text .markdown-table-wrap,
+      .reasoning-content .markdown-table-wrap {
+        margin: 10px 0 0;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--bg) 94%, var(--fg) 6%);
+      }
+
+      .message-text .markdown-table,
+      .reasoning-content .markdown-table {
+        width: 100%;
+        min-width: 420px;
+        border-collapse: collapse;
+        table-layout: auto;
+      }
+
+      .message-text .markdown-table th,
+      .message-text .markdown-table td,
+      .reasoning-content .markdown-table th,
+      .reasoning-content .markdown-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+        white-space: nowrap;
+      }
+
+      .message-text .markdown-table th:last-child,
+      .message-text .markdown-table td:last-child,
+      .reasoning-content .markdown-table th:last-child,
+      .reasoning-content .markdown-table td:last-child {
+        border-right: none;
+      }
+
+      .message-text .markdown-table tbody tr:last-child td,
+      .reasoning-content .markdown-table tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .message-text .markdown-table th,
+      .reasoning-content .markdown-table th {
+        font-weight: 700;
+        background: color-mix(in srgb, var(--assistant-bg) 82%, var(--bg) 18%);
+      }
+
+      .message-text .markdown-table .is-left,
+      .reasoning-content .markdown-table .is-left {
+        text-align: left;
+      }
+
+      .message-text .markdown-table .is-center,
+      .reasoning-content .markdown-table .is-center {
+        text-align: center;
+      }
+
+      .message-text .markdown-table .is-right,
+      .reasoning-content .markdown-table .is-right {
+        text-align: right;
+      }
+
+      .message-text .task-list,
+      .reasoning-content .task-list {
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .message-text .task-list-item,
+      .reasoning-content .task-list-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .message-text .task-checkbox,
+      .reasoning-content .task-checkbox {
+        width: 16px;
+        height: 16px;
+        margin-top: 3px;
+        flex-shrink: 0;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+        position: relative;
+      }
+
+      .message-text .task-checkbox.is-checked,
+      .reasoning-content .task-checkbox.is-checked {
+        background: color-mix(in srgb, var(--vscode-testing-iconPassed) 78%, var(--bg) 22%);
+        border-color: color-mix(in srgb, var(--vscode-testing-iconPassed) 84%, var(--border) 16%);
+      }
+
+      .message-text .task-checkbox.is-checked::after,
+      .reasoning-content .task-checkbox.is-checked::after {
+        content: '';
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 5px;
+        height: 9px;
+        border-right: 2px solid var(--vscode-editor-background);
+        border-bottom: 2px solid var(--vscode-editor-background);
+        transform: rotate(45deg);
+      }
+
+      .message-text .task-list-text,
+      .reasoning-content .task-list-text {
+        min-width: 0;
+        line-height: 1.6;
+      }
+
+      .message-text .task-list-item.is-checked .task-list-text,
+      .reasoning-content .task-list-item.is-checked .task-list-text {
+        color: var(--muted);
+        text-decoration: line-through;
+      }
+
       /* Markdown: Headings */
       .message-text h1,.message-text h2,.message-text h3{margin:1em 0 .5em;font-weight:600}
       .message-text h1{font-size:2em}.message-text h2{font-size:1.5em}.message-text h3{font-size:1.25em}

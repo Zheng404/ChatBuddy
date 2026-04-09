@@ -1,6 +1,10 @@
 import { getToastScript } from './webviewShared';
 import { getHtmlEscaperScript } from './utils/html';
 
+const LATEX_DISPLAY_BLOCK_PATTERN = String.raw`/\\\[([\s\S]+?)\\\]/g`;
+const LATEX_INLINE_BLOCK_PATTERN = String.raw`/\\\(([\s\S]+?)\\\)/g`;
+const LATEX_ENV_BLOCK_PATTERN = String.raw`/\\begin\{(equation\*?|align\*?|gather\*?|aligned|cases|split|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|cd|CD|darray)\}([\s\S]+?)\\end\{\1\}/g`;
+
 /**
  * Returns the <script> tag for the chat webview panel.
  * Contains all client-side JavaScript for message rendering,
@@ -194,16 +198,16 @@ ${getHtmlEscaperScript()}
           return marker;
         });
         // Phase 0b: Extract inline/delimited LaTeX
-        // Order matters: extract wrapping delimiters first, then \begin{env} last
+        // Order matters: extract wrapping delimiters first, then begin/end environments last
         // to avoid markers being captured inside other patterns
-        // Display math \[...\]
-        protectedSource = protectedSource.replace(/\\\\\\[([\\s\\S]+?)\\\\\\]/g, function(_, tex) {
+        // Display math with bracket delimiters
+        protectedSource = protectedSource.replace(${LATEX_DISPLAY_BLOCK_PATTERN}, function(_, tex) {
           var marker = '@@LATEX_' + latexBlocks.length + '@@';
           latexBlocks.push({ display: true, tex: tex });
           return marker;
         });
-        // Inline math \(...\)
-        protectedSource = protectedSource.replace(/\\\\\\(([\\s\\S]+?)\\\\\\)/g, function(_, tex) {
+        // Inline math with parenthesis delimiters
+        protectedSource = protectedSource.replace(${LATEX_INLINE_BLOCK_PATTERN}, function(_, tex) {
           var marker = '@@LATEX_' + latexBlocks.length + '@@';
           latexBlocks.push({ display: false, tex: tex });
           return marker;
@@ -220,8 +224,8 @@ ${getHtmlEscaperScript()}
           latexBlocks.push({ display: false, tex: tex });
           return marker;
         });
-        // LaTeX environments \begin{env}...\end{env} (LAST: only matches standalone)
-        protectedSource = protectedSource.replace(/\\\\begin\\{(equation\\*?|align\\*?|gather\\*?|aligned|cases|split|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|cd|CD|darray)\\}([\\s\\S]+?)\\\\end\\{\\1\\}/g, function(match) {
+        // LaTeX environments (LAST: only matches standalone)
+        protectedSource = protectedSource.replace(${LATEX_ENV_BLOCK_PATTERN}, function(match) {
           var marker = '@@LATEX_' + latexBlocks.length + '@@';
           latexBlocks.push({ display: true, tex: match });
           return marker;
@@ -264,42 +268,227 @@ ${getHtmlEscaperScript()}
           return parsed.toString();
         };
 
-        escaped = escaped.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, (full, alt, rawUrl) => {
-          const mediaType = String(alt || '').trim().toLowerCase();
-          const altText = decodeHtmlEntities(alt).trim();
-          if (mediaType === 'video') {
-            const safeUrl = toSafeHref(rawUrl, false, true);
+        const applyInlineMarkdown = (text) => {
+          let html = String(text || '');
+
+          html = html.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, (full, alt, rawUrl) => {
+            const mediaType = String(alt || '').trim().toLowerCase();
+            const altText = decodeHtmlEntities(alt).trim();
+            if (mediaType === 'video') {
+              const safeUrl = toSafeHref(rawUrl, false, true);
+              if (!safeUrl) {
+                return full;
+              }
+              return '<video controls preload="metadata" src="' + escapeHtmlAttr(safeUrl) + '"></video>';
+            }
+            const safeUrl = toSafeHref(rawUrl, true, false);
             if (!safeUrl) {
               return full;
             }
-            return '<video controls preload="metadata" src="' + escapeHtmlAttr(safeUrl) + '"></video>';
-          }
-          const safeUrl = toSafeHref(rawUrl, true, false);
-          if (!safeUrl) {
-            return full;
-          }
-          return (
-            '<img src="' +
-            escapeHtmlAttr(safeUrl) +
-            '" alt="' +
-            escapeHtmlAttr(altText) +
-            '" loading="lazy" />'
-          );
-        });
+            return (
+              '<img src="' +
+              escapeHtmlAttr(safeUrl) +
+              '" alt="' +
+              escapeHtmlAttr(altText) +
+              '" loading="lazy" />'
+            );
+          });
 
-        escaped = escaped.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, (full, label, rawUrl) => {
-          const safeUrl = toSafeHref(rawUrl, false, false);
-          if (!safeUrl) {
-            return full;
+          html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, (full, label, rawUrl) => {
+            const safeUrl = toSafeHref(rawUrl, false, false);
+            if (!safeUrl) {
+              return full;
+            }
+            return (
+              '<a href="' +
+              escapeHtmlAttr(safeUrl) +
+              '" target="_blank" rel="noopener noreferrer">' +
+              label +
+              '</a>'
+            );
+          });
+
+          html = html.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+          html = html.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
+          html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+          return html;
+        };
+
+        const splitMarkdownTableRow = (line) => {
+          let raw = String(line || '').trim();
+          if (!raw.includes('|')) {
+            return [];
           }
-          return (
-            '<a href="' +
-            escapeHtmlAttr(safeUrl) +
-            '" target="_blank" rel="noopener noreferrer">' +
-            label +
-            '</a>'
-          );
-        });
+          if (raw.startsWith('|')) {
+            raw = raw.slice(1);
+          }
+          if (raw.endsWith('|')) {
+            raw = raw.slice(0, -1);
+          }
+
+          const cells = [];
+          let current = '';
+          for (let index = 0; index < raw.length; index += 1) {
+            const ch = raw[index];
+            if (ch === '\\\\' && raw[index + 1] === '|') {
+              current += '|';
+              index += 1;
+              continue;
+            }
+            if (ch === '|') {
+              cells.push(current.trim());
+              current = '';
+              continue;
+            }
+            current += ch;
+          }
+          cells.push(current.trim());
+          return cells;
+        };
+
+        const isMarkdownTableSeparator = (line) => {
+          const cells = splitMarkdownTableRow(line);
+          if (cells.length < 2) {
+            return false;
+          }
+          return cells.every((cell) => /^:?-{3,}:?$/.test(String(cell || '').replace(/\\s+/g, '')));
+        };
+
+        const isMarkdownTableRow = (line) => splitMarkdownTableRow(line).length >= 2;
+
+        const normalizeTableCellCount = (cells, expectedCount) => {
+          const normalized = cells.slice(0, expectedCount);
+          while (normalized.length < expectedCount) {
+            normalized.push('');
+          }
+          return normalized;
+        };
+
+        const resolveTableAlignment = (separatorCell) => {
+          const marker = String(separatorCell || '').replace(/\\s+/g, '');
+          if (marker.startsWith(':') && marker.endsWith(':')) {
+            return 'is-center';
+          }
+          if (marker.endsWith(':')) {
+            return 'is-right';
+          }
+          if (marker.startsWith(':')) {
+            return 'is-left';
+          }
+          return '';
+        };
+
+        const renderMarkdownTableBlock = (headers, separators, rows) => {
+          const alignments = separators.map(resolveTableAlignment);
+          const renderCells = (tag, cells) => normalizeTableCellCount(cells, headers.length)
+            .map((cell, index) => {
+              const alignment = alignments[index] ? ' class="' + alignments[index] + '"' : '';
+              const rendered = applyInlineMarkdown(cell);
+              return '<' + tag + alignment + '>' + (rendered || '&nbsp;') + '</' + tag + '>';
+            })
+            .join('');
+          const headHtml = '<thead><tr>' + renderCells('th', headers) + '</tr></thead>';
+          const bodyHtml = rows.length > 0
+            ? '<tbody>' + rows.map((row) => '<tr>' + renderCells('td', row) + '</tr>').join('') + '</tbody>'
+            : '';
+          return '<div class="markdown-table-wrap"><table class="markdown-table">' + headHtml + bodyHtml + '</table></div>';
+        };
+
+        const tableBlocks = [];
+        const renderMarkdownTables = (text) => {
+          const lines = String(text || '').split('\\n');
+          const chunks = [];
+          for (let index = 0; index < lines.length; index += 1) {
+            const headerLine = lines[index];
+            const separatorLine = lines[index + 1];
+            if (!isMarkdownTableRow(headerLine) || !isMarkdownTableSeparator(separatorLine)) {
+              chunks.push(headerLine);
+              continue;
+            }
+
+            const headers = splitMarkdownTableRow(headerLine);
+            const separators = splitMarkdownTableRow(separatorLine);
+            if (headers.length < 2 || headers.length !== separators.length) {
+              chunks.push(headerLine);
+              continue;
+            }
+
+            const rows = [];
+            index += 2;
+            while (index < lines.length) {
+              const rowLine = lines[index];
+              if (!isMarkdownTableRow(rowLine) || isMarkdownTableSeparator(rowLine)) {
+                break;
+              }
+              rows.push(splitMarkdownTableRow(rowLine));
+              index += 1;
+            }
+            index -= 1;
+
+            const marker = '@@TABLE_' + tableBlocks.length + '@@';
+            tableBlocks.push(renderMarkdownTableBlock(headers, separators, rows));
+            chunks.push(marker);
+          }
+          return chunks.join('\\n');
+        };
+
+        const TASK_LIST_ITEM_PATTERN = /^\\s*[-*+]\\s+\\[([xX ])\\]\\s*(.*)$/;
+        const renderMarkdownTaskListBlock = (items) => {
+          const body = items
+            .map((item) => {
+              const checkedClass = item.checked ? ' is-checked' : '';
+              const text = applyInlineMarkdown(item.text || '');
+              return (
+                '<li class="task-list-item' +
+                checkedClass +
+                '">' +
+                '<span class="task-checkbox' +
+                checkedClass +
+                '" aria-hidden="true"></span>' +
+                '<span class="task-list-text">' +
+                (text || '&nbsp;') +
+                '</span>' +
+                '</li>'
+              );
+            })
+            .join('');
+          return '<ul class="task-list">' + body + '</ul>';
+        };
+
+        const taskListBlocks = [];
+        const renderMarkdownTaskLists = (text) => {
+          const lines = String(text || '').split('\\n');
+          const chunks = [];
+          for (let index = 0; index < lines.length; index += 1) {
+            const match = lines[index].match(TASK_LIST_ITEM_PATTERN);
+            if (!match) {
+              chunks.push(lines[index]);
+              continue;
+            }
+
+            const items = [];
+            while (index < lines.length) {
+              const itemMatch = lines[index].match(TASK_LIST_ITEM_PATTERN);
+              if (!itemMatch) {
+                break;
+              }
+              items.push({
+                checked: String(itemMatch[1] || '').toLowerCase() === 'x',
+                text: String(itemMatch[2] || '').trim()
+              });
+              index += 1;
+            }
+            index -= 1;
+
+            const marker = '@@TASK_LIST_' + taskListBlocks.length + '@@';
+            taskListBlocks.push(renderMarkdownTaskListBlock(items));
+            chunks.push(marker);
+          }
+          return chunks.join('\\n');
+        };
+
+        escaped = renderMarkdownTables(escaped);
+        escaped = renderMarkdownTaskLists(escaped);
 
         // ---- Markdown inline / block extensions ----
         // Headings
@@ -307,12 +496,7 @@ ${getHtmlEscaperScript()}
           const lv = hashes.length;
           return '<h' + lv + '>' + txt + '</h' + lv + '>';
         });
-        // Bold
-        escaped = escaped.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
-        // Italic
-        escaped = escaped.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
-        // Strikethrough
-        escaped = escaped.replace(/~~(.+?)~~/g, '<del>$1</del>');
+        escaped = applyInlineMarkdown(escaped);
 
         // Paragraph breaks (double newline) → spacer; single newline → line break
         escaped = escaped.replace(/\\n\\n/g, '@@PARA@@');
@@ -322,6 +506,16 @@ ${getHtmlEscaperScript()}
         // Restore code block placeholders
         escaped = escaped.replace(/@@CODE_BLOCK_(\\d+)@@/g, (_, index) => {
           const value = codeBlocks[Number(index)];
+          return typeof value === 'string' ? value : '';
+        });
+
+        escaped = escaped.replace(/@@TABLE_(\\d+)@@/g, (_, index) => {
+          const value = tableBlocks[Number(index)];
+          return typeof value === 'string' ? value : '';
+        });
+
+        escaped = escaped.replace(/@@TASK_LIST_(\\d+)@@/g, (_, index) => {
+          const value = taskListBlocks[Number(index)];
           return typeof value === 'string' ? value : '';
         });
 
