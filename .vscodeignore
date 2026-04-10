@@ -9,6 +9,8 @@ img/**
 **/*.ts
 package-lock.json
 out/test/**
+.codex
+.claude
 .serena
 
 # Exclude all katex/mermaid files, then re-include only what's needed

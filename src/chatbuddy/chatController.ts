@@ -37,6 +37,7 @@ import { getLocaleFromSettings, warn } from './utils';
 
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
 const STREAM_FLUSH_INTERVAL_MS = 50;
+const STREAM_STATE_POST_INTERVAL_MS = 80;
 type GenerationAbortReason = 'manual' | 'timeout';
 
 /** Shared state for incremental stream accumulation and throttled flush. */
@@ -77,7 +78,7 @@ function buildStreamFlush(
   params: StreamFlushParams,
   repository: ChatStateRepository,
   strings: RuntimeStrings,
-  notifyState?: () => void
+  notifyState?: (persist: boolean) => void
 ): (persist: boolean) => void {
   return (persist: boolean) => {
     const thinkSplit = splitThinkTaggedContent(acc.rawMerged);
@@ -99,7 +100,7 @@ function buildStreamFlush(
     );
     acc.rawPersisted = acc.rawMerged;
     acc.reasoningPersisted = acc.reasoningMerged;
-    notifyState?.();
+    notifyState?.(persist);
   };
 }
 
@@ -214,9 +215,16 @@ type PendingToolContinuation = {
   result: ProviderChatResult;
 };
 
+type PayloadBaseCache = {
+  state: ReturnType<ChatStateRepository['getState']>;
+  expiresAt: number;
+};
+
 export class ChatController {
   private panel: vscode.WebviewPanel | undefined;
   private panelsByAssistantId = new Map<string, vscode.WebviewPanel>();
+  private streamStatePostTimers = new WeakMap<vscode.WebviewPanel, ReturnType<typeof setTimeout>>();
+  private payloadBaseCache: PayloadBaseCache | undefined;
   private streamingEnabled: boolean;
   private isGenerating = false;
   private pendingToolContinuation: PendingToolContinuation | undefined;
@@ -241,6 +249,104 @@ export class ChatController {
     return getLocaleFromSettings(this.repository.getSettings());
   }
 
+  private getPayloadBaseState(): PayloadBaseCache['state'] {
+    if (!this.isGenerating) {
+      this.payloadBaseCache = undefined;
+      return this.repository.getState();
+    }
+    const now = Date.now();
+    const cached = this.payloadBaseCache;
+    if (cached && cached.expiresAt > now) {
+      return cached.state;
+    }
+    const state = this.repository.getState();
+    this.payloadBaseCache = {
+      state,
+      expiresAt: now + STREAM_STATE_POST_INTERVAL_MS
+    };
+    return state;
+  }
+
+  private createPanelOptions(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
+    return {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [getCodiconRootUri(), vscode.Uri.joinPath(this.extensionUri, 'node_modules')]
+    };
+  }
+
+  private getStateTargetPanel(context?: PanelMessageContext): vscode.WebviewPanel | undefined {
+    return context?.panel ?? this.panel;
+  }
+
+  private scheduleStreamStatePost(context?: PanelMessageContext): void {
+    const targetPanel = this.getStateTargetPanel(context);
+    if (!targetPanel || this.streamStatePostTimers.has(targetPanel)) {
+      return;
+    }
+    const timeoutHandle = setTimeout(() => {
+      this.streamStatePostTimers.delete(targetPanel);
+      this.postState(undefined, context);
+    }, STREAM_STATE_POST_INTERVAL_MS);
+    this.streamStatePostTimers.set(targetPanel, timeoutHandle);
+  }
+
+  private flushScheduledStreamStatePost(context?: PanelMessageContext): void {
+    const targetPanel = this.getStateTargetPanel(context);
+    if (!targetPanel) {
+      return;
+    }
+    const timeoutHandle = this.streamStatePostTimers.get(targetPanel);
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      this.streamStatePostTimers.delete(targetPanel);
+    }
+    this.postState(undefined, context);
+  }
+
+  private presentPanel(panel: vscode.WebviewPanel, title: string, iconPath: vscode.IconPath): void {
+    panel.title = title;
+    panel.iconPath = iconPath;
+  }
+
+  private createChatPanel(
+    panelTitle: string,
+    panelIcon: vscode.IconPath,
+    context: { assistantId?: string } = {}
+  ): vscode.WebviewPanel {
+    const panel = vscode.window.createWebviewPanel(
+      CHAT_PANEL_VIEW_TYPE,
+      panelTitle,
+      vscode.ViewColumn.One,
+      this.createPanelOptions()
+    );
+    this.presentPanel(panel, panelTitle, panelIcon);
+    panel.webview.html = getChatWebviewHtml(panel.webview, this.extensionUri);
+    const messageListener = panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
+      this.panel = panel;
+      void this.handleWebviewMessage(message, {
+        panel,
+        assistantId: context.assistantId
+      });
+    });
+    panel.onDidDispose(() => {
+      this.stopGeneration('manual');
+      messageListener.dispose();
+      const timeoutHandle = this.streamStatePostTimers.get(panel);
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        this.streamStatePostTimers.delete(panel);
+      }
+      if (context.assistantId) {
+        this.panelsByAssistantId.delete(context.assistantId);
+      }
+      if (this.panel === panel) {
+        this.panel = undefined;
+      }
+    });
+    return panel;
+  }
+
   public openAssistantChat(assistantId?: string): void {
     if (assistantId) {
       this.repository.setSelectedAssistant(assistantId);
@@ -261,64 +367,21 @@ export class ChatController {
       // Multi-tab mode: each assistant gets its own panel
       const existing = this.panelsByAssistantId.get(assistant.id);
       if (existing) {
-        existing.title = panelTitle;
-        existing.iconPath = panelIcon;
+        this.presentPanel(existing, panelTitle, panelIcon);
         existing.reveal(vscode.ViewColumn.One);
         this.panel = existing;
-        this.postState();
       } else {
-        const newPanel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          localResourceRoots: [getCodiconRootUri(), vscode.Uri.joinPath(this.extensionUri, 'node_modules')]
-        });
-        newPanel.iconPath = panelIcon;
-        newPanel.webview.html = getChatWebviewHtml(newPanel.webview, this.extensionUri);
-        const assistantIdRef = assistant.id;
-        const messageListener = newPanel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
-          this.panel = newPanel;
-          void this.handleWebviewMessage(message, {
-            panel: newPanel,
-            assistantId: assistantIdRef
-          });
-        });
-        newPanel.onDidDispose(() => {
-          this.stopGeneration('manual');
-          messageListener.dispose();
-          this.panelsByAssistantId.delete(assistantIdRef);
-          if (this.panel === newPanel) {
-            this.panel = undefined;
-          }
-        });
+        const newPanel = this.createChatPanel(panelTitle, panelIcon, { assistantId: assistant.id });
         this.panelsByAssistantId.set(assistant.id, newPanel);
         this.panel = newPanel;
       }
     } else {
       // Single-tab mode: reuse the same panel
       if (!this.panel) {
-        this.panel = vscode.window.createWebviewPanel(CHAT_PANEL_VIEW_TYPE, panelTitle, vscode.ViewColumn.One, {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          localResourceRoots: [getCodiconRootUri(), vscode.Uri.joinPath(this.extensionUri, 'node_modules')]
-        });
-        this.panel.iconPath = panelIcon;
-        this.panel.webview.html = getChatWebviewHtml(this.panel.webview, this.extensionUri);
-        const panelRef = this.panel;
-        const messageListener = this.panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
-          void this.handleWebviewMessage(message, {
-            panel: panelRef
-          });
-        });
-        this.panel.onDidDispose(() => {
-          this.stopGeneration('manual');
-          messageListener.dispose();
-          this.panel = undefined;
-        });
+        this.panel = this.createChatPanel(panelTitle, panelIcon);
       } else {
-        this.panel.title = panelTitle;
-        this.panel.iconPath = panelIcon;
+        this.presentPanel(this.panel, panelTitle, panelIcon);
         this.panel.reveal(vscode.ViewColumn.One);
-        this.postState();
       }
     }
 
@@ -943,8 +1006,12 @@ export class ChatController {
       toolRounds: chatToolRounds,
       context
     };
-    const flush = buildStreamFlush(acc, params, this.repository, strings, () => {
-      this.postState(undefined, context);
+    const flush = buildStreamFlush(acc, params, this.repository, strings, (persist) => {
+      if (persist) {
+        this.flushScheduledStreamStatePost(context);
+        return;
+      }
+      this.scheduleStreamStatePost(context);
     });
     const callbacks = buildStreamCallbacks(acc, flush);
 
@@ -1054,7 +1121,7 @@ export class ChatController {
   private buildPayload(error?: string, assistantIdOverride?: string): ChatStatePayload {
     const locale = this.getLocale();
     const strings = getStrings(locale);
-    const raw = this.repository.getState();
+    const raw = this.getPayloadBaseState();
     const settings = raw.settings;
     const assistant =
       (assistantIdOverride ? this.repository.getAssistantById(assistantIdOverride) : undefined) ??
@@ -1229,8 +1296,12 @@ export class ChatController {
       modelLabel: resolved.config.modelLabel,
       context
     };
-    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.repository, strings, () => {
-      this.postState(undefined, context);
+    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.repository, strings, (persist) => {
+      if (persist) {
+        this.flushScheduledStreamStatePost(context);
+        return;
+      }
+      this.scheduleStreamStatePost(context);
     });
     const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
 

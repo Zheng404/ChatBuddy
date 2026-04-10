@@ -60,6 +60,7 @@ const CODICON_SCAN_MAX_DIRS = 500;
 const CODICON_SCAN_MAX_RESULTS = 10;
 
 const codiconRootCache = new Map<string, vscode.Uri>();
+const codiconStyleTextCache = new Map<string, string>();
 const productIconThemeCandidatesCache = new Map<string, ProductIconThemeCandidate[]>();
 
 type CodiconDiscoveredRoot = {
@@ -902,12 +903,17 @@ export function getCodiconRootUri(): vscode.Uri {
  */
 export function getCodiconStyleText(): string {
   const appRoot = vscode.env.appRoot;
+  const cachedStyle = codiconStyleTextCache.get(appRoot);
+  if (cachedStyle !== undefined) {
+    return cachedStyle;
+  }
   const codiconRoot = getCodiconRootUri();
   const cssPath = path.join(codiconRoot.fsPath, 'codicon.css');
   let rawCss = '';
   try {
     rawCss = fs.readFileSync(cssPath, 'utf8');
   } catch {
+    codiconStyleTextCache.set(appRoot, '');
     return '';
   }
 
@@ -921,5 +927,7 @@ export function getCodiconStyleText(): string {
   if (hostOverrides.cssText) {
     parts.push(hostOverrides.cssText);
   }
-  return parts.join('\n');
+  const styleText = parts.join('\n');
+  codiconStyleTextCache.set(appRoot, styleText);
+  return styleText;
 }

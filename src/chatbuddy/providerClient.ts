@@ -1126,14 +1126,8 @@ export class OpenAICompatibleClient {
     }
   }
 
-  private async chatCompletions(
-    messages: ProviderMessage[],
-    providerConfig: ProviderConfig,
-    locale: RuntimeLocale,
-    signal?: AbortSignal,
-    options: ProviderRequestOptions = {}
-  ): Promise<ProviderChatResult> {
-    const provider: ProviderConnectionInput = {
+  private toProviderConnectionInput(providerConfig: ProviderConfig): ProviderConnectionInput {
+    return {
       id: providerConfig.providerId,
       kind: providerConfig.providerKind,
       name: providerConfig.providerName,
@@ -1141,18 +1135,91 @@ export class OpenAICompatibleClient {
       apiKey: providerConfig.apiKey,
       baseUrl: providerConfig.baseUrl
     };
+  }
+
+  private async postProviderJson(
+    providerConfig: ProviderConfig,
+    endpoint: '/chat/completions' | '/responses',
+    body: Record<string, unknown>,
+    locale: RuntimeLocale,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    const provider = this.toProviderConnectionInput(providerConfig);
     return retryWithBackoff(async () => {
-      const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
+      const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}${endpoint}`, {
         method: 'POST',
         headers: createHeaders(provider),
-        body: JSON.stringify(
-          toChatCompletionBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])
-        ),
+        body: JSON.stringify(body),
         signal
       });
       await ensureSuccess(response, locale);
-      return extractChatCompletionResult(await response.json());
+      return response;
     });
+  }
+
+  private async consumeSseResponse(
+    response: Response,
+    locale: RuntimeLocale,
+    onPayload: (payload: unknown) => boolean | void,
+    onDone: () => void
+  ): Promise<void> {
+    if (!response.body) {
+      throw new Error(resolveLocaleString(locale, '服务端未返回可读流。', 'The server did not return a readable stream.'));
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    try {
+      let readResult = await reader.read();
+      while (!readResult.done) {
+        buffer += decoder.decode(readResult.value, { stream: true });
+        const parts = buffer.split('\n');
+        buffer = parts.pop() ?? '';
+        for (const line of parts) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) {
+            continue;
+          }
+          const payload = trimmed.slice('data:'.length).trim();
+          if (payload === '[DONE]') {
+            onDone();
+            return;
+          }
+          if (!payload) {
+            continue;
+          }
+          try {
+            if (onPayload(JSON.parse(payload))) {
+              onDone();
+              return;
+            }
+          } catch {
+            // Ignore invalid chunks from compatibility providers.
+          }
+        }
+        readResult = await reader.read();
+      }
+      onDone();
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  private async chatCompletions(
+    messages: ProviderMessage[],
+    providerConfig: ProviderConfig,
+    locale: RuntimeLocale,
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
+  ): Promise<ProviderChatResult> {
+    const response = await this.postProviderJson(
+      providerConfig,
+      '/chat/completions',
+      toChatCompletionBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? []),
+      locale,
+      signal
+    );
+    return extractChatCompletionResult(await response.json());
   }
 
   private async responses(
@@ -1162,24 +1229,14 @@ export class OpenAICompatibleClient {
     signal?: AbortSignal,
     options: ProviderRequestOptions = {}
   ): Promise<ProviderChatResult> {
-    const provider: ProviderConnectionInput = {
-      id: providerConfig.providerId,
-      kind: providerConfig.providerKind,
-      name: providerConfig.providerName,
-      apiType: providerConfig.apiType,
-      apiKey: providerConfig.apiKey,
-      baseUrl: providerConfig.baseUrl
-    };
-    return retryWithBackoff(async () => {
-      const response = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
-        method: 'POST',
-        headers: createHeaders(provider),
-        body: JSON.stringify(toResponsesBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? [])),
-        signal
-      });
-      await ensureSuccess(response, locale);
-      return extractResponsesResult(await response.json());
-    });
+    const response = await this.postProviderJson(
+      providerConfig,
+      '/responses',
+      toResponsesBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? []),
+      locale,
+      signal
+    );
+    return extractResponsesResult(await response.json());
   }
 
   private async chatCompletionsStream(
@@ -1190,74 +1247,28 @@ export class OpenAICompatibleClient {
     signal?: AbortSignal,
     options: ProviderRequestOptions = {}
   ): Promise<void> {
-    const provider: ProviderConnectionInput = {
-      id: providerConfig.providerId,
-      kind: providerConfig.providerKind,
-      name: providerConfig.providerName,
-      apiType: providerConfig.apiType,
-      apiKey: providerConfig.apiKey,
-      baseUrl: providerConfig.baseUrl
-    };
-    const response = await retryWithBackoff(async () => {
-      const res = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/chat/completions`, {
-        method: 'POST',
-        headers: createHeaders(provider),
-        body: JSON.stringify(
-          toChatCompletionBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])
-        ),
-        signal
-      });
-      await ensureSuccess(res, locale);
-      return res;
-    });
-    if (!response.body) {
-      throw new Error(resolveLocaleString(locale, '服务端未返回可读流。', 'The server did not return a readable stream.'));
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    try {
-      let reading = true;
-      while (reading) {
-        const { done, value } = await reader.read();
-        if (done) {
-          reading = false;
-          continue;
+    const response = await this.postProviderJson(
+      providerConfig,
+      '/chat/completions',
+      toChatCompletionBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? []),
+      locale,
+      signal
+    );
+    await this.consumeSseResponse(
+      response,
+      locale,
+      (payload) => {
+        const delta = extractChatCompletionsStreamDelta(payload);
+        if (delta.textDelta) {
+          handlers.onDelta(delta.textDelta);
         }
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n');
-        buffer = parts.pop() ?? '';
-        for (const line of parts) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) {
-            continue;
-          }
-          const payload = trimmed.slice('data:'.length).trim();
-          if (payload === '[DONE]') {
-            handlers.onDone();
-            return;
-          }
-          if (!payload) {
-            continue;
-          }
-          try {
-            const parsed = JSON.parse(payload);
-            const delta = extractChatCompletionsStreamDelta(parsed);
-            if (delta.textDelta) {
-              handlers.onDelta(delta.textDelta);
-            }
-            if (delta.reasoningDelta) {
-              handlers.onReasoningDelta?.(delta.reasoningDelta);
-            }
-          } catch {
-            // Ignore invalid chunks from compatibility providers.
-          }
+        if (delta.reasoningDelta) {
+          handlers.onReasoningDelta?.(delta.reasoningDelta);
         }
-      }
-      handlers.onDone();
-    } finally {
-      reader.releaseLock();
-    }
+        return false;
+      },
+      handlers.onDone
+    );
   }
 
   private async responsesStream(
@@ -1268,76 +1279,28 @@ export class OpenAICompatibleClient {
     signal?: AbortSignal,
     options: ProviderRequestOptions = {}
   ): Promise<void> {
-    const provider: ProviderConnectionInput = {
-      id: providerConfig.providerId,
-      kind: providerConfig.providerKind,
-      name: providerConfig.providerName,
-      apiType: providerConfig.apiType,
-      apiKey: providerConfig.apiKey,
-      baseUrl: providerConfig.baseUrl
-    };
-    const response = await retryWithBackoff(async () => {
-      const res = await fetch(`${normalizeBaseUrl(providerConfig.baseUrl)}/responses`, {
-        method: 'POST',
-        headers: createHeaders(provider),
-        body: JSON.stringify(toResponsesBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? [])),
-        signal
-      });
-      await ensureSuccess(res, locale);
-      return res;
-    });
-    if (!response.body) {
-      throw new Error(resolveLocaleString(locale, '服务端未返回可读流。', 'The server did not return a readable stream.'));
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    try {
-      let reading = true;
-      while (reading) {
-        const { done, value } = await reader.read();
-        if (done) {
-          reading = false;
-          continue;
+    const response = await this.postProviderJson(
+      providerConfig,
+      '/responses',
+      toResponsesBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? []),
+      locale,
+      signal
+    );
+    await this.consumeSseResponse(
+      response,
+      locale,
+      (payload) => {
+        const event = extractResponsesStreamEvent(payload);
+        if (event.textDelta) {
+          handlers.onDelta(event.textDelta);
         }
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n');
-        buffer = parts.pop() ?? '';
-        for (const line of parts) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) {
-            continue;
-          }
-          const payload = trimmed.slice('data:'.length).trim();
-          if (payload === '[DONE]') {
-            handlers.onDone();
-            return;
-          }
-          if (!payload) {
-            continue;
-          }
-          try {
-            const parsed = JSON.parse(payload);
-            const event = extractResponsesStreamEvent(parsed);
-            if (event.textDelta) {
-              handlers.onDelta(event.textDelta);
-            }
-            if (event.reasoningDelta) {
-              handlers.onReasoningDelta?.(event.reasoningDelta);
-            }
-            if (event.done) {
-              handlers.onDone();
-              return;
-            }
-          } catch {
-            // Ignore invalid chunks from compatibility providers.
-          }
+        if (event.reasoningDelta) {
+          handlers.onReasoningDelta?.(event.reasoningDelta);
         }
-      }
-      handlers.onDone();
-    } finally {
-      reader.releaseLock();
-    }
+        return event.done;
+      },
+      handlers.onDone
+    );
   }
 
   private async fetchStandardModels(

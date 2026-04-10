@@ -14,4 +14,6 @@ out
 Thumbs.db
 *.log
 
+.codex
+.claude
 .serena
