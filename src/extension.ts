@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { AssistantsTreeProvider } from './chatbuddy/assistantsView';
+import type { AssistantsTreeNode } from './chatbuddy/assistantsView';
 import { AssistantEditorPanelController } from './chatbuddy/assistantEditorPanel';
 import { ChatController } from './chatbuddy/chatController';
 import { DEFAULT_GROUP_ID } from './chatbuddy/constants';
@@ -62,7 +63,8 @@ function createTreeProviders(repository: ChatStateRepository): ActivationTreePro
   const assistantTreeRepository = {
     getGroups: () => repository.getGroups(),
     getAssistants: () => repository.getAssistants(),
-    getLocaleSetting: () => repository.getLocaleSetting()
+    getLocaleSetting: () => repository.getLocaleSetting(),
+    isGroupCollapsed: (groupId: string) => repository.getState().collapsedGroupIds.includes(groupId)
   };
 
   return {
@@ -531,6 +533,18 @@ export async function activate(context: vscode.ExtensionContext) {
     settingsTreeView,
     settingsTreeDataEmitter,
     ...commandDisposables,
+    assistantsTreeView.onDidExpandElement((e) => {
+      const node = e.element as AssistantsTreeNode;
+      if (node.kind === 'group') {
+        repository.setGroupCollapsed(node.group.id, false);
+      }
+    }),
+    assistantsTreeView.onDidCollapseElement((e) => {
+      const node = e.element as AssistantsTreeNode;
+      if (node.kind === 'group') {
+        repository.setGroupCollapsed(node.group.id, true);
+      }
+    }),
     { dispose: () => { chatController.dispose(); } },
     { dispose: () => { void mcpRuntime.dispose(); } },
     { dispose: () => { void repository.close(); } }

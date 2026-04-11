@@ -499,6 +499,7 @@ export function createInitialState(): PersistedStateLite {
     selectedAssistantId: undefined,
     selectedSessionIdByAssistant: {},
     sessionPanelCollapsed: false,
+    collapsedGroupIds: [],
     settings
   };
 }

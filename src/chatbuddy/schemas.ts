@@ -11,6 +11,7 @@ export const PersistedStateLiteSchema = z.object({
   selectedAssistantId: z.string().optional(),
   selectedSessionIdByAssistant: z.record(z.string(), z.string()),
   sessionPanelCollapsed: z.boolean(),
+  collapsedGroupIds: z.array(z.string()),
   settings: z.object({
     providers: z.array(z.record(z.string(), z.unknown())),
     defaultModels: z.record(z.string(), z.unknown()),

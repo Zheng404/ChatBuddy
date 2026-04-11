@@ -172,6 +172,7 @@ export interface PersistedState {
   selectedAssistantId?: string;
   selectedSessionIdByAssistant: Record<string, string>;
   sessionPanelCollapsed: boolean;
+  collapsedGroupIds: string[];
   settings: ChatBuddySettings;
 }
 
@@ -181,6 +182,7 @@ export interface PersistedStateLite {
   selectedAssistantId?: string;
   selectedSessionIdByAssistant: Record<string, string>;
   sessionPanelCollapsed: boolean;
+  collapsedGroupIds: string[];
   settings: ChatBuddySettings;
 }
 

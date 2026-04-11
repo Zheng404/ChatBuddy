@@ -27,6 +27,7 @@ type ProviderContext = {
   getGroups: () => AssistantGroup[];
   getAssistants: () => AssistantProfile[];
   getLocaleSetting: () => 'auto' | 'zh-CN' | 'en';
+  isGroupCollapsed: (groupId: string) => boolean;
 };
 
 const MIN_RECYCLE_VIEW_ROWS = 4;
@@ -110,9 +111,12 @@ export class AssistantsTreeProvider implements vscode.TreeDataProvider<Assistant
     if (element.kind === 'group') {
       const group = element.group;
       const label = this.getGroupDisplayName(group, strings);
+      const collapsibleState = this.context.isGroupCollapsed(group.id)
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.Expanded;
       const item = new vscode.TreeItem(
         label,
-        vscode.TreeItemCollapsibleState.Expanded
+        collapsibleState
       );
       item.contextValue = this.getGroupContextValue(group);
       item.id = `chatbuddy.group.${group.id}`;

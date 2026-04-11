@@ -837,6 +837,20 @@ export class ChatStateRepository {
     void this.persist();
   }
 
+  public setGroupCollapsed(groupId: string, collapsed: boolean): void {
+    const ids = this.state.collapsedGroupIds;
+    const index = ids.indexOf(groupId);
+    if (collapsed) {
+      if (index < 0) {
+        ids.push(groupId);
+        void this.persist();
+      }
+    } else if (index >= 0) {
+      ids.splice(index, 1);
+      void this.persist();
+    }
+  }
+
   private hydrateStateFromSqlite(): void {
     const stored = parsePersistedStateLiteStore(this.storage.getKv(SQLITE_STATE_KEY));
     if (!stored) {
@@ -927,6 +941,7 @@ export class ChatStateRepository {
         selectedAssistantId,
         selectedSessionIdByAssistant,
         sessionPanelCollapsed: source.sessionPanelCollapsed ?? false,
+        collapsedGroupIds: source.collapsedGroupIds ?? [],
         settings
       },
       sessions
