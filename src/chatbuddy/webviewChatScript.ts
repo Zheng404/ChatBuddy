@@ -564,32 +564,30 @@ ${getHtmlEscaperScript()}
         ].join('~');
       }
 
+      // Cache the static portion of the messages signature (locale, strings, etc.)
+      // which never changes between state updates within the same session.
+      var cachedMessagesSigStatic = '';
+
       function buildMessagesSignature() {
         const current = state.selectedSession?.messages ?? [];
         const selectedAssistantName = String(state.selectedAssistant?.name || '').trim();
-        return [
-          String(state.locale || ''),
-          String(state.selectedAssistantId || ''),
-          selectedAssistantName,
-          String(state.selectedSessionId || ''),
-          String(state.selectedSession?.updatedAt || ''),
-          state.canChat ? '1' : '0',
-          String(state.readOnlyReason || ''),
-          String(state.strings.emptyStateTitle || ''),
-          String(state.strings.emptyStateBody || ''),
-          String(state.strings.noAssistantSelectedTitle || ''),
-          String(state.strings.noAssistantSelectedBody || ''),
-          String(state.strings.userRole || ''),
-          String(state.strings.assistantRole || ''),
-          String(state.strings.systemRole || ''),
-          String(state.strings.regenerateReplyAction || ''),
-          String(state.strings.regenerateFromMessageAction || ''),
-          String(state.strings.copyMessageAction || ''),
-          String(state.strings.deleteMessageAction || ''),
-          String(state.strings.reasoningSectionTitle || ''),
-          String(current.length),
-          messageDigest(current[current.length - 1])
-        ].join('|');
+        // Only recompute static part when locale or assistant changes
+        var staticPart = cachedMessagesSigStatic;
+        var staticKey = String(state.locale || '') + '|' + String(state.selectedAssistantId || '') + '|' +
+          selectedAssistantName + '|' + String(state.selectedSessionId || '') + '|' +
+          String(state.selectedSession?.updatedAt || '') + '|' +
+          (state.canChat ? '1' : '0') + '|' + String(state.readOnlyReason || '') + '|' +
+          String(state.strings.emptyStateTitle || '') + '|' + String(state.strings.emptyStateBody || '') + '|' +
+          String(state.strings.noAssistantSelectedTitle || '') + '|' + String(state.strings.noAssistantSelectedBody || '') + '|' +
+          String(state.strings.userRole || '') + '|' + String(state.strings.assistantRole || '') + '|' +
+          String(state.strings.systemRole || '') + '|' + String(state.strings.regenerateReplyAction || '') + '|' +
+          String(state.strings.regenerateFromMessageAction || '') + '|' + String(state.strings.copyMessageAction || '') + '|' +
+          String(state.strings.deleteMessageAction || '') + '|' + String(state.strings.reasoningSectionTitle || '');
+        if (staticKey !== cachedMessagesSigStatic) {
+          cachedMessagesSigStatic = staticKey;
+          staticPart = staticKey;
+        }
+        return staticPart + '|' + String(current.length) + '|' + messageDigest(current[current.length - 1]);
       }
 
       function buildComposerSignature() {
@@ -673,10 +671,129 @@ ${getHtmlEscaperScript()}
           '</div>';
       }
 
+      // Cache generated HTML per message to avoid re-processing unchanged messages
+      var messageHtmlCache = {};
+
+      function generateMessageHtml(message, latestAssistantId, assistantDisplayName, isGenerating, lastMsg) {
+        const showCursor = isGenerating && lastMsg && lastMsg.role === 'assistant' && message.id === lastMsg.id;
+        const role =
+          message.role === 'user'
+            ? state.strings.userRole
+            : message.role === 'assistant'
+              ? assistantDisplayName
+              : state.strings.systemRole;
+        const rowClass = message.role === 'user' ? 'message-row user' : 'message-row';
+        const avatarNode =
+          message.role === 'assistant'
+            ? '<div class="message-avatar">' + codiconMarkup(getSelectedAssistantAvatar()) + '</div>'
+            : message.role === 'system'
+              ? '<div class="message-avatar">' + codiconMarkup('settings-gear') + '</div>'
+              : '';
+        const modelText = String(message.model || '').trim();
+        const shouldShowModel = !!modelText && !/^[^:\\s]+:[^:\\s]+$/.test(modelText);
+        const metaExtra = shouldShowModel ? ' · ' + escapeHtml(modelText) : '';
+        const reasoningText = String(message.reasoning || '').trim();
+        const toolRounds = (message.role === 'assistant' && Array.isArray(message.toolRounds) && message.toolRounds.length > 0)
+          ? message.toolRounds
+          : undefined;
+        // Pre-tool reasoning: each round's thinking before calling tools (flat, above Tool Calls)
+        const preToolReasoning = (function() {
+          if (!toolRounds) { return ''; }
+          var parts = [];
+          for (var ri = 0; ri < toolRounds.length; ri++) {
+            if (toolRounds[ri].reasoning) {
+              parts.push('<details class="reasoning-block">' +
+                '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
+                '<div class="reasoning-content">' + markdownToHtml(toolRounds[ri].reasoning) + '</div>' +
+              '</details>');
+            }
+          }
+          return parts.join('');
+        })();
+        // Tool calls block (flat, no reasoning inside)
+        const toolRoundsBlock = toolRounds
+          ? (function() {
+              const header = state.strings.toolCallRoundHeader || 'Tool Calls (Round {round})';
+              var parts = [];
+              for (let ri = 0; ri < toolRounds.length; ri++) {
+                const round = toolRounds[ri];
+                if (ri > 0) {
+                  parts.push('<hr class="tool-round-separator">');
+                }
+                parts.push('<div class="tool-call-name">' + escapeHtml(header.replace('{round}', String(ri + 1))) + '</div>');
+                for (const call of round.calls || []) {
+                  parts.push('<div class="tool-round-item">');
+                  parts.push('<div><span class="tool-call-name">' + icons.tool + ' ' + escapeHtml(call.name || '') + '</span></div>');
+                  if (call.argumentsText) {
+                    parts.push('<div class="tool-call-args">' + escapeHtml(call.argumentsText) + '</div>');
+                  }
+                  if (call.output) {
+                    parts.push('<div class="tool-call-output">' + escapeHtml(call.output) + '</div>');
+                  }
+                  parts.push('</div>');
+                }
+              }
+              return '<details class="tool-rounds-block">' +
+                '<summary>' + escapeHtml(state.strings.toolCallSectionTitle || 'Tool Calls') + ' (' + toolRounds.length + ')</summary>' +
+                '<div class="tool-rounds-content">' + parts.join('') + '</div>' +
+              '</details>';
+            })()
+          : '';
+        // Post-tool reasoning: final thinking after all tools (flat, below Tool Calls)
+        const postToolReasoning = (toolRounds && reasoningText)
+          ? '<details class="reasoning-block">' +
+              '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
+              '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>' +
+            '</details>'
+          : '';
+        // Simple case: no tool rounds, just reasoning
+        const reasoningBlock = (!toolRounds && message.role === 'assistant' && reasoningText)
+          ? '<details class="reasoning-block">' +
+              '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
+              '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>' +
+            '</details>'
+          : '';
+        const messageActions = state.canChat ? '' +
+          '<div class="message-meta-actions">' +
+            '<button class="message-action-btn" type="button" data-msg-action="view-raw" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.viewRawTextAction || '') + '">' + icons.rawText + '</button>' +
+            (message.id === latestAssistantId && message.role === 'assistant'
+              ? '<button class="message-action-btn" type="button" data-msg-action="regenerate-reply" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.regenerateReplyAction || '') + '">' + icons.regenerateReply + '</button>'
+              : '') +
+            (message.role === 'user'
+              ? '<button class="message-action-btn" type="button" data-msg-action="edit-message" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.editMessageAction || '') + '">' + icons.edit + '</button>'
+              : '') +
+            (message.role !== 'system'
+              ? '<button class="message-action-btn" type="button" data-msg-action="regenerate-from" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.regenerateFromMessageAction || '') + '">' + icons.regenerateFrom + '</button>'
+              : '') +
+            '<button class="message-action-btn" type="button" data-msg-action="copy-message" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.copyMessageAction || '') + '">' + icons.copy + '</button>' +
+            '<button class="message-action-btn" type="button" data-msg-action="delete-message" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.deleteMessageAction || '') + '">' + icons.delete + '</button>' +
+          '</div>'
+          : '';
+        return '' +
+          '<div class="' + rowClass + '">' +
+            avatarNode +
+            '<div class="message-card">' +
+              '<div class="message-meta">' +
+                '<div class="message-meta-main">' +
+                  '<span class="message-role">' + escapeHtml(role) + '</span>' +
+                  '<span>' + escapeHtml(formatDate(message.timestamp)) + metaExtra + '</span>' +
+                '</div>' +
+                messageActions +
+              '</div>' +
+              reasoningBlock +
+              preToolReasoning +
+              toolRoundsBlock +
+              postToolReasoning +
+              '<div class="message-text">' + markdownToHtml(message.content || '') + ((showCursor && message.id === lastMsg.id) ? '<span class="streaming-cursor"></span>' : '') + '</div>' +
+            '</div>' +
+          '</div>';
+      }
+
       function renderMessages() {
         const current = state.selectedSession?.messages ?? [];
         if (!current.length) {
           renderEmptyState();
+          messageHtmlCache = {};
           return;
         }
 
@@ -685,122 +802,39 @@ ${getHtmlEscaperScript()}
         const isGenerating = state.isGenerating;
         const lastMsg = current[current.length - 1];
 
-        dom.messagesInner.innerHTML = current.map((message) => {
-          // Only show cursor on the last message when it's an assistant message and still generating
-          const showCursor = isGenerating && lastMsg && lastMsg.role === 'assistant' && message.id === lastMsg.id;
-          const role =
-            message.role === 'user'
-              ? state.strings.userRole
-              : message.role === 'assistant'
-                ? assistantDisplayName
-                : state.strings.systemRole;
-          const rowClass = message.role === 'user' ? 'message-row user' : 'message-row';
-          const avatarNode =
-            message.role === 'assistant'
-              ? '<div class="message-avatar">' + codiconMarkup(getSelectedAssistantAvatar()) + '</div>'
-              : message.role === 'system'
-                ? '<div class="message-avatar">' + codiconMarkup('settings-gear') + '</div>'
-                : '';
-          const modelText = String(message.model || '').trim();
-          const shouldShowModel = !!modelText && !/^[^:\\s]+:[^:\\s]+$/.test(modelText);
-          const metaExtra = shouldShowModel ? ' · ' + escapeHtml(modelText) : '';
-          const reasoningText = String(message.reasoning || '').trim();
-          const toolRounds = (message.role === 'assistant' && Array.isArray(message.toolRounds) && message.toolRounds.length > 0)
-            ? message.toolRounds
-            : undefined;
-          // Pre-tool reasoning: each round's thinking before calling tools (flat, above Tool Calls)
-          const preToolReasoning = (function() {
-            if (!toolRounds) { return ''; }
-            var parts = [];
-            for (var ri = 0; ri < toolRounds.length; ri++) {
-              if (toolRounds[ri].reasoning) {
-                parts.push('<details class="reasoning-block">' +
-                  '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
-                  '<div class="reasoning-content">' + markdownToHtml(toolRounds[ri].reasoning) + '</div>' +
-                '</details>');
-              }
-            }
-            return parts.join('');
-          })();
-          // Tool calls block (flat, no reasoning inside)
-          const toolRoundsBlock = toolRounds
-            ? (function() {
-                const header = state.strings.toolCallRoundHeader || 'Tool Calls (Round {round})';
-                var parts = [];
-                for (let ri = 0; ri < toolRounds.length; ri++) {
-                  const round = toolRounds[ri];
-                  if (ri > 0) {
-                    parts.push('<hr class="tool-round-separator">');
-                  }
-                  parts.push('<div class="tool-call-name">' + escapeHtml(header.replace('{round}', String(ri + 1))) + '</div>');
-                  for (const call of round.calls || []) {
-                    parts.push('<div class="tool-round-item">');
-                    parts.push('<div><span class="tool-call-name">' + icons.tool + ' ' + escapeHtml(call.name || '') + '</span></div>');
-                    if (call.argumentsText) {
-                      parts.push('<div class="tool-call-args">' + escapeHtml(call.argumentsText) + '</div>');
-                    }
-                    if (call.output) {
-                      parts.push('<div class="tool-call-output">' + escapeHtml(call.output) + '</div>');
-                    }
-                    parts.push('</div>');
-                  }
-                }
-                return '<details class="tool-rounds-block">' +
-                  '<summary>' + escapeHtml(state.strings.toolCallSectionTitle || 'Tool Calls') + ' (' + toolRounds.length + ')</summary>' +
-                  '<div class="tool-rounds-content">' + parts.join('') + '</div>' +
-                '</details>';
-              })()
-            : '';
-          // Post-tool reasoning: final thinking after all tools (flat, below Tool Calls)
-          const postToolReasoning = (toolRounds && reasoningText)
-            ? '<details class="reasoning-block">' +
-                '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
-                '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>' +
-              '</details>'
-            : '';
-          // Simple case: no tool rounds, just reasoning
-          const reasoningBlock = (!toolRounds && message.role === 'assistant' && reasoningText)
-            ? '<details class="reasoning-block">' +
-                '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || '') + '</summary>' +
-                '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>' +
-              '</details>'
-            : '';
-          const messageActions = state.canChat ? '' +
-            '<div class="message-meta-actions">' +
-              '<button class="message-action-btn" type="button" data-msg-action="view-raw" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.viewRawTextAction || '') + '">' + icons.rawText + '</button>' +
-              (message.id === latestAssistantId && message.role === 'assistant'
-                ? '<button class="message-action-btn" type="button" data-msg-action="regenerate-reply" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.regenerateReplyAction || '') + '">' + icons.regenerateReply + '</button>'
-                : '') +
-              (message.role === 'user'
-                ? '<button class="message-action-btn" type="button" data-msg-action="edit-message" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.editMessageAction || '') + '">' + icons.edit + '</button>'
-                : '') +
-              (message.role !== 'system'
-                ? '<button class="message-action-btn" type="button" data-msg-action="regenerate-from" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.regenerateFromMessageAction || '') + '">' + icons.regenerateFrom + '</button>'
-                : '') +
-              '<button class="message-action-btn" type="button" data-msg-action="copy-message" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.copyMessageAction || '') + '">' + icons.copy + '</button>' +
-              '<button class="message-action-btn" type="button" data-msg-action="delete-message" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.deleteMessageAction || '') + '">' + icons.delete + '</button>' +
-            '</div>'
-            : '';
-          return '' +
-            '<div class="' + rowClass + '">' +
-              avatarNode +
-              '<div class="message-card">' +
-                '<div class="message-meta">' +
-                  '<div class="message-meta-main">' +
-                    '<span class="message-role">' + escapeHtml(role) + '</span>' +
-                    '<span>' + escapeHtml(formatDate(message.timestamp)) + metaExtra + '</span>' +
-                  '</div>' +
-                  messageActions +
-                '</div>' +
-                reasoningBlock +
-                preToolReasoning +
-                toolRoundsBlock +
-                postToolReasoning +
-                '<div class="message-text">' + markdownToHtml(message.content || '') + ((showCursor && message.id === lastMsg.id) ? '<span class="streaming-cursor"></span>' : '') + '</div>' +
-              '</div>' +
-            '</div>';
-        }).join('') + (isGenerating && lastMsg && lastMsg.role === 'assistant' && !lastMsg.content ? '<div class="loading-indicator-wrapper"><div class="loading-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>' : '');
+        // Build HTML using cache — only regenerate for messages whose digest changed
+        const htmlParts = [];
+        for (var mi = 0; mi < current.length; mi++) {
+          var msg = current[mi];
+          var digest = messageDigest(msg);
+          var cacheKey = msg.id + '|' + digest;
+          // For the last message during generation, always include showCursor state in cache key
+          if (isGenerating && msg.id === lastMsg.id) {
+            cacheKey += '|cursor';
+          }
+          if (messageHtmlCache[cacheKey]) {
+            htmlParts.push(messageHtmlCache[cacheKey]);
+          } else {
+            var html = generateMessageHtml(msg, latestAssistantId, assistantDisplayName, isGenerating, lastMsg);
+            messageHtmlCache[cacheKey] = html;
+            htmlParts.push(html);
+          }
+        }
 
+        // Prune cache entries for messages no longer in the current list
+        var currentKeys = {};
+        for (var pi = 0; pi < current.length; pi++) {
+          currentKeys[current[pi].id] = true;
+        }
+        var staleKeys = Object.keys(messageHtmlCache);
+        for (var si = 0; si < staleKeys.length; si++) {
+          var staleId = staleKeys[si].split('|')[0];
+          if (!currentKeys[staleId]) {
+            delete messageHtmlCache[staleKeys[si]];
+          }
+        }
+
+        dom.messagesInner.innerHTML = htmlParts.join('') + (isGenerating && lastMsg && lastMsg.role === 'assistant' && !lastMsg.content ? '<div class="loading-indicator-wrapper"><div class="loading-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>' : '');
 
         dom.messages.scrollTop = dom.messages.scrollHeight;
         renderEnhancedContent();
@@ -809,12 +843,57 @@ ${getHtmlEscaperScript()}
       /**
        * Post-render: hydrate LaTeX and Mermaid placeholder elements into rendered output.
        * Called after every renderMessages() DOM update.
+       * Uses requestAnimationFrame to avoid blocking the main thread.
        */
+      var renderEnhancedScheduled = false;
       function renderEnhancedContent() {
+        if (renderEnhancedScheduled) { return; }
+        renderEnhancedScheduled = true;
+        requestAnimationFrame(function() {
+          renderEnhancedScheduled = false;
+          renderEnhancedContentImpl();
+        });
+      }
+
+      // Limit concurrent Mermaid renders to avoid heavy parallel processing
+      var mermaidRenderQueue = [];
+      var mermaidRendering = false;
+
+      function processMermaidQueue() {
+        if (mermaidRendering || !mermaidRenderQueue.length) { return; }
+        mermaidRendering = true;
+        var el = mermaidRenderQueue.shift();
+        if (typeof mermaid === 'undefined') {
+          mermaidRendering = false;
+          processMermaidQueue();
+          return;
+        }
+        var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+        try {
+          mermaid.render(id, el.textContent).then(function(result) {
+            el.innerHTML = result.svg;
+            el.setAttribute('data-rendered', 'true');
+            el.removeAttribute('data-mermaid');
+            mermaidRendering = false;
+            processMermaidQueue();
+          }).catch(function() {
+            var pre = document.createElement('pre');
+            pre.textContent = el.textContent;
+            el.replaceWith(pre);
+            mermaidRendering = false;
+            processMermaidQueue();
+          });
+        } catch (e) {
+          var pre = document.createElement('pre');
+          pre.textContent = el.textContent;
+          el.replaceWith(pre);
+          mermaidRendering = false;
+          processMermaidQueue();
+        }
+      }
+
+      function renderEnhancedContentImpl() {
         // Unwrap LaTeX elements from lang-latex/tex/math code blocks.
-        // When LLM wraps LaTeX in fenced code blocks, the LaTeX markers end up
-        // inside <pre><code class="lang-latex"> which causes spacing issues.
-        // Replace the entire <pre> with just the inner content so LaTeX renders cleanly.
         dom.messagesInner.querySelectorAll('pre code.lang-latex, pre code.lang-tex, pre code.lang-math').forEach(function(codeEl) {
           var preEl = codeEl.parentNode;
           if (preEl && preEl.tagName === 'PRE') {
@@ -832,7 +911,6 @@ ${getHtmlEscaperScript()}
             el.removeAttribute('data-latex-inline');
             el.removeAttribute('data-raw-tex');
           } catch (e) {
-            // Render failed — show source with code style
             el.textContent = '$' + raw + '$';
             el.removeAttribute('data-latex-inline');
           }
@@ -848,33 +926,18 @@ ${getHtmlEscaperScript()}
             el.removeAttribute('data-latex-display');
             el.removeAttribute('data-raw-tex');
           } catch (e) {
-            // Render failed — keep fallback code-block style
             el.textContent = raw;
             el.setAttribute('data-latex-failed', 'true');
             el.removeAttribute('data-latex-display');
           }
         });
-        // Render Mermaid diagrams
+        // Render Mermaid diagrams (queued, max 1 concurrent)
         dom.messagesInner.querySelectorAll('[data-mermaid]').forEach(function(el) {
           if (el.getAttribute('data-rendered')) { return; }
-          if (typeof mermaid === 'undefined') { return; }
-          var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
-          try {
-            mermaid.render(id, el.textContent).then(function(result) {
-              el.innerHTML = result.svg;
-              el.setAttribute('data-rendered', 'true');
-              el.removeAttribute('data-mermaid');
-            }).catch(function() {
-              var pre = document.createElement('pre');
-              pre.textContent = el.textContent;
-              el.replaceWith(pre);
-            });
-          } catch (e) {
-            var pre = document.createElement('pre');
-            pre.textContent = el.textContent;
-            el.replaceWith(pre);
-          }
+          el.setAttribute('data-rendered', 'true'); // Mark immediately to prevent duplicate queuing
+          mermaidRenderQueue.push(el);
         });
+        processMermaidQueue();
       }
 
       function renderComposer() {

@@ -87,6 +87,9 @@ export class ChatStateRepository {
   private persistQueue: Promise<void> = Promise.resolve();
   private storageReady = false;
   private version = 0;
+  private cachedState: import('./types').PersistedStateLite | undefined;
+  private cachedStateVersion = -1;
+  private persistScheduled = false;
 
   private bump(): void {
     this.version++;
@@ -113,13 +116,19 @@ export class ChatStateRepository {
   }
 
   public getState(): import('./types').PersistedStateLite {
-    return {
+    if (this.cachedStateVersion === this.version && this.cachedState) {
+      return this.cachedState;
+    }
+    const cloned = {
       ...this.state,
       groups: this.state.groups.map(cloneGroup),
       assistants: this.state.assistants.map(cloneAssistant),
       selectedSessionIdByAssistant: { ...this.state.selectedSessionIdByAssistant },
       settings: this.getSettings()
     };
+    this.cachedState = cloned;
+    this.cachedStateVersion = this.version;
+    return cloned;
   }
 
   public getVersion(): number {
@@ -1091,6 +1100,10 @@ export class ChatStateRepository {
       return;
     }
     this.bump();
+    if (this.persistScheduled) {
+      return;
+    }
+    this.persistScheduled = true;
     await this.queuePersist(async () => {
       const persistedState: import('./types').PersistedStateLite = {
         ...this.state,
@@ -1107,6 +1120,7 @@ export class ChatStateRepository {
       };
       this.storage.setKv(SQLITE_STATE_KEY, JSON.stringify(persistedState), false);
       await this.storage.flush();
+      this.persistScheduled = false;
     });
   }
 }

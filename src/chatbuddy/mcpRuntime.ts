@@ -335,6 +335,37 @@ export class McpRuntime {
     );
   }
 
+  /**
+   * Remove connections for servers that are no longer active.
+   * Call this after settings update to clean up stale connections.
+   */
+  public async pruneConnections(activeServerIds: ReadonlySet<string>): Promise<void> {
+    const staleIds: string[] = [];
+    for (const serverId of this.connections.keys()) {
+      if (!activeServerIds.has(serverId)) {
+        staleIds.push(serverId);
+      }
+    }
+    if (!staleIds.length) {
+      return;
+    }
+    for (const serverId of staleIds) {
+      const connectionPromise = this.connections.get(serverId);
+      this.connections.delete(serverId);
+      if (connectionPromise) {
+        try {
+          const connection = await connectionPromise;
+          await connection.transport.close();
+          await connection.client.close();
+        } catch {
+          // Ignore shutdown failures.
+        }
+      }
+    }
+    // Clear tool bindings cache since server list changed
+    this.toolBindingsCache.clear();
+  }
+
   public async listToolBindings(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpToolBinding[]> {
     const cacheKey = assistant.id;
     const now = Date.now();

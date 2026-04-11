@@ -267,12 +267,12 @@ test('stream state post scheduling is throttled and flush posts immediately', as
 
   controllerProxy.scheduleStreamStatePost({ panel });
   controllerProxy.scheduleStreamStatePost({ panel });
-  await wait(120);
+  await wait(200);
   assert.equal(postStateCount, 1);
 
   controllerProxy.scheduleStreamStatePost({ panel });
   controllerProxy.flushScheduledStreamStatePost({ panel });
   assert.equal(postStateCount, 2);
-  await wait(120);
+  await wait(200);
   assert.equal(postStateCount, 2);
 });

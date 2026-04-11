@@ -477,6 +477,9 @@ export async function activate(context: vscode.ExtensionContext) {
   const applySettingsAndRefresh = (settings: ChatBuddySettings) => {
     repository.updateSettings(settings);
     chatController.applySettings(settings);
+    // Prune MCP connections for servers that were removed or disabled
+    const activeServerIds = new Set(settings.mcp.servers.map((s) => s.id));
+    void mcpRuntime.pruneConnections(activeServerIds);
     refreshAll();
     updateTreeMessage();
   };

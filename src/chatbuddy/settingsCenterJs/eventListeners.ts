@@ -158,9 +158,14 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         }
       });
 
+      var providerSearchTimer = undefined;
       dom.providerSearch.addEventListener('input', () => {
         searchKeyword = dom.providerSearch.value;
-        renderProviderList();
+        if (providerSearchTimer) { clearTimeout(providerSearchTimer); }
+        providerSearchTimer = setTimeout(function() {
+          providerSearchTimer = undefined;
+          renderProviderList();
+        }, 200);
       });
 
       dom.providerList.addEventListener('click', async (event) => {

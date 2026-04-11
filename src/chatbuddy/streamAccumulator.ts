@@ -3,8 +3,8 @@ import { ChatStateRepository } from './stateRepository';
 import { nowTs } from './utils/id';
 import type { ChatToolRound, RuntimeStrings } from './types';
 
-export const STREAM_FLUSH_INTERVAL_MS = 50;
-export const STREAM_STATE_POST_INTERVAL_MS = 80;
+export const STREAM_FLUSH_INTERVAL_MS = 100;
+export const STREAM_STATE_POST_INTERVAL_MS = 150;
 
 /** Shared state for incremental stream accumulation and throttled flush. */
 export type StreamAccumulator = {

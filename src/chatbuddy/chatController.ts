@@ -104,6 +104,10 @@ type PayloadBaseCache = {
   state: ReturnType<ChatStateRepository['getState']>;
   version: number;
   expiresAt: number;
+  assistantId: string;
+  selectedAssistant: import('./types').AssistantProfile | undefined;
+  sessions: import('./types').ChatSessionSummary[];
+  selectedSession: import('./types').ChatSessionDetail | undefined;
 };
 
 export class ChatController {
@@ -147,12 +151,41 @@ export class ChatController {
       return this.repository.getState();
     }
     const state = this.repository.getState();
+    // Also cache sessions data during streaming to avoid repeated SQLite queries
+    const assistant =
+      this.repository.getSelectedAssistant();
+    const assistantId = assistant?.id || '';
+    const sessions = assistant ? this.repository.getSessionsForAssistant(assistant.id) : [];
+    const selectedSession = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
     this.payloadBaseCache = {
       state,
       version: currentVersion,
-      expiresAt: Date.now() + STREAM_STATE_POST_INTERVAL_MS
+      expiresAt: Date.now() + STREAM_STATE_POST_INTERVAL_MS,
+      assistantId,
+      selectedAssistant: assistant,
+      sessions,
+      selectedSession
     };
     return state;
+  }
+
+  private getCachedSessions(assistantId: string): {
+    assistant: import('./types').AssistantProfile | undefined;
+    sessions: import('./types').ChatSessionSummary[];
+    selectedSession: import('./types').ChatSessionDetail | undefined;
+  } {
+    const cached = this.payloadBaseCache;
+    if (cached && cached.assistantId === assistantId && cached.expiresAt > Date.now()) {
+      return {
+        assistant: cached.selectedAssistant,
+        sessions: cached.sessions,
+        selectedSession: cached.selectedSession
+      };
+    }
+    const assistant = this.repository.getSelectedAssistant();
+    const sessions = assistant ? this.repository.getSessionsForAssistant(assistant.id) : [];
+    const selectedSession = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
+    return { assistant, sessions, selectedSession };
   }
 
   private createPanelOptions(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
@@ -330,6 +363,11 @@ export class ChatController {
    * Called when an assistant is permanently deleted to prevent stale references.
    */
   public disposePanelForAssistant(assistantId: string): void {
+    // Clean up temp model refs for all sessions belonging to this assistant
+    const sessions = this.repository.getSessionsForAssistant(assistantId);
+    for (const session of sessions) {
+      delete this.sessionTempModelRefBySession[session.id];
+    }
     const panel = this.panelsByAssistantId.get(assistantId);
     if (panel) {
       this.panelsByAssistantId.delete(assistantId);
@@ -1034,11 +1072,12 @@ export class ChatController {
     const strings = getStrings(locale);
     const raw = this.getPayloadBaseState();
     const settings = raw.settings;
+
+    // Use cached sessions data during streaming to avoid repeated SQLite queries
     const assistant =
       (assistantIdOverride ? this.repository.getAssistantById(assistantIdOverride) : undefined) ??
       this.repository.getSelectedAssistant();
-    const sessions = assistant ? this.repository.getSessionsForAssistant(assistant.id) : [];
-    const selectedSession = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
+    const { sessions, selectedSession } = this.getCachedSessions(assistant?.id || '');
 
     this.syncSessionScopedState(assistant?.id, selectedSession?.id);
 

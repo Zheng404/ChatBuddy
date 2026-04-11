@@ -11,6 +11,7 @@ export { SHARED_TOAST_STYLE };
 /** Shared toast JS function (call `showToast(message, tone)` from webview scripts). */
 export function getToastScript(): string {
   return `
+    var _toastTimers = [];
     function showToast(message, tone) {
       tone = tone || 'info';
       var text = String(message || '').trim();
@@ -22,9 +23,12 @@ export function getToastScript(): string {
       while (dom.toastStack.children.length > 4) {
         dom.toastStack.removeChild(dom.toastStack.firstElementChild);
       }
-      window.setTimeout(function() {
+      var timer = window.setTimeout(function() {
         toast.remove();
+        var idx = _toastTimers.indexOf(timer);
+        if (idx !== -1) { _toastTimers.splice(idx, 1); }
       }, 3200);
+      _toastTimers.push(timer);
     }
-`;
+  `;
 }
