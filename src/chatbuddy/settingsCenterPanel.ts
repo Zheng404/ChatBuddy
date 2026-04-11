@@ -21,7 +21,7 @@ import {
   ProviderProfile,
   RuntimeStrings
 } from './types';
-import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp } from './utils';
+import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp, toErrorMessage } from './utils';
 
 export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp';
 
@@ -193,11 +193,12 @@ export class SettingsCenterPanelController {
         retainContextWhenHidden: true
       });
       this.panel.webview.html = this.getHtml(this.panel.webview);
-      this.panel.onDidDispose(() => {
-        this.panel = undefined;
-      });
-      this.panel.webview.onDidReceiveMessage((message: SettingsCenterMessage) => {
+      const messageListener = this.panel.webview.onDidReceiveMessage((message: SettingsCenterMessage) => {
         void this.handleMessage(message);
+      });
+      this.panel.onDidDispose(() => {
+        messageListener.dispose();
+        this.panel = undefined;
       });
       this.updatePanelPresentation();
       this.postState();
@@ -494,7 +495,7 @@ export class SettingsCenterPanelController {
           payload: {
             providerId: provider.id,
             success: false,
-            message: error instanceof Error ? error.message : strings.unknownError
+            message: toErrorMessage(error, strings.unknownError)
           }
         });
       }
@@ -532,7 +533,7 @@ export class SettingsCenterPanelController {
             providerId: provider.id,
             models: provider.models,
             success: false,
-            message: error instanceof Error ? error.message : strings.unknownError
+            message: toErrorMessage(error, strings.unknownError)
           }
         });
       }

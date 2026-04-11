@@ -21,6 +21,7 @@ type FakePanel = {
   webview: FakeWebview;
   revealCount: number;
   onDidDispose: (cb: () => void) => Disposable;
+  onDidChangeViewState: (cb: (e: { webviewPanel: FakePanel }) => void) => Disposable;
   reveal: (column: unknown) => void;
   dispose: () => void;
 };
@@ -105,6 +106,9 @@ function createFakePanel(): FakePanel {
           }
         }
       };
+    },
+    onDidChangeViewState() {
+      return { dispose() { return undefined; } };
     },
     reveal(_column: unknown) {
       this.revealCount += 1;

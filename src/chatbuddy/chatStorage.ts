@@ -460,6 +460,13 @@ export class ChatStorage {
     await this.enqueuePersist();
   }
 
+  public async close(): Promise<void> {
+    await this.flush();
+    const db = this.db;
+    this.db = undefined;
+    db?.close();
+  }
+
   private async getSqlJs(): Promise<SqlJsStatic> {
     if (!ChatStorage.sqlJsPromise) {
       ChatStorage.sqlJsPromise = initSqlJs({
@@ -649,11 +656,11 @@ export class ChatStorage {
     const db = this.ensureDb();
     const stmt = db.prepare(`
       UPDATE messages
-      SET content = ?, updated_at = ?
-      WHERE id = ? AND session_id = ? AND assistant_id = ?
+      SET content = ?
+      WHERE id = ? AND session_id = ?
     `);
     try {
-      stmt.run([newContent, updatedAt, messageId, sessionId, assistantId]);
+      stmt.run([newContent, messageId, sessionId]);
       this.updateSessionMetaFromMessages(sessionId, updatedAt);
       if (persist) {
         this.schedulePersist();

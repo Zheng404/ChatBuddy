@@ -198,12 +198,7 @@ export class AssistantEditorPanelController {
       );
       this.panel.iconPath = getPanelIconPath('account');
       this.panel.webview.html = this.getHtml(this.panel.webview);
-      this.panel.onDidDispose(() => {
-        this.panel = undefined;
-        this.editingAssistantId = undefined;
-        this.creatingAssistantDraft = undefined;
-      });
-      this.panel.webview.onDidReceiveMessage(async (message: AssistantEditorMessage) => {
+      const messageListener = this.panel.webview.onDidReceiveMessage(async (message: AssistantEditorMessage) => {
         if (message.type === 'ready') {
           this.postState();
           return;
@@ -243,6 +238,12 @@ export class AssistantEditorPanelController {
           this.onSave(this.editingAssistantId, patch);
           this.postState(this.getStrings().assistantSaved);
         }
+      });
+      this.panel.onDidDispose(() => {
+        messageListener.dispose();
+        this.panel = undefined;
+        this.editingAssistantId = undefined;
+        this.creatingAssistantDraft = undefined;
       });
       return;
     }

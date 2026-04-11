@@ -8,6 +8,7 @@ import {
   McpServerSummary,
   ProviderToolDefinition
 } from './types';
+import { toErrorMessage } from './utils';
 
 type McpClient = {
   close(): Promise<void>;
@@ -225,6 +226,8 @@ export type McpProbeResult = {
 
 export class McpRuntime {
   private readonly connections = new Map<string, Promise<ManagedConnection>>();
+  private toolBindingsCache = new Map<string, { bindings: McpToolBinding[]; expiresAt: number }>();
+  private static readonly TOOL_BINDINGS_TTL_MS = 60_000;
 
   public async probeServer(server: McpServerProfile): Promise<McpProbeResult> {
     let connection: ManagedConnection | undefined;
@@ -289,7 +292,7 @@ export class McpRuntime {
         tools: [],
         resources: [],
         prompts: [],
-        error: error instanceof Error ? error.message : 'Probe failed.'
+        error: toErrorMessage(error, 'Probe failed.')
       };
     } finally {
       if (connection) {
@@ -316,6 +319,7 @@ export class McpRuntime {
   }
 
   public async dispose(): Promise<void> {
+    this.toolBindingsCache.clear();
     const pending = [...this.connections.values()];
     this.connections.clear();
     await Promise.all(
@@ -332,6 +336,13 @@ export class McpRuntime {
   }
 
   public async listToolBindings(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpToolBinding[]> {
+    const cacheKey = assistant.id;
+    const now = Date.now();
+    const cached = this.toolBindingsCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.bindings;
+    }
+
     const bindings: McpToolBinding[] = [];
     for (const server of getEnabledServers(settings, assistant)) {
       const connection = await this.getConnection(server);
@@ -364,6 +375,10 @@ export class McpRuntime {
         });
       }
     }
+    this.toolBindingsCache.set(cacheKey, {
+      bindings,
+      expiresAt: now + McpRuntime.TOOL_BINDINGS_TTL_MS
+    });
     return bindings;
   }
 
@@ -581,7 +596,7 @@ export class McpRuntime {
       }
       return parsed as Record<string, unknown>;
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : 'Invalid tool arguments.');
+      throw new Error(toErrorMessage(error, 'Invalid tool arguments.'));
     }
   }
 

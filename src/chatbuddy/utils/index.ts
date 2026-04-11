@@ -27,6 +27,9 @@ export { readFile, writeFile, fileExists } from './fs';
 // Provider工具
 export { normalizeProvider } from './provider';
 
+// 错误工具
+export { toErrorMessage } from './error';
+
 // 日志工具
 export { warn, error, log, createOutputChannel } from './logger';
 

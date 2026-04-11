@@ -2,660 +2,31 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
 
-import { AssistantsTreeProvider, AssistantGroupNode, AssistantNode } from './chatbuddy/assistantsView';
+import { AssistantsTreeProvider } from './chatbuddy/assistantsView';
 import { AssistantEditorPanelController } from './chatbuddy/assistantEditorPanel';
 import { ChatController } from './chatbuddy/chatController';
-import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from './chatbuddy/constants';
+import { DEFAULT_GROUP_ID } from './chatbuddy/constants';
 import { formatString, getStrings, resolveLocale } from './chatbuddy/i18n';
 import { McpRuntime } from './chatbuddy/mcpRuntime';
 import { OpenAICompatibleClient } from './chatbuddy/providerClient';
-import { SessionNode, SessionsTreeProvider } from './chatbuddy/sessionsView';
+import { SessionsTreeProvider } from './chatbuddy/sessionsView';
 import { SettingsCenterPanelController } from './chatbuddy/settingsCenterPanel';
-import { escapeHtml, resolveLocaleString, warn } from './chatbuddy/utils';
+import { warn } from './chatbuddy/utils';
 import { ChatStateRepository } from './chatbuddy/stateRepository';
-import { ChatBuddySettings, ChatSessionDetail } from './chatbuddy/types';
+import { ChatBuddySettings } from './chatbuddy/types';
+
+import type { ExtensionContext } from './extension/shared';
+import { buildBackupFileName } from './extension/shared';
+import { registerSettingsCommands } from './extension/settingsCommands';
+import { registerNavigationCommands } from './extension/navigationCommands';
+import { registerAssistantTreeCommands } from './extension/assistantTreeCommands';
+import { registerAssistantManagementCommands } from './extension/assistantManagementCommands';
+import { registerSessionCommands } from './extension/sessionCommands';
+import { registerLocaleAwareMenuAliasCommands } from './extension/localeMenuCommands';
 
 const MIN_SETTINGS_VIEW_ROWS = 4;
-const LOCALE_AWARE_MENU_COMMANDS = [
-  'chatbuddy.createAssistant',
-  'chatbuddy.createGroup',
-  'chatbuddy.searchAssistants',
-  'chatbuddy.collapseAllAssistants',
-  'chatbuddy.createSession',
-  'chatbuddy.clearAllSessions',
-  'chatbuddy.emptyRecycleBin',
-  'chatbuddy.pinAssistant',
-  'chatbuddy.unpinAssistant',
-  'chatbuddy.editAssistant',
-  'chatbuddy.softDeleteAssistant',
-  'chatbuddy.restoreAssistant',
-  'chatbuddy.hardDeleteAssistant',
-  'chatbuddy.renameGroup',
-  'chatbuddy.deleteGroup',
-  'chatbuddy.renameSession',
-  'chatbuddy.deleteSession',
-  'chatbuddy.exportSession'
-] as const;
 
-function buildBackupFileName(): string {
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `chatbuddy-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
-}
-
-type SessionExportFormat = 'json' | 'markdown' | 'html';
-
-function sanitizeFileNameSegment(value: string, fallback: string): string {
-  const normalized = value
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!normalized) {
-    return fallback;
-  }
-  return normalized.slice(0, 80);
-}
-
-function buildSessionExportFileName(sessionTitle: string, extension: string): string {
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const title = sanitizeFileNameSegment(sessionTitle, 'session');
-  return `${title}-${stamp}.${extension}`;
-}
-
-function formatMessageTime(timestamp: number, locale: string): string {
-  const targetLocale = resolveLocaleString(locale, 'zh-CN', 'en-US');
-  try {
-    return new Date(timestamp).toLocaleString(targetLocale);
-  } catch {
-    return new Date(timestamp).toISOString();
-  }
-}
-
-function resolveMessageRoleLabel(
-  role: 'system' | 'user' | 'assistant',
-  assistantName: string,
-  strings: Record<string, string>
-): string {
-  if (role === 'assistant') {
-    return assistantName;
-  }
-  if (role === 'user') {
-    return strings.userRole;
-  }
-  return strings.systemRole;
-}
-
-function buildSessionMarkdownExport(
-  session: ChatSessionDetail,
-  assistantName: string,
-  locale: string,
-  strings: Record<string, string>
-): string {
-  const lines: string[] = [];
-  lines.push(`# ${session.title?.trim() || strings.untitledSession}`);
-  lines.push('');
-  lines.push(`- ${strings.assistantRole}: ${assistantName}`);
-  lines.push(`- ${strings.exportGeneratedAtLabel}: ${new Date().toISOString()}`);
-  lines.push('');
-  lines.push('---');
-
-  for (const message of session.messages) {
-    const roleLabel = resolveMessageRoleLabel(message.role, assistantName, strings);
-    const timestamp = formatMessageTime(message.timestamp, locale);
-    const modelSuffix = message.model?.trim() ? ` · ${message.model.trim()}` : '';
-    lines.push('');
-    lines.push(`## ${roleLabel} · ${timestamp}${modelSuffix}`);
-    lines.push('');
-    lines.push(message.content || '');
-    const reasoning = message.reasoning?.trim();
-    if (reasoning) {
-      lines.push('');
-      lines.push(`<details><summary>${strings.reasoningSectionTitle}</summary>`);
-      lines.push('');
-      lines.push(reasoning);
-      lines.push('');
-      lines.push('</details>');
-    }
-  }
-  lines.push('');
-  return lines.join('\n');
-}
-
-function buildSessionHtmlExport(
-  session: ChatSessionDetail,
-  assistantName: string,
-  locale: string,
-  strings: Record<string, string>
-): string {
-  const title = escapeHtml(session.title?.trim() || strings.untitledSession);
-  const exportedAt = escapeHtml(new Date().toISOString());
-  const assistant = escapeHtml(assistantName);
-  const messageBlocks = session.messages
-    .map((message) => {
-      const roleLabel = escapeHtml(resolveMessageRoleLabel(message.role, assistantName, strings));
-      const timestamp = escapeHtml(formatMessageTime(message.timestamp, locale));
-      const model = message.model?.trim() ? ` · ${escapeHtml(message.model.trim())}` : '';
-      const content = escapeHtml(message.content || '').replace(/\n/g, '<br/>');
-      const reasoning = message.reasoning?.trim()
-        ? `<details><summary>${escapeHtml(strings.reasoningSectionTitle)}</summary><pre>${escapeHtml(
-            message.reasoning.trim()
-          )}</pre></details>`
-        : '';
-      return `
-        <article class="message message-${message.role}">
-          <header>${roleLabel} · ${timestamp}${model}</header>
-          <div class="content">${content}</div>
-          ${reasoning}
-        </article>
-      `;
-    })
-    .join('\n');
-
-  return `<!DOCTYPE html>
-<html lang="${resolveLocaleString(locale, 'zh-CN', 'en')}">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${title}</title>
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px auto; max-width: 920px; padding: 0 16px; line-height: 1.6; color: #1f2328; }
-      h1 { margin-bottom: 8px; }
-      .meta { color: #57606a; margin-bottom: 20px; }
-      .message { border: 1px solid #d0d7de; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
-      .message header { font-size: 12px; color: #57606a; margin-bottom: 8px; }
-      .message pre { white-space: pre-wrap; background: #f6f8fa; border-radius: 8px; padding: 10px; overflow: auto; }
-      .message-user { background: #f6f8fa; }
-      details summary { cursor: pointer; color: #57606a; font-size: 12px; margin-top: 8px; }
-    </style>
-  </head>
-  <body>
-    <h1>${title}</h1>
-    <div class="meta">${escapeHtml(strings.assistantRole)}: ${assistant} · ${escapeHtml(strings.exportGeneratedAtLabel)}: ${exportedAt}</div>
-    ${messageBlocks}
-  </body>
-</html>`;
-}
-
-function buildSessionExportContent(
-  format: SessionExportFormat,
-  session: ChatSessionDetail,
-  assistant: { id: string; name: string },
-  locale: string,
-  strings: Record<string, string>
-): string {
-  if (format === 'json') {
-    return JSON.stringify(
-      {
-        schema: 'chatbuddy.session-export',
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        locale,
-        assistant,
-        session
-      },
-      null,
-      2
-    );
-  }
-  if (format === 'markdown') {
-    return buildSessionMarkdownExport(session, assistant.name, locale, strings);
-  }
-  return buildSessionHtmlExport(session, assistant.name, locale, strings);
-}
-
-/**
- * Type guard: validate and cast to AssistantNode.
- * @param arg - The object to validate.
- * @returns AssistantNode if valid, otherwise undefined.
- */
-function asAssistantNode(arg: unknown): AssistantNode | undefined {
-  if (!arg || typeof arg !== 'object') {
-    return undefined;
-  }
-  const node = arg as Partial<AssistantNode>;
-  if (node.kind !== 'assistant' || !node.assistant) {
-    return undefined;
-  }
-  // Validate required assistant properties
-  if (
-    typeof node.assistant.id !== 'string' ||
-    typeof node.assistant.name !== 'string' ||
-    !node.assistant.id.trim()
-  ) {
-    warn('Invalid assistant node structure:', node);
-    return undefined;
-  }
-  return node as AssistantNode;
-}
-
-/**
- * Type guard: validate and cast to AssistantGroupNode.
- * @param arg - The object to validate.
- * @returns AssistantGroupNode if valid, otherwise undefined.
- */
-function asGroupNode(arg: unknown): AssistantGroupNode | undefined {
-  if (!arg || typeof arg !== 'object') {
-    return undefined;
-  }
-  const node = arg as Partial<AssistantGroupNode>;
-  if (node.kind !== 'group' || !node.group) {
-    return undefined;
-  }
-  // Validate required group properties
-  if (
-    typeof node.group.id !== 'string' ||
-    typeof node.group.name !== 'string' ||
-    !node.group.id.trim()
-  ) {
-    warn('Invalid group node structure:', node);
-    return undefined;
-  }
-  return node as AssistantGroupNode;
-}
-
-/**
- * Type guard: validate and cast to SessionNode.
- * @param arg - The object to validate.
- * @returns SessionNode if valid, otherwise undefined.
- */
-function asSessionNode(arg: unknown): SessionNode | undefined {
-  if (!arg || typeof arg !== 'object') {
-    return undefined;
-  }
-  const node = arg as Partial<SessionNode>;
-  if (node.kind !== 'session' || !node.session || typeof node.assistantId !== 'string') {
-    return undefined;
-  }
-  if (
-    typeof node.session.id !== 'string' ||
-    typeof node.session.assistantId !== 'string' ||
-    !node.session.id.trim() ||
-    !node.assistantId.trim()
-  ) {
-    return undefined;
-  }
-  return node as SessionNode;
-}
-
-type ExtensionContext = {
-  repository: ChatStateRepository;
-  chatController: ChatController;
-  settingsCenterPanelController: SettingsCenterPanelController;
-  assistantEditorPanelController: AssistantEditorPanelController;
-  assistantsTreeProvider: AssistantsTreeProvider;
-  refreshAll: () => void;
-  updateTreeMessage: () => void;
-  getRuntimeLocale: () => string;
-  getRuntimeStrings: () => Record<string, string>;
-};
-
-function getSessionCommandAssistant(repository: ChatStateRepository, node?: SessionNode) {
-  return node ? repository.getAssistantById(node.assistantId) : repository.getSelectedAssistant();
-}
-
-function getSessionCommandTarget(repository: ChatStateRepository, assistantId: string, node?: SessionNode): ChatSessionDetail | undefined {
-  if (node) {
-    const session = repository.getSessionById(node.session.id);
-    return session?.assistantId === assistantId ? session : undefined;
-  }
-  return repository.getSelectedSession(assistantId);
-}
-
-function registerSettingsCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  const { settingsCenterPanelController } = ctx;
-  return [
-    vscode.commands.registerCommand('chatbuddy.openSettings', () => {
-      settingsCenterPanelController.openPanel('general');
-    }),
-    vscode.commands.registerCommand('chatbuddy.openModelConfig', () => {
-      settingsCenterPanelController.openPanel('modelConfig');
-    }),
-    vscode.commands.registerCommand('chatbuddy.openDefaultModels', () => {
-      settingsCenterPanelController.openPanel('defaultModels');
-    }),
-    vscode.commands.registerCommand('chatbuddy.openMcp', () => {
-      settingsCenterPanelController.openPanel('mcp');
-    })
-  ];
-}
-
-function registerNavigationCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  const { repository, chatController, refreshAll } = ctx;
-  return [
-    vscode.commands.registerCommand('chatbuddy.openAssistantChat', (assistantOrId?: AssistantNode | string) => {
-      const assistantId =
-        typeof assistantOrId === 'string'
-          ? assistantOrId
-          : asAssistantNode(assistantOrId)?.assistant.id;
-      chatController.openAssistantChat(assistantId);
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.openSessionChat', (arg?: SessionNode) => {
-      const node = asSessionNode(arg);
-      if (!node) { return; }
-      repository.setSelectedAssistant(node.assistantId);
-      repository.selectSession(node.assistantId, node.session.id);
-      chatController.openAssistantChat(node.assistantId);
-      refreshAll();
-    })
-  ];
-}
-
-function registerAssistantTreeCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  const {
-    repository,
-    assistantEditorPanelController,
-    assistantsTreeProvider,
-    refreshAll,
-    updateTreeMessage,
-    getRuntimeStrings
-  } = ctx;
-  const strings = getRuntimeStrings;
-
-  return [
-    vscode.commands.registerCommand('chatbuddy.createAssistant', () => {
-      assistantEditorPanelController.openCreateAssistantEditor();
-    }),
-    vscode.commands.registerCommand('chatbuddy.createGroup', async () => {
-      const name = await vscode.window.showInputBox({
-        prompt: strings().createGroupPrompt,
-        ignoreFocusOut: true
-      });
-      if (!name?.trim()) { return; }
-      repository.createGroup(name.trim());
-      refreshAll();
-      updateTreeMessage();
-    }),
-    vscode.commands.registerCommand('chatbuddy.searchAssistants', async () => {
-      const keyword = await vscode.window.showInputBox({
-        prompt: strings().assistantSearchPlaceholder,
-        value: assistantsTreeProvider.getSearchKeyword(),
-        ignoreFocusOut: true
-      });
-      if (keyword === undefined) { return; }
-      assistantsTreeProvider.setSearchKeyword(keyword);
-      updateTreeMessage();
-    }),
-    vscode.commands.registerCommand('chatbuddy.collapseAllAssistants', () => {
-      void vscode.commands.executeCommand('workbench.actions.treeView.chatbuddy.assistantsView.collapseAll');
-    }),
-    vscode.commands.registerCommand('chatbuddy.clearAssistantSearch', () => {
-      assistantsTreeProvider.clearSearchKeyword();
-      updateTreeMessage();
-    }),
-    vscode.commands.registerCommand('chatbuddy.renameGroup', async (arg?: AssistantGroupNode) => {
-      const node = asGroupNode(arg);
-      if (!node) { return; }
-      if (node.group.id === DELETED_GROUP_ID) {
-        void vscode.window.showWarningMessage(strings().groupRenameBlocked);
-        return;
-      }
-      const name = await vscode.window.showInputBox({
-        prompt: strings().renameGroupPrompt,
-        value:
-          node.group.id === DEFAULT_GROUP_ID &&
-          (!node.group.name.trim() || (node.group.updatedAt === node.group.createdAt && isLegacyDefaultGroupName(node.group.name)))
-            ? strings().defaultGroupName
-            : node.group.name,
-        ignoreFocusOut: true
-      });
-      if (!name?.trim()) { return; }
-      repository.renameGroup(node.group.id, name.trim());
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.deleteGroup', async (arg?: AssistantGroupNode) => {
-      const node = asGroupNode(arg);
-      if (!node) { return; }
-      if (node.group.id === DEFAULT_GROUP_ID || node.group.id === DELETED_GROUP_ID) {
-        void vscode.window.showWarningMessage(strings().groupDeleteBlocked);
-        return;
-      }
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmDeleteGroup, { name: node.group.name }),
-        { modal: true },
-        strings().deleteAction
-      );
-      if (confirm !== strings().deleteAction) { return; }
-      repository.deleteGroup(node.group.id);
-      refreshAll();
-    })
-  ];
-}
-
-function registerAssistantManagementCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  const { repository, chatController, assistantEditorPanelController, refreshAll, getRuntimeStrings } = ctx;
-  const strings = getRuntimeStrings;
-
-  return [
-    vscode.commands.registerCommand('chatbuddy.pinAssistant', (arg?: AssistantNode) => {
-      const node = asAssistantNode(arg);
-      if (!node) { return; }
-      repository.toggleAssistantPinned(node.assistant.id);
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.unpinAssistant', (arg?: AssistantNode) => {
-      const node = asAssistantNode(arg);
-      if (!node) { return; }
-      repository.toggleAssistantPinned(node.assistant.id);
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.editAssistant', (arg?: AssistantNode) => {
-      const node = asAssistantNode(arg);
-      const assistantId = node?.assistant.id ?? repository.getSelectedAssistantId();
-      if (!assistantId) { return; }
-      const assistant = repository.getAssistantById(assistantId);
-      if (!assistant || assistant.isDeleted) {
-        void vscode.window.showWarningMessage(strings().assistantEditDeletedBlocked);
-        return;
-      }
-      assistantEditorPanelController.openAssistantEditor(assistantId);
-    }),
-    vscode.commands.registerCommand('chatbuddy.softDeleteAssistant', async (arg?: AssistantNode) => {
-      const node = asAssistantNode(arg);
-      if (!node) { return; }
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmDeleteAssistant, { name: node.assistant.name }),
-        { modal: true },
-        strings().deleteAction
-      );
-      if (confirm !== strings().deleteAction) { return; }
-      repository.softDeleteAssistant(node.assistant.id);
-      chatController.openAssistantChat(node.assistant.id);
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.restoreAssistant', (arg?: AssistantNode) => {
-      const node = asAssistantNode(arg);
-      if (!node) { return; }
-      const restored = repository.restoreAssistant(node.assistant.id);
-      if (!restored) { return; }
-      chatController.openAssistantChat(restored.id);
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.hardDeleteAssistant', async (arg?: AssistantNode) => {
-      const node = asAssistantNode(arg);
-      if (!node) { return; }
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmHardDeleteAssistant, { name: node.assistant.name }),
-        { modal: true },
-        strings().hardDeleteAction
-      );
-      if (confirm !== strings().hardDeleteAction) { return; }
-      chatController.disposePanelForAssistant(node.assistant.id);
-      repository.hardDeleteAssistant(node.assistant.id);
-      chatController.openAssistantChat();
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.emptyRecycleBin', async () => {
-      const deletedAssistants = repository.getAssistants().filter((assistant) => assistant.isDeleted);
-      if (deletedAssistants.length === 0) {
-        void vscode.window.showInformationMessage(strings().recycleBinAlreadyEmpty);
-        return;
-      }
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmEmptyRecycleBin, { count: String(deletedAssistants.length) }),
-        { modal: true },
-        strings().emptyRecycleBinAction
-      );
-      if (confirm !== strings().emptyRecycleBinAction) { return; }
-      for (const assistant of deletedAssistants) {
-        chatController.disposePanelForAssistant(assistant.id);
-      }
-      const removedCount = repository.hardDeleteDeletedAssistants();
-      chatController.openAssistantChat();
-      refreshAll();
-      void vscode.window.showInformationMessage(formatString(strings().recycleBinEmptied, { count: String(removedCount) }));
-    })
-  ];
-}
-
-function registerSessionCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  const { repository, chatController, refreshAll, getRuntimeLocale, getRuntimeStrings } = ctx;
-  const strings = getRuntimeStrings;
-
-  return [
-    vscode.commands.registerCommand('chatbuddy.createSession', () => {
-      chatController.createSessionForSelectedAssistant();
-      chatController.openAssistantChat();
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.renameSession', async (arg?: SessionNode) => {
-      const node = asSessionNode(arg);
-      const assistant = getSessionCommandAssistant(repository, node);
-      if (!assistant) {
-        void vscode.window.showInformationMessage(strings().noAssistantSelectedBody);
-        return;
-      }
-      const currentSession = getSessionCommandTarget(repository, assistant.id, node);
-      if (!currentSession) {
-        void vscode.window.showInformationMessage(strings().noSessionsToRename);
-        return;
-      }
-      const nextTitle = await vscode.window.showInputBox({
-        prompt: strings().renameSessionPrompt,
-        value: currentSession.title
-      });
-      if (!nextTitle?.trim()) { return; }
-      repository.setSelectedAssistant(assistant.id);
-      chatController.renameSessionForSelectedAssistant(currentSession.id, nextTitle.trim());
-      chatController.openAssistantChat(assistant.id);
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.deleteSession', async (arg?: SessionNode) => {
-      const node = asSessionNode(arg);
-      const assistant = getSessionCommandAssistant(repository, node);
-      if (!assistant) {
-        void vscode.window.showInformationMessage(strings().noAssistantSelectedBody);
-        return;
-      }
-      const currentSession = getSessionCommandTarget(repository, assistant.id, node);
-      if (!currentSession) {
-        void vscode.window.showInformationMessage(strings().noSessionsToDelete);
-        return;
-      }
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmDeleteSession, { title: currentSession.title }),
-        { modal: true },
-        strings().deleteAction
-      );
-      if (confirm !== strings().deleteAction) { return; }
-      repository.setSelectedAssistant(assistant.id);
-      chatController.deleteSessionForSelectedAssistant(currentSession.id);
-      chatController.openAssistantChat(assistant.id);
-      refreshAll();
-    }),
-    vscode.commands.registerCommand('chatbuddy.exportSession', async (arg?: SessionNode) => {
-      const locale = getRuntimeLocale();
-      const node = asSessionNode(arg);
-      if (!node) {
-        void vscode.window.showInformationMessage(strings().exportSessionSelectHint);
-        return;
-      }
-      const assistant = repository.getAssistantById(node.assistantId);
-      if (!assistant) {
-        void vscode.window.showInformationMessage(strings().noAssistantSelectedBody);
-        return;
-      }
-      const currentSession = getSessionCommandTarget(repository, assistant.id, node);
-      if (!currentSession) {
-        void vscode.window.showInformationMessage(strings().noSessionsToExport);
-        return;
-      }
-      const formatPick = await vscode.window.showQuickPick(
-        [
-          { label: strings().exportFormatJson, format: 'json' as const, extension: 'json' },
-          { label: strings().exportFormatMarkdown, format: 'markdown' as const, extension: 'md' },
-          { label: strings().exportFormatHtml, format: 'html' as const, extension: 'html' }
-        ],
-        {
-          title: strings().exportSessionAction,
-          placeHolder: strings().exportFormatPrompt,
-          ignoreFocusOut: true
-        }
-      );
-      if (!formatPick) { return; }
-      const fileName = buildSessionExportFileName(currentSession.title || strings().untitledSession, formatPick.extension);
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-      const defaultUri = workspaceRoot
-        ? vscode.Uri.joinPath(workspaceRoot, fileName)
-        : vscode.Uri.file(path.join(os.homedir(), fileName));
-      const saveUri = await vscode.window.showSaveDialog({
-        saveLabel: strings().exportSessionAction,
-        defaultUri,
-        filters: { [formatPick.extension.toUpperCase()]: [formatPick.extension] }
-      });
-      if (!saveUri) { return; }
-      try {
-        const content = buildSessionExportContent(
-          formatPick.format,
-          currentSession,
-          { id: assistant.id, name: assistant.name },
-          locale,
-          strings()
-        );
-        await vscode.workspace.fs.writeFile(saveUri, Buffer.from(content, 'utf8'));
-        void vscode.window.showInformationMessage(formatString(strings().exportSessionDone, { path: saveUri.fsPath }));
-      } catch (err) {
-        warn('Failed to export session:', err);
-        void vscode.window.showErrorMessage(strings().exportSessionFailed);
-      }
-    }),
-    vscode.commands.registerCommand('chatbuddy.stopGeneration', () => {
-      chatController.stopGeneration('manual');
-    }),
-    vscode.commands.registerCommand('chatbuddy.clearAllSessions', async () => {
-      const assistant = repository.getSelectedAssistant();
-      if (!assistant || assistant.isDeleted) {
-        void vscode.window.showInformationMessage(strings().noAssistantSelectedBody);
-        return;
-      }
-      const sessions = repository.getSessionsForAssistant(assistant.id);
-      if (!sessions.length) {
-        void vscode.window.showInformationMessage(strings().noSessionsToClear);
-        return;
-      }
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmClearAllSessions, { name: assistant.name, count: String(sessions.length) }),
-        { modal: true },
-        strings().clearAllSessionsAction
-      );
-      if (confirm !== strings().clearAllSessionsAction) { return; }
-      const removedCount = repository.clearSessionsForAssistant(assistant.id);
-      chatController.openAssistantChat(assistant.id);
-      refreshAll();
-      void vscode.window.showInformationMessage(formatString(strings().clearAllSessionsDone, { count: String(removedCount) }));
-    })
-  ];
-}
-
-function registerLocaleAwareMenuAliasCommands(): vscode.Disposable[] {
-  return LOCALE_AWARE_MENU_COMMANDS.flatMap((commandId) => [
-    vscode.commands.registerCommand(`${commandId}.uiEn`, (...args: unknown[]) => vscode.commands.executeCommand(commandId, ...args)),
-    vscode.commands.registerCommand(`${commandId}.uiZh`, (...args: unknown[]) => vscode.commands.executeCommand(commandId, ...args))
-  ]);
-}
+// ─── Internal types ─────────────────────────────────────────────────────────
 
 type SettingsTreeDataSource = {
   emitter: vscode.EventEmitter<void>;
@@ -684,6 +55,8 @@ type PanelControllers = {
   settingsCenterPanelController: SettingsCenterPanelController;
   assistantEditorPanelController: AssistantEditorPanelController;
 };
+
+// ─── Tree provider / view helpers ────────────────────────────────────────────
 
 function createTreeProviders(repository: ChatStateRepository): ActivationTreeProviders {
   const assistantTreeRepository = {
@@ -792,6 +165,8 @@ function createSettingsTreeDataSource(getRuntimeStrings: () => Record<string, st
 
   return { emitter, provider };
 }
+
+// ─── Data action handlers ───────────────────────────────────────────────────
 
 function clearAssistantSearchFilters(
   assistantsTreeProvider: AssistantsTreeProvider,
@@ -936,6 +311,8 @@ function createDataActionHandlers(args: {
   };
 }
 
+// ─── Panel controllers ──────────────────────────────────────────────────────
+
 function createPanelControllers(args: {
   repository: ChatStateRepository;
   providerClient: OpenAICompatibleClient;
@@ -1012,9 +389,8 @@ function createPanelControllers(args: {
   };
 }
 
-/**
- * Register all ChatBuddy commands and return their disposables.
- */
+// ─── Command registration ───────────────────────────────────────────────────
+
 function registerCommands(ctx: ExtensionContext): vscode.Disposable[] {
   return [
     ...registerSettingsCommands(ctx),
@@ -1025,6 +401,8 @@ function registerCommands(ctx: ExtensionContext): vscode.Disposable[] {
     ...registerLocaleAwareMenuAliasCommands()
   ];
 }
+
+// ─── Extension lifecycle ────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext) {
   // Global unhandled rejection handler — prevents silent crashes in production
@@ -1089,6 +467,11 @@ export async function activate(context: vscode.ExtensionContext) {
     updateViewHeadings();
   };
 
+  chatController.setActivePanelChangeCallback(() => {
+    sessionsTreeProvider.refresh();
+    updateViewHeadings();
+  });
+
   const applySettingsAndRefresh = (settings: ChatBuddySettings) => {
     repository.updateSettings(settings);
     chatController.applySettings(settings);
@@ -1147,10 +530,13 @@ export async function activate(context: vscode.ExtensionContext) {
     recycleBinTreeView,
     settingsTreeView,
     settingsTreeDataEmitter,
-    ...commandDisposables
+    ...commandDisposables,
+    { dispose: () => { chatController.dispose(); } },
+    { dispose: () => { void mcpRuntime.dispose(); } },
+    { dispose: () => { void repository.close(); } }
   );
 }
 
-export function deactivate() {
-  // noop
+export function deactivate(): void {
+  // Resources are cleaned up via context.subscriptions dispose
 }

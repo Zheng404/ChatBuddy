@@ -86,6 +86,11 @@ export class ChatStateRepository {
   private providerApiKeys: Record<string, string> = {};
   private persistQueue: Promise<void> = Promise.resolve();
   private storageReady = false;
+  private version = 0;
+
+  private bump(): void {
+    this.version++;
+  }
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.state = createInitialState();
@@ -103,6 +108,10 @@ export class ChatStateRepository {
     await this.persist();
   }
 
+  public async close(): Promise<void> {
+    await this.storage.close();
+  }
+
   public getState(): import('./types').PersistedStateLite {
     return {
       ...this.state,
@@ -111,6 +120,17 @@ export class ChatStateRepository {
       selectedSessionIdByAssistant: { ...this.state.selectedSessionIdByAssistant },
       settings: this.getSettings()
     };
+  }
+
+  public getVersion(): number {
+    return this.version;
+  }
+
+  public getStateIfNewer(lastVersion: number): import('./types').PersistedStateLite | undefined {
+    if (this.version === lastVersion) {
+      return undefined;
+    }
+    return this.getState();
   }
 
   public getGroups(): AssistantGroup[] {
@@ -1055,6 +1075,7 @@ export class ChatStateRepository {
     if (!this.storageReady) {
       return;
     }
+    this.bump();
     await this.queuePersist(async () => {
       const persistedState: import('./types').PersistedStateLite = {
         ...this.state,

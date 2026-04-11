@@ -33,134 +33,19 @@ import {
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
-import { getLocaleFromSettings, warn } from './utils';
+import { getLocaleFromSettings, toErrorMessage, warn } from './utils';
+import {
+  STREAM_STATE_POST_INTERVAL_MS,
+  StreamFlushParams,
+  createStreamAccumulator,
+  buildStreamFlush,
+  clearStreamFlush,
+  buildStreamCallbacks,
+  buildStreamErrorContent
+} from './streamAccumulator';
 
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
-const STREAM_FLUSH_INTERVAL_MS = 50;
-const STREAM_STATE_POST_INTERVAL_MS = 80;
 type GenerationAbortReason = 'manual' | 'timeout';
-
-/** Shared state for incremental stream accumulation and throttled flush. */
-type StreamAccumulator = {
-  rawMerged: string;
-  rawPersisted: string;
-  reasoningMerged: string;
-  reasoningPersisted: string;
-  flushTimer: ReturnType<typeof setTimeout> | undefined;
-};
-
-/** Parameters that vary between sendMessage and streamFinalResponse. */
-type StreamFlushParams = {
-  assistantId: string;
-  sessionId: string;
-  fallbackMessageId: string;
-  modelLabel: string;
-  toolRounds?: ChatToolRound[];
-  context?: PanelMessageContext;
-};
-
-function createStreamAccumulator(): StreamAccumulator {
-  return {
-    rawMerged: '',
-    rawPersisted: '',
-    reasoningMerged: '',
-    reasoningPersisted: '',
-    flushTimer: undefined
-  };
-}
-
-/**
- * Build a flush callback that parses think-tagged content, merges reasoning,
- * persists the assistant message, and notifies the webview.
- */
-function buildStreamFlush(
-  acc: StreamAccumulator,
-  params: StreamFlushParams,
-  repository: ChatStateRepository,
-  strings: RuntimeStrings,
-  notifyState?: (persist: boolean) => void
-): (persist: boolean) => void {
-  return (persist: boolean) => {
-    const thinkSplit = splitThinkTaggedContent(acc.rawMerged);
-    const contentValue = thinkSplit.content.trim() || strings.emptyResponse;
-    const reasoningValue = mergeReasoningParts(acc.reasoningMerged, thinkSplit.reasoning);
-    repository.updateLastAssistantMessage(
-      params.assistantId,
-      params.sessionId,
-      (current) => ({
-        id: current?.id ?? params.fallbackMessageId,
-        role: 'assistant',
-        content: contentValue,
-        timestamp: nowTs(),
-        model: params.modelLabel,
-        reasoning: reasoningValue,
-        ...(params.toolRounds ? { toolRounds: params.toolRounds } : {})
-      }),
-      persist
-    );
-    acc.rawPersisted = acc.rawMerged;
-    acc.reasoningPersisted = acc.reasoningMerged;
-    notifyState?.(persist);
-  };
-}
-
-/**
- * Schedule a throttled flush. Only one timer runs at a time; re-entrant calls are no-ops.
- */
-function scheduleStreamFlush(acc: StreamAccumulator, flush: (persist: boolean) => void): void {
-  if (acc.flushTimer) { return; }
-  acc.flushTimer = setTimeout(() => {
-    acc.flushTimer = undefined;
-    if (acc.rawMerged !== acc.rawPersisted || acc.reasoningMerged !== acc.reasoningPersisted) {
-      flush(false);
-    }
-  }, STREAM_FLUSH_INTERVAL_MS);
-}
-
-/** Cancel a pending flush timer if one exists. */
-function clearStreamFlush(acc: StreamAccumulator): void {
-  if (acc.flushTimer) {
-    clearTimeout(acc.flushTimer);
-    acc.flushTimer = undefined;
-  }
-}
-
-/**
- * Build stream callbacks (onDelta, onReasoningDelta, onDone) that feed into an accumulator.
- */
-function buildStreamCallbacks(
-  acc: StreamAccumulator,
-  flush: (persist: boolean) => void
-): { onDelta: (delta: string) => void; onReasoningDelta: (delta: string) => void; onDone: () => void } {
-  return {
-    onDelta: (delta) => {
-      acc.rawMerged += delta;
-      scheduleStreamFlush(acc, flush);
-    },
-    onReasoningDelta: (delta) => {
-      acc.reasoningMerged += delta;
-      scheduleStreamFlush(acc, flush);
-    },
-    onDone: () => {
-      clearStreamFlush(acc);
-      flush(true);
-    }
-  };
-}
-
-/** Build a partial-error message from the current accumulated stream content. */
-function buildStreamErrorContent(
-  acc: StreamAccumulator,
-  userFacingError: string
-): { content: string; reasoning?: string } {
-  const partialSplit = splitThinkTaggedContent(acc.rawMerged);
-  const partial = partialSplit.content.trim();
-  const reasoningPartial = mergeReasoningParts(acc.reasoningMerged, partialSplit.reasoning);
-  return {
-    content: partial ? `${partial}\n\n${userFacingError}` : userFacingError,
-    reasoning: reasoningPartial || undefined
-  };
-}
 
 function resolveGenerationErrorMessage(
   error: unknown,
@@ -192,7 +77,7 @@ function resolveGenerationErrorMessage(
   return strings.unknownError;
 }
 
-type PanelMessageContext = {
+export type PanelMessageContext = {
   panel: vscode.WebviewPanel;
   assistantId?: string;
 };
@@ -217,6 +102,7 @@ type PendingToolContinuation = {
 
 type PayloadBaseCache = {
   state: ReturnType<ChatStateRepository['getState']>;
+  version: number;
   expiresAt: number;
 };
 
@@ -233,6 +119,7 @@ export class ChatController {
   private sessionTempModelRefBySession: Record<string, string> = {};
   private lastSelectedSessionIdByAssistant: Record<string, string | undefined> = {};
   private modelOptions: ProviderModelOption[];
+  private onActivePanelChange?: () => void;
 
   constructor(
     private readonly repository: ChatStateRepository,
@@ -250,19 +137,20 @@ export class ChatController {
   }
 
   private getPayloadBaseState(): PayloadBaseCache['state'] {
+    const currentVersion = this.repository.getVersion();
+    const cached = this.payloadBaseCache;
+    if (cached && cached.version === currentVersion && cached.expiresAt > Date.now()) {
+      return cached.state;
+    }
     if (!this.isGenerating) {
       this.payloadBaseCache = undefined;
       return this.repository.getState();
     }
-    const now = Date.now();
-    const cached = this.payloadBaseCache;
-    if (cached && cached.expiresAt > now) {
-      return cached.state;
-    }
     const state = this.repository.getState();
     this.payloadBaseCache = {
       state,
-      expiresAt: now + STREAM_STATE_POST_INTERVAL_MS
+      version: currentVersion,
+      expiresAt: Date.now() + STREAM_STATE_POST_INTERVAL_MS
     };
     return state;
   }
@@ -332,6 +220,7 @@ export class ChatController {
     panel.onDidDispose(() => {
       this.stopGeneration('manual');
       messageListener.dispose();
+      viewStateListener.dispose();
       const timeoutHandle = this.streamStatePostTimers.get(panel);
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
@@ -343,6 +232,14 @@ export class ChatController {
       if (this.panel === panel) {
         this.panel = undefined;
       }
+    });
+    const viewStateListener = panel.onDidChangeViewState((e) => {
+      if (!e.webviewPanel.active || !context.assistantId) {
+        return;
+      }
+      this.panel = panel;
+      this.repository.setSelectedAssistant(context.assistantId);
+      this.onActivePanelChange?.();
     });
     return panel;
   }
@@ -441,6 +338,20 @@ export class ChatController {
         this.panel = undefined;
       }
     }
+  }
+
+  public setActivePanelChangeCallback(callback: () => void): void {
+    this.onActivePanelChange = callback;
+  }
+
+  public dispose(): void {
+    this.stopGeneration('manual');
+    for (const panel of this.panelsByAssistantId.values()) {
+      panel.dispose();
+    }
+    this.panelsByAssistantId.clear();
+    this.panel?.dispose();
+    this.panel = undefined;
   }
 
   public applySettings(settings: ChatBuddySettings): void {
@@ -702,7 +613,7 @@ export class ChatController {
         }
       }, context);
     } catch (error) {
-      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
     }
   }
 
@@ -721,7 +632,7 @@ export class ChatController {
         }
       }, context);
     } catch (error) {
-      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
     }
   }
 
@@ -740,7 +651,7 @@ export class ChatController {
         }
       }, context);
     } catch (error) {
-      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
     }
   }
 
@@ -764,7 +675,7 @@ export class ChatController {
         }
       }, context);
     } catch (error) {
-      this.postError(error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError, context);
+      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
     }
   }
 
@@ -832,7 +743,7 @@ export class ChatController {
       } catch (error) {
         results.push({
           toolCallId: toolCall.id,
-          output: error instanceof Error ? error.message : getStrings(this.getLocale()).unknownError
+          output: toErrorMessage(error, getStrings(this.getLocale()).unknownError)
         });
       }
     }
@@ -1026,7 +937,7 @@ export class ChatController {
       );
     } catch (error) {
       clearStreamFlush(acc);
-      const errorMsg = error instanceof Error ? error.message : strings.unknownError;
+      const errorMsg = toErrorMessage(error, strings.unknownError);
       const partial = buildStreamErrorContent(acc, errorMsg);
       this.repository.updateLastAssistantMessage(
         pending.assistant.id,
