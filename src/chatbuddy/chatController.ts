@@ -1,104 +1,40 @@
 import * as vscode from 'vscode';
 
-import { getCodiconRootUri } from './codicon';
-import { buildRemotePassthroughTools, McpRuntime } from './mcpRuntime';
-import { parseModelRef, DEFAULT_TITLE_SUMMARY_PROMPT } from './modelCatalog';
-import { formatString, getDefaultSessionTitle, getStrings } from './i18n';
-import { applyQuestionPrefix, mergeReasoningParts, splitThinkTaggedContent, toProviderMessages } from './chatUtils';
 import {
-  OpenAICompatibleClient,
-  ProviderChatResult,
-  ProviderToolRound,
-  resolveModelBindingConfig,
-  resolveProviderConfig,
-  validateProviderConfig
-} from './providerClient';
+  buildChatStatePayload,
+  resolveEffectiveProviderConfig as resolveChatPayloadProviderConfig,
+  syncSessionScopedState,
+  withGenerationState
+} from './chatControllerPayload';
+import { ChatGenerationService } from './chatControllerGenerationService';
+import { ChatPanelManager } from './chatControllerPanelManager';
+import {
+  GenerationAbortReason,
+  PendingToolContinuation,
+  ToolCallOrchestrator,
+  ToolOrchestratorPanelContext
+} from './chatControllerToolOrchestrator';
+import { routeChatControllerWebviewMessage } from './chatControllerWebviewRouter';
+import { McpRuntime } from './mcpRuntime';
+import { getDefaultSessionTitle, getStrings } from './i18n';
+import { OpenAICompatibleClient, ProviderChatResult } from './providerClient';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository } from './stateRepository';
-import { TITLE_GENERATION } from './constants';
 import { getChatWebviewHtml } from './webview';
-import { createId, nowTs } from './utils/id';
 import {
   AssistantProfile,
-  ChatBuddySettings,
-  ChatMessage,
-  ProviderModelOption,
   ChatStatePayload,
-  ChatToolRound,
-  ProviderMessage,
+  ChatBuddySettings,
+  ProviderModelOption,
   ProviderConfig,
-  ProviderToolDefinition,
   RuntimeLocale,
-  RuntimeStrings,
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
-import { getLocaleFromSettings, toErrorMessage, warn } from './utils';
-import {
-  STREAM_STATE_POST_INTERVAL_MS,
-  StreamFlushParams,
-  createStreamAccumulator,
-  buildStreamFlush,
-  clearStreamFlush,
-  buildStreamCallbacks,
-  buildStreamErrorContent
-} from './streamAccumulator';
+import { getLocaleFromSettings, toErrorMessage } from './utils';
+import { STREAM_STATE_POST_INTERVAL_MS } from './streamAccumulator';
 
-const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
-type GenerationAbortReason = 'manual' | 'timeout';
-
-function resolveGenerationErrorMessage(
-  error: unknown,
-  abortReason: GenerationAbortReason | undefined,
-  strings: RuntimeStrings
-): string {
-  if (abortReason === 'manual') {
-    return strings.generationStopped;
-  }
-  if (abortReason === 'timeout') {
-    return strings.requestTimeout;
-  }
-  if (error instanceof Error) {
-    const errorMsg = error.message.toLowerCase();
-    if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
-      return strings.networkError || error.message;
-    }
-    if (errorMsg.includes('401') || errorMsg.includes('unauthorized')) {
-      return strings.authFailed || error.message;
-    }
-    if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
-      return strings.rateLimitExceeded || error.message;
-    }
-    if (errorMsg.includes('timeout')) {
-      return strings.requestTimeout;
-    }
-    return error.message || strings.unknownError;
-  }
-  return strings.unknownError;
-}
-
-export type PanelMessageContext = {
-  panel: vscode.WebviewPanel;
-  assistantId?: string;
-};
-
-type BuiltProviderTools = {
-  tools: ProviderToolDefinition[];
-  localToolNames: Set<string>;
-};
-
-type PendingToolContinuation = {
-  assistant: AssistantProfile;
-  sessionId: string;
-  assistantMessageId: string;
-  settings: ChatBuddySettings;
-  locale: RuntimeLocale;
-  providerMessages: ProviderMessage[];
-  providerTools: BuiltProviderTools;
-  providerConfig: ProviderConfig;
-  toolRounds: ProviderToolRound[];
-  result: ProviderChatResult;
-};
+export type PanelMessageContext = ToolOrchestratorPanelContext;
 
 type PayloadBaseCache = {
   state: ReturnType<ChatStateRepository['getState']>;
@@ -111,8 +47,6 @@ type PayloadBaseCache = {
 };
 
 export class ChatController {
-  private panel: vscode.WebviewPanel | undefined;
-  private panelsByAssistantId = new Map<string, vscode.WebviewPanel>();
   private streamStatePostTimers = new WeakMap<vscode.WebviewPanel, ReturnType<typeof setTimeout>>();
   private payloadBaseCache: PayloadBaseCache | undefined;
   private streamingEnabled: boolean;
@@ -123,7 +57,21 @@ export class ChatController {
   private sessionTempModelRefBySession: Record<string, string> = {};
   private lastSelectedSessionIdByAssistant: Record<string, string | undefined> = {};
   private modelOptions: ProviderModelOption[];
-  private onActivePanelChange?: () => void;
+  private readonly toolOrchestrator: ToolCallOrchestrator;
+  private readonly generationService: ChatGenerationService;
+  private readonly panelManager: ChatPanelManager;
+
+  private get panel(): vscode.WebviewPanel | undefined {
+    return this.panelManager.getActivePanel();
+  }
+
+  private set panel(panel: vscode.WebviewPanel | undefined) {
+    this.panelManager.setActivePanel(panel);
+  }
+
+  private get panelsByAssistantId(): Map<string, vscode.WebviewPanel> {
+    return this.panelManager.getPanelsByAssistantId();
+  }
 
   constructor(
     private readonly repository: ChatStateRepository,
@@ -134,6 +82,82 @@ export class ChatController {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? this.repository.getSettings().streamingDefault;
     this.modelOptions = this.repository.getModelOptions();
+    this.panelManager = new ChatPanelManager({
+      repository: this.repository,
+      extensionUri: this.extensionUri,
+      getLocale: () => this.getLocale(),
+      ensureSession: (assistantId) => this.ensureSession(assistantId),
+      setStreamingEnabled: (enabled) => {
+        this.streamingEnabled = enabled;
+      },
+      renderWebviewHtml: (webview) => getChatWebviewHtml(webview, this.extensionUri),
+      handleWebviewMessage: (message, context) => this.handleWebviewMessage(message, context),
+      handlePanelDisposing: (panel) => {
+        this.stopGeneration('manual');
+        const timeoutHandle = this.streamStatePostTimers.get(panel);
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+          this.streamStatePostTimers.delete(panel);
+        }
+      }
+    });
+    this.toolOrchestrator = new ToolCallOrchestrator({
+      repository: this.repository,
+      providerClient: this.providerClient,
+      mcpRuntime: this.mcpRuntime,
+      getLocale: () => this.getLocale(),
+      getPendingToolContinuation: () => this.pendingToolContinuation,
+      setPendingToolContinuation: (pending) => {
+        this.pendingToolContinuation = pending;
+      },
+      isGenerating: () => this.isGenerating,
+      setIsGenerating: (generating) => {
+        this.isGenerating = generating;
+      },
+      getAbortController: () => this.abortController,
+      setAbortController: (controller) => {
+        this.abortController = controller;
+      },
+      getAbortReason: () => this.abortReason,
+      setAbortReason: (reason) => {
+        this.abortReason = reason;
+      },
+      stopGeneration: (reason) => this.stopGeneration(reason),
+      postError: (message, context) => this.postError(message, context),
+      postState: (error, context) => this.postState(error, context),
+      scheduleStreamStatePost: (context) => this.scheduleStreamStatePost(context),
+      flushScheduledStreamStatePost: (context) => this.flushScheduledStreamStatePost(context)
+    });
+    this.generationService = new ChatGenerationService({
+      repository: this.repository,
+      providerClient: this.providerClient,
+      toolOrchestrator: this.toolOrchestrator,
+      getLocale: () => this.getLocale(),
+      isGenerating: () => this.isGenerating,
+      setIsGenerating: (generating) => {
+        this.isGenerating = generating;
+      },
+      getAbortController: () => this.abortController,
+      setAbortController: (controller) => {
+        this.abortController = controller;
+      },
+      getAbortReason: () => this.abortReason,
+      setAbortReason: (reason) => {
+        this.abortReason = reason;
+      },
+      setStreamingEnabled: (enabled) => {
+        this.streamingEnabled = enabled;
+      },
+      ensureSession: (assistantId) => this.ensureSession(assistantId),
+      resolveEffectiveProviderConfig: (settings, assistant, sessionId) =>
+        this.resolveEffectiveProviderConfig(settings, assistant, sessionId),
+      postMessage: (message, context) => this.postMessage(message, context),
+      postError: (message, context) => this.postError(message, context),
+      postState: (error, context) => this.postState(error, context),
+      scheduleStreamStatePost: (context) => this.scheduleStreamStatePost(context),
+      flushScheduledStreamStatePost: (context) => this.flushScheduledStreamStatePost(context),
+      confirmDangerousAction: (message, actionLabel) => this.confirmDangerousAction(message, actionLabel)
+    });
   }
 
   private getLocale(): RuntimeLocale {
@@ -188,16 +212,8 @@ export class ChatController {
     return { assistant, sessions, selectedSession };
   }
 
-  private createPanelOptions(): vscode.WebviewPanelOptions & vscode.WebviewOptions {
-    return {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [getCodiconRootUri(), vscode.Uri.joinPath(this.extensionUri, 'node_modules')]
-    };
-  }
-
   private getStateTargetPanel(context?: PanelMessageContext): vscode.WebviewPanel | undefined {
-    return context?.panel ?? this.panel;
+    return context?.panel ?? this.panelManager.getActivePanel();
   }
 
   private scheduleStreamStatePost(context?: PanelMessageContext): void {
@@ -225,96 +241,8 @@ export class ChatController {
     this.postState(undefined, context);
   }
 
-  private presentPanel(panel: vscode.WebviewPanel, title: string, iconPath: vscode.IconPath): void {
-    panel.title = title;
-    panel.iconPath = iconPath;
-  }
-
-  private createChatPanel(
-    panelTitle: string,
-    panelIcon: vscode.IconPath,
-    context: { assistantId?: string } = {}
-  ): vscode.WebviewPanel {
-    const panel = vscode.window.createWebviewPanel(
-      CHAT_PANEL_VIEW_TYPE,
-      panelTitle,
-      vscode.ViewColumn.One,
-      this.createPanelOptions()
-    );
-    this.presentPanel(panel, panelTitle, panelIcon);
-    panel.webview.html = getChatWebviewHtml(panel.webview, this.extensionUri);
-    const messageListener = panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
-      this.panel = panel;
-      void this.handleWebviewMessage(message, {
-        panel,
-        assistantId: context.assistantId
-      });
-    });
-    panel.onDidDispose(() => {
-      this.stopGeneration('manual');
-      messageListener.dispose();
-      viewStateListener.dispose();
-      const timeoutHandle = this.streamStatePostTimers.get(panel);
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-        this.streamStatePostTimers.delete(panel);
-      }
-      if (context.assistantId) {
-        this.panelsByAssistantId.delete(context.assistantId);
-      }
-      if (this.panel === panel) {
-        this.panel = undefined;
-      }
-    });
-    const viewStateListener = panel.onDidChangeViewState((e) => {
-      if (!e.webviewPanel.active || !context.assistantId) {
-        return;
-      }
-      this.panel = panel;
-      this.repository.setSelectedAssistant(context.assistantId);
-      this.onActivePanelChange?.();
-    });
-    return panel;
-  }
-
   public openAssistantChat(assistantId?: string): void {
-    if (assistantId) {
-      this.repository.setSelectedAssistant(assistantId);
-    }
-
-    const assistant = this.repository.getSelectedAssistant();
-    if (assistant && !assistant.isDeleted) {
-      this.ensureSession(assistant.id);
-      this.streamingEnabled = assistant.streaming;
-    }
-
-    const strings = getStrings(this.getLocale());
-    const panelTitle = assistant?.name?.trim() || strings.chatPanelTitle;
-    const panelIcon = getPanelIconPath(assistant?.avatar ?? 'account');
-    const chatTabMode = this.repository.getSettings().chatTabMode;
-
-    if (chatTabMode === 'multi' && assistant) {
-      // Multi-tab mode: each assistant gets its own panel
-      const existing = this.panelsByAssistantId.get(assistant.id);
-      if (existing) {
-        this.presentPanel(existing, panelTitle, panelIcon);
-        existing.reveal(vscode.ViewColumn.One);
-        this.panel = existing;
-      } else {
-        const newPanel = this.createChatPanel(panelTitle, panelIcon, { assistantId: assistant.id });
-        this.panelsByAssistantId.set(assistant.id, newPanel);
-        this.panel = newPanel;
-      }
-    } else {
-      // Single-tab mode: reuse the same panel
-      if (!this.panel) {
-        this.panel = this.createChatPanel(panelTitle, panelIcon);
-      } else {
-        this.presentPanel(this.panel, panelTitle, panelIcon);
-        this.panel.reveal(vscode.ViewColumn.One);
-      }
-    }
-
+    this.panelManager.openAssistantChat(assistantId);
     this.postState();
   }
 
@@ -363,33 +291,20 @@ export class ChatController {
    * Called when an assistant is permanently deleted to prevent stale references.
    */
   public disposePanelForAssistant(assistantId: string): void {
-    // Clean up temp model refs for all sessions belonging to this assistant
     const sessions = this.repository.getSessionsForAssistant(assistantId);
     for (const session of sessions) {
       delete this.sessionTempModelRefBySession[session.id];
     }
-    const panel = this.panelsByAssistantId.get(assistantId);
-    if (panel) {
-      this.panelsByAssistantId.delete(assistantId);
-      panel.dispose();
-      if (this.panel === panel) {
-        this.panel = undefined;
-      }
-    }
+    this.panelManager.disposePanelForAssistant(assistantId);
   }
 
   public setActivePanelChangeCallback(callback: () => void): void {
-    this.onActivePanelChange = callback;
+    this.panelManager.setActivePanelChangeCallback(callback);
   }
 
   public dispose(): void {
     this.stopGeneration('manual');
-    for (const panel of this.panelsByAssistantId.values()) {
-      panel.dispose();
-    }
-    this.panelsByAssistantId.clear();
-    this.panel?.dispose();
-    this.panel = undefined;
+    this.panelManager.dispose();
   }
 
   public applySettings(settings: ChatBuddySettings): void {
@@ -402,7 +317,7 @@ export class ChatController {
 
   private async handleWebviewMessage(message: WebviewInboundMessage, context?: PanelMessageContext): Promise<void> {
     if (context?.panel) {
-      this.panel = context.panel;
+      this.panelManager.setActivePanel(context.panel);
     }
     if (context?.assistantId) {
       const selectedAssistant = this.repository.getSelectedAssistant();
@@ -411,163 +326,37 @@ export class ChatController {
       }
     }
 
-    if (
-      this.pendingToolContinuation &&
-      message.type !== 'ready' &&
-      message.type !== 'continueToolCalls' &&
-      message.type !== 'cancelToolCalls'
-    ) {
-      const notice = getStrings(this.getLocale()).toolContinuationReadonly || getStrings(this.getLocale()).generationBusy;
-      this.postError(notice, context);
-      this.postState(notice, context);
-      return;
-    }
-
-    switch (message.type) {
-      case 'ready':
-        this.postState(undefined, context);
-        return;
-      case 'createSession': {
-        const assistant = this.repository.getSelectedAssistant();
-        if (!assistant || assistant.isDeleted) {
-          return;
-        }
-        this.createSessionForAssistant(assistant.id);
-        this.postState();
-        return;
-      }
-      case 'selectSession': {
-        const assistant = this.repository.getSelectedAssistant();
-        if (!assistant) {
-          return;
-        }
-        const previousSessionId = this.repository.getSelectedSession(assistant.id)?.id;
-        this.repository.selectSession(assistant.id, message.sessionId);
-        if (previousSessionId && previousSessionId !== message.sessionId) {
-          delete this.sessionTempModelRefBySession[previousSessionId];
-        }
-        this.postState();
-        return;
-      }
-      case 'renameSession': {
-        const assistant = this.repository.getSelectedAssistant();
-        if (!assistant) {
-          return;
-        }
-        this.repository.renameSession(assistant.id, message.sessionId, message.title);
-        this.postState();
-        return;
-      }
-      case 'deleteSession': {
-        const assistant = this.repository.getSelectedAssistant();
-        if (!assistant) {
-          return;
-        }
-        const session = this.repository.getSessionsForAssistant(assistant.id).find((item) => item.id === message.sessionId);
-        if (!session) {
-          return;
-        }
-        const strings = getStrings(this.getLocale());
-        const sessionTitle = session.title?.trim() || strings.untitledSession;
-        const confirmed = await this.confirmDangerousAction(
-          formatString(strings.confirmDeleteSession, { title: sessionTitle }),
-          strings.deleteAction
-        );
-        if (!confirmed) {
-          return;
-        }
-        this.repository.deleteSession(assistant.id, message.sessionId);
-        delete this.sessionTempModelRefBySession[message.sessionId];
-        this.ensureSession(assistant.id);
-        this.postState();
-        return;
-      }
-      case 'setSessionTempModel': {
-        const assistant = this.repository.getSelectedAssistant();
-        if (!assistant || assistant.isDeleted) {
-          return;
-        }
-        const session = this.repository.getSelectedSession(assistant.id);
-        if (!session) {
-          return;
-        }
-        const modelRef = message.modelRef.trim();
-        if (!modelRef) {
-          delete this.sessionTempModelRefBySession[session.id];
-          this.postState();
-          return;
-        }
-        const option = this.repository.resolveModelOption(modelRef);
-        if (!option) {
-          this.postError(getStrings(this.getLocale()).modelUnavailable);
-          return;
-        }
-        this.sessionTempModelRefBySession[session.id] = option.ref;
-        this.postState();
-        return;
-      }
-      case 'toggleSessionPanel': {
-        const state = this.repository.getState();
-        this.repository.setSessionPanelCollapsed(!state.sessionPanelCollapsed);
-        this.postState();
-        return;
-      }
-      case 'setStreaming': {
-        const assistant = this.repository.getSelectedAssistant();
-        if (!assistant || assistant.isDeleted) {
-          return;
-        }
-        this.streamingEnabled = message.enabled;
-        this.repository.setAssistantStreaming(assistant.id, message.enabled);
-        this.postState();
-        return;
-      }
-      case 'regenerateReply':
-        await this.regenerateReply(context);
-        return;
-      case 'regenerateFromMessage':
-        await this.regenerateFromMessage(message.messageId, context);
-        return;
-      case 'copyMessage':
-        await this.copyMessage(message.messageId);
-        return;
-      case 'deleteMessage':
-        await this.deleteMessage(message.messageId);
-        return;
-      case 'editMessage':
-        await this.editMessage(message.messageId, message.newContent);
-        return;
-      case 'clearSession':
-        await this.clearSession();
-        return;
-      case 'sendMessage':
-        await this.sendMessage(message.content, context);
-        return;
-      case 'continueToolCalls':
-        await this.continuePendingToolCalls(context);
-        return;
-      case 'cancelToolCalls':
-        this.cancelPendingToolCalls(context);
-        return;
-      case 'listMcpResources':
-        await this.listMcpResources(context);
-        return;
-      case 'listMcpPrompts':
-        await this.listMcpPrompts(context);
-        return;
-      case 'readMcpResource':
-        await this.insertMcpResource(message.serverId, message.uri, context);
-        return;
-      case 'getMcpPrompt':
-        await this.insertMcpPrompt(message.serverId, message.name, message.args, context);
-        return;
-      case 'stopGeneration':
-        this.stopGeneration('manual');
-        this.postState(undefined, context);
-        return;
-      default:
-        return;
-    }
+    await routeChatControllerWebviewMessage({
+      message,
+      context,
+      repository: this.repository,
+      getLocale: () => this.getLocale(),
+      hasPendingToolContinuation: Boolean(this.pendingToolContinuation),
+      postError: (errorMessage, targetContext) => this.postError(errorMessage, targetContext),
+      postState: (errorMessage, targetContext) => this.postState(errorMessage, targetContext),
+      createSessionForAssistant: (assistantId) => this.createSessionForAssistant(assistantId),
+      ensureSession: (assistantId) => this.ensureSession(assistantId),
+      sessionTempModelRefBySession: this.sessionTempModelRefBySession,
+      setStreamingEnabled: (enabled) => {
+        this.streamingEnabled = enabled;
+      },
+      regenerateReply: (targetContext) => this.regenerateReply(targetContext),
+      regenerateFromMessage: (messageId, targetContext) => this.regenerateFromMessage(messageId, targetContext),
+      copyMessage: (messageId) => this.copyMessage(messageId),
+      deleteMessage: (messageId) => this.deleteMessage(messageId),
+      editMessage: (messageId, newContent) => this.editMessage(messageId, newContent),
+      clearSession: () => this.clearSession(),
+      sendMessage: (content, targetContext) => this.sendMessage(content, targetContext),
+      continuePendingToolCalls: (targetContext) => this.continuePendingToolCalls(targetContext),
+      cancelPendingToolCalls: (targetContext) => this.cancelPendingToolCalls(targetContext),
+      listMcpResources: (targetContext) => this.listMcpResources(targetContext),
+      listMcpPrompts: (targetContext) => this.listMcpPrompts(targetContext),
+      insertMcpResource: (serverId, uri, targetContext) => this.insertMcpResource(serverId, uri, targetContext),
+      insertMcpPrompt: (serverId, name, args, targetContext) =>
+        this.insertMcpPrompt(serverId, name, args, targetContext),
+      stopGeneration: (reason) => this.stopGeneration(reason),
+      confirmDangerousAction: (confirmMessage, actionLabel) => this.confirmDangerousAction(confirmMessage, actionLabel)
+    });
   }
 
   private ensureSession(assistantId: string): void {
@@ -600,7 +389,7 @@ export class ChatController {
   }
 
   private postMessage(message: WebviewOutboundMessage, context?: PanelMessageContext): void {
-    const targetPanel = context?.panel ?? this.panel;
+    const targetPanel = context?.panel ?? this.panelManager.getActivePanel();
     void targetPanel?.webview.postMessage(message);
   }
 
@@ -608,31 +397,12 @@ export class ChatController {
     this.postMessage({ type: 'error', message }, context);
   }
 
-  private syncSessionScopedState(assistantId: string | undefined, selectedSessionId?: string): void {
-    if (!assistantId) {
-      return;
-    }
-    const lastSelectedSessionId = this.lastSelectedSessionIdByAssistant[assistantId];
-    if (lastSelectedSessionId && lastSelectedSessionId !== selectedSessionId) {
-      delete this.sessionTempModelRefBySession[lastSelectedSessionId];
-    }
-    this.lastSelectedSessionIdByAssistant[assistantId] = selectedSessionId;
-  }
-
   private resolveEffectiveProviderConfig(settings: ChatBuddySettings, assistant: AssistantProfile, sessionId?: string) {
-    const tempModelRef = sessionId ? this.sessionTempModelRefBySession[sessionId] : '';
-    const parsedTemp = parseModelRef(tempModelRef);
-    if (!parsedTemp) {
-      return resolveProviderConfig(settings, assistant);
-    }
-    return resolveModelBindingConfig(settings, parsedTemp, {
-      temperature: assistant.temperature,
-      topP: assistant.topP,
-      maxTokens: assistant.maxTokens,
-      contextCount: assistant.contextCount,
-      presencePenalty: assistant.presencePenalty,
-      frequencyPenalty: assistant.frequencyPenalty,
-      timeoutMs: settings.timeoutMs
+    return resolveChatPayloadProviderConfig({
+      settings,
+      assistant,
+      sessionId,
+      sessionTempModelRefBySession: this.sessionTempModelRefBySession
     });
   }
 
@@ -717,88 +487,19 @@ export class ChatController {
     }
   }
 
-  private providerSupportsToolCalling(modelRef: string, config: { apiType: string; providerKind: string }): boolean {
-    const option = this.repository.resolveModelOption(modelRef);
-    if (option?.capabilities?.tools) {
-      return true;
-    }
-    // If the model explicitly lacks tool support, respect that.
-    if (option?.capabilities && option.capabilities.tools === false) {
-      return false;
-    }
-    // Most OpenAI-compatible providers support function calling via chat_completions or responses API.
-    return config.apiType === 'chat_completions' || config.apiType === 'responses';
+  private providerSupportsToolCalling(
+    modelRef: string,
+    config: Pick<ProviderConfig, 'apiType' | 'providerKind'>
+  ): boolean {
+    return this.toolOrchestrator.providerSupportsToolCalling(modelRef, config);
   }
 
   private async buildProviderTools(
     settings: ChatBuddySettings,
-    assistant: AssistantProfile,
+    assistant: import('./types').AssistantProfile,
     resolved: ReturnType<ChatController['resolveEffectiveProviderConfig']>
-  ): Promise<BuiltProviderTools> {
-    if (!assistant.enabledMcpServerIds.length) {
-      return {
-        tools: [],
-        localToolNames: new Set<string>()
-      };
-    }
-
-    const passthrough = buildRemotePassthroughTools(
-      settings,
-      assistant,
-      resolved.config.apiType === 'responses' && resolved.config.providerKind === 'openai'
-    );
-    const passthroughServerIds = new Set(passthrough.map((item) => item.serverId));
-    const localBindings = (await this.mcpRuntime.listToolBindings(settings, assistant)).filter(
-      (binding) => !passthroughServerIds.has(binding.serverId)
-    );
-    return {
-      tools: [...localBindings.map((binding) => binding.providerTool), ...passthrough.map((item) => item.tool)],
-      localToolNames: new Set(
-        localBindings
-          .map((binding) => (binding.providerTool.type === 'function' ? binding.providerTool.function.name : ''))
-          .filter(Boolean)
-      )
-    };
-  }
-
-  private async executeToolRound(
-    settings: ChatBuddySettings,
-    assistant: AssistantProfile,
-    toolCalls: ProviderToolRound['toolCalls'],
-    localToolNames: Set<string>
-  ): Promise<ProviderToolRound['results']> {
-    const results: ProviderToolRound['results'] = [];
-    for (const toolCall of toolCalls) {
-      if (!localToolNames.has(toolCall.name)) {
-        continue;
-      }
-      try {
-        const output = await this.mcpRuntime.callBoundTool(settings, assistant, toolCall.name, toolCall.argumentsText);
-        results.push({
-          toolCallId: toolCall.id,
-          output
-        });
-      } catch (error) {
-        results.push({
-          toolCallId: toolCall.id,
-          output: toErrorMessage(error, getStrings(this.getLocale()).unknownError)
-        });
-      }
-    }
-    return results;
-  }
-
-  private buildToolContinuationContext(
-    pending: PendingToolContinuation,
-    context?: PanelMessageContext
-  ): PanelMessageContext | undefined {
-    if (!context?.panel) {
-      return context;
-    }
-    return {
-      panel: context.panel,
-      assistantId: pending.assistant.id
-    };
+  ) {
+    return this.toolOrchestrator.buildProviderTools(settings, assistant, resolved.config);
   }
 
   private applyProviderResultToAssistantMessage(
@@ -809,337 +510,72 @@ export class ChatController {
     modelLabel: string,
     options?: {
       fallbackContent?: string;
-      toolRounds?: ChatToolRound[];
+      toolRounds?: import('./types').ChatToolRound[];
     }
   ): void {
-    const thinkSplit = splitThinkTaggedContent(result.text);
-    const baseContent = thinkSplit.content.trim();
-    const fallbackContent = options?.fallbackContent?.trim();
-    const contentValue = baseContent || fallbackContent || getStrings(this.getLocale()).emptyResponse;
-    const reasoningValue = mergeReasoningParts(result.reasoning, thinkSplit.reasoning);
-    this.repository.updateLastAssistantMessage(assistantId, sessionId, (current) => ({
-      id: current?.id ?? assistantMessageId,
-      role: 'assistant',
-      content: contentValue,
-      timestamp: nowTs(),
-      model: modelLabel,
-      reasoning: reasoningValue,
-      toolRounds: options?.toolRounds
-    }));
+    this.toolOrchestrator.applyProviderResultToAssistantMessage(
+      assistantId,
+      sessionId,
+      assistantMessageId,
+      result,
+      modelLabel,
+      options
+    );
   }
 
   private async runToolCallingBatch(
     pending: PendingToolContinuation,
     context?: PanelMessageContext
   ): Promise<'completed' | 'paused'> {
-    const maxRounds = Math.max(1, Math.floor(pending.settings.mcp.maxToolRounds) || 1);
-    const targetContext = this.buildToolContinuationContext(pending, context);
-    let result = pending.result;
-    let roundCount = 0;
-    const chatToolRounds: ChatToolRound[] = [];
-
-    const extractReasoning = (r: ProviderChatResult): string => {
-      const split = splitThinkTaggedContent(r.text);
-      return mergeReasoningParts(r.reasoning, split.reasoning) || '';
-    };
-
-    while ((result.toolCalls?.length ?? 0) > 0) {
-      if (roundCount >= maxRounds) {
-        pending.result = result;
-        this.pendingToolContinuation = pending;
-        this.applyProviderResultToAssistantMessage(
-          pending.assistant.id,
-          pending.sessionId,
-          pending.assistantMessageId,
-          result,
-          pending.providerConfig.modelLabel,
-          {
-            fallbackContent: getStrings(pending.locale).toolContinuationPendingMessage,
-            toolRounds: chatToolRounds
-          }
-        );
-        this.postState(undefined, targetContext);
-        return 'paused';
-      }
-
-      const toolCalls = result.toolCalls ?? [];
-      const roundReasoning = extractReasoning(result);
-
-      const results = await this.executeToolRound(
-        pending.settings,
-        pending.assistant,
-        toolCalls,
-        pending.providerTools.localToolNames
-      );
-      if (results.length === 0) {
-        break;
-      }
-
-      // Build structured tool round for display (reasoning before tool calls)
-      chatToolRounds.push({
-        reasoning: roundReasoning || undefined,
-        calls: toolCalls.map((call) => {
-          const matched = results.find((r) => r.toolCallId === call.id);
-          return {
-            id: call.id,
-            name: call.name,
-            argumentsText: call.argumentsText,
-            output: matched?.output
-          };
-        })
-      });
-
-      pending.toolRounds.push({
-        toolCalls,
-        results
-      });
-      roundCount += 1;
-
-      // Update assistant message with tool call progress
-      this.applyProviderResultToAssistantMessage(
-        pending.assistant.id,
-        pending.sessionId,
-        pending.assistantMessageId,
-        { text: '', reasoning: '' },
-        pending.providerConfig.modelLabel,
-        { toolRounds: chatToolRounds }
-      );
-      this.postState(undefined, targetContext);
-
-      result = await this.providerClient.chat(
-        pending.providerMessages,
-        pending.providerConfig,
-        pending.locale,
-        this.abortController?.signal,
-        {
-          tools: pending.providerTools.tools,
-          toolRounds: pending.toolRounds
-        }
-      );
-      pending.result = result;
-    }
-
-    this.pendingToolContinuation = undefined;
-
-    // Final response after all tool rounds — use streaming if enabled
-    if (pending.assistant.streaming) {
-      await this.streamFinalResponse(pending, chatToolRounds, targetContext);
-    } else {
-      this.applyProviderResultToAssistantMessage(
-        pending.assistant.id,
-        pending.sessionId,
-        pending.assistantMessageId,
-        result,
-        pending.providerConfig.modelLabel,
-        {
-          fallbackContent: getStrings(pending.locale).emptyResponse,
-          toolRounds: chatToolRounds
-        }
-      );
-    }
-    return 'completed';
-  }
-
-  private async streamFinalResponse(
-    pending: PendingToolContinuation,
-    chatToolRounds: ChatToolRound[],
-    context?: PanelMessageContext
-  ): Promise<void> {
-    const strings = getStrings(pending.locale);
-    const acc = createStreamAccumulator();
-    const params: StreamFlushParams = {
-      assistantId: pending.assistant.id,
-      sessionId: pending.sessionId,
-      fallbackMessageId: pending.assistantMessageId,
-      modelLabel: pending.providerConfig.modelLabel,
-      toolRounds: chatToolRounds,
-      context
-    };
-    const flush = buildStreamFlush(acc, params, this.repository, strings, (persist) => {
-      if (persist) {
-        this.flushScheduledStreamStatePost(context);
-        return;
-      }
-      this.scheduleStreamStatePost(context);
-    });
-    const callbacks = buildStreamCallbacks(acc, flush);
-
-    try {
-      await this.providerClient.chatStream(
-        pending.providerMessages,
-        pending.providerConfig,
-        callbacks,
-        pending.locale,
-        this.abortController?.signal,
-        { toolRounds: pending.toolRounds }
-      );
-    } catch (error) {
-      clearStreamFlush(acc);
-      const errorMsg = toErrorMessage(error, strings.unknownError);
-      const partial = buildStreamErrorContent(acc, errorMsg);
-      this.repository.updateLastAssistantMessage(
-        pending.assistant.id,
-        pending.sessionId,
-        (current) => ({
-          id: current?.id ?? pending.assistantMessageId,
-          role: 'assistant',
-          content: partial.content,
-          timestamp: nowTs(),
-          model: pending.providerConfig.modelLabel,
-          reasoning: partial.reasoning,
-          toolRounds: chatToolRounds
-        }),
-        true
-      );
-      this.postState(undefined, context);
-    }
+    return this.toolOrchestrator.runToolCallingBatch(pending, context);
   }
 
   private async continuePendingToolCalls(context?: PanelMessageContext): Promise<void> {
-    const pending = this.pendingToolContinuation;
-    if (!pending) {
-      return;
-    }
-    if (this.isGenerating) {
-      this.postError(getStrings(this.getLocale()).generationBusy, context);
-      return;
-    }
-
-    const targetContext = this.buildToolContinuationContext(pending, context);
-    const strings = getStrings(pending.locale);
-
-    this.pendingToolContinuation = undefined;
-    this.isGenerating = true;
-    this.abortController = new AbortController();
-    this.abortReason = undefined;
-    const timeoutHandle = setTimeout(() => {
-      this.stopGeneration('timeout');
-    }, pending.providerConfig.timeoutMs);
-
-    this.postState(undefined, targetContext);
-
-    try {
-      await this.runToolCallingBatch(pending, targetContext);
-    } catch (error) {
-      const fallback = resolveGenerationErrorMessage(error, this.abortReason, strings);
-
-      this.applyProviderResultToAssistantMessage(
-        pending.assistant.id,
-        pending.sessionId,
-        pending.assistantMessageId,
-        pending.result,
-        pending.providerConfig.modelLabel,
-        {
-          fallbackContent: fallback
-        }
-      );
-      this.pendingToolContinuation = undefined;
-      this.postError(fallback, targetContext);
-      this.postState(fallback, targetContext);
-    } finally {
-      clearTimeout(timeoutHandle);
-      this.isGenerating = false;
-      this.abortController = undefined;
-      this.abortReason = undefined;
-      this.postState(undefined, targetContext);
-    }
+    await this.toolOrchestrator.continuePendingToolCalls(context);
   }
 
   private cancelPendingToolCalls(context?: PanelMessageContext): void {
-    const pending = this.pendingToolContinuation;
-    if (!pending) {
-      return;
-    }
-
-    const targetContext = this.buildToolContinuationContext(pending, context);
-    const strings = getStrings(pending.locale);
-    this.applyProviderResultToAssistantMessage(
-      pending.assistant.id,
-      pending.sessionId,
-      pending.assistantMessageId,
-      pending.result,
-      pending.providerConfig.modelLabel,
-      {
-        fallbackContent: strings.toolContinuationStoppedMessage || strings.generationStopped
-      }
-    );
-    this.pendingToolContinuation = undefined;
-    this.postState(undefined, targetContext);
+    this.toolOrchestrator.cancelPendingToolCalls(context);
   }
 
   private buildPayload(error?: string, assistantIdOverride?: string): ChatStatePayload {
     const locale = this.getLocale();
-    const strings = getStrings(locale);
     const raw = this.getPayloadBaseState();
-    const settings = raw.settings;
-
-    // Use cached sessions data during streaming to avoid repeated SQLite queries
     const assistant =
       (assistantIdOverride ? this.repository.getAssistantById(assistantIdOverride) : undefined) ??
       this.repository.getSelectedAssistant();
     const { sessions, selectedSession } = this.getCachedSessions(assistant?.id || '');
 
-    this.syncSessionScopedState(assistant?.id, selectedSession?.id);
+    syncSessionScopedState({
+      assistantId: assistant?.id,
+      selectedSessionId: selectedSession?.id,
+      lastSelectedSessionIdByAssistant: this.lastSelectedSessionIdByAssistant,
+      sessionTempModelRefBySession: this.sessionTempModelRefBySession
+    });
 
-    let providerLabel = '-';
-    let modelLabel = '-';
-    let canChat = false;
-    let readOnlyReason: string | undefined;
-    const awaitingToolContinuation = Boolean(this.pendingToolContinuation);
-    const pendingToolCallCount = this.pendingToolContinuation?.result.toolCalls?.length ?? 0;
-    const mcpServers = this.mcpRuntime.getServerSummaries(settings, assistant);
-
-    if (!assistant) {
-      readOnlyReason = strings.noAssistantSelectedBody;
-    } else if (assistant.isDeleted) {
-      readOnlyReason = strings.assistantArchivedReadonly;
-      const option = this.repository.resolveModelOption(assistant.modelRef);
-      providerLabel = option?.providerName ?? '-';
-      modelLabel = option?.label ?? assistant.modelRef ?? '-';
-    } else {
-      const resolved = this.resolveEffectiveProviderConfig(settings, assistant, selectedSession?.id);
-      providerLabel = resolved.config.providerName || '-';
-      modelLabel = resolved.config.modelLabel || assistant.modelRef || '-';
-      canChat = true;
-    }
-
-    if (awaitingToolContinuation) {
-      canChat = false;
-      readOnlyReason = strings.toolContinuationReadonly || strings.generationBusy;
-    }
-
-    const selectedSessionId = selectedSession?.id || '';
-
-    return {
-      groups: raw.groups,
-      assistants: raw.assistants,
-      selectedAssistant: assistant,
-      selectedAssistantId: assistant?.id,
-      sessions,
-      selectedSessionId,
-      selectedSession,
-      sessionPanelCollapsed: raw.sessionPanelCollapsed,
-      locale,
-      strings,
-      providerLabel,
-      modelLabel,
-      modelOptions: this.modelOptions,
-      sessionTempModelRef: selectedSessionId ? this.sessionTempModelRefBySession[selectedSessionId] ?? '' : '',
-      sendShortcut: settings.sendShortcut,
-      streaming: assistant?.streaming ?? this.streamingEnabled,
-      isGenerating: this.isGenerating,
-      canChat,
-      mcpServers,
-      awaitingToolContinuation,
-      pendingToolCallCount,
-      toolRoundLimit: settings.mcp.maxToolRounds,
-      readOnlyReason,
-      error
-    };
+    return withGenerationState(
+      buildChatStatePayload({
+        locale,
+        rawState: raw,
+        assistant,
+        sessions,
+        selectedSession,
+        pendingToolContinuation: this.pendingToolContinuation,
+        getModelOption: (modelRef) => this.repository.resolveModelOption(modelRef),
+        getServerSummaries: (settings, currentAssistant) => this.mcpRuntime.getServerSummaries(settings, currentAssistant),
+        resolveProviderConfigForAssistant: (settings, currentAssistant, sessionId) =>
+          this.resolveEffectiveProviderConfig(settings, currentAssistant, sessionId),
+        modelOptions: this.modelOptions,
+        sessionTempModelRefBySession: this.sessionTempModelRefBySession,
+        streamingEnabled: this.streamingEnabled,
+        error
+      }),
+      this.isGenerating
+    );
   }
 
   private postState(error?: string, context?: PanelMessageContext): void {
-    const targetPanel = context?.panel ?? this.panel;
+    const targetPanel = context?.panel ?? this.panelManager.getActivePanel();
     if (!targetPanel) {
       return;
     }
@@ -1151,423 +587,31 @@ export class ChatController {
   }
 
   private async sendMessage(content: string, context?: PanelMessageContext): Promise<void> {
-    const normalized = content.trim();
-    if (!normalized) {
-      return;
-    }
-    if (this.isGenerating) {
-      this.postError(getStrings(this.getLocale()).generationBusy, context);
-      return;
-    }
-
-    const locale = this.getLocale();
-    const strings = getStrings(locale);
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant) {
-      this.postError(strings.noAssistantSelectedBody, context);
-      this.postState(strings.noAssistantSelectedBody, context);
-      return;
-    }
-    if (assistant.isDeleted) {
-      this.postError(strings.assistantArchivedReadonly, context);
-      this.postState(strings.assistantArchivedReadonly, context);
-      return;
-    }
-
-    this.ensureSession(assistant.id);
-    const selectedSession = this.repository.getSelectedSession(assistant.id);
-    if (!selectedSession) {
-      this.postError(strings.sessionNotFound, context);
-      return;
-    }
-
-    const normalizedWithPrefix = applyQuestionPrefix(normalized, assistant.questionPrefix);
-    const userMessage: ChatMessage = {
-      id: createId('msg'),
-      role: 'user',
-      content: normalizedWithPrefix,
-      timestamp: nowTs()
-    };
-    const sessionAfterUser = this.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
-
-    const settings = this.repository.getSettings();
-    const resolved = this.resolveEffectiveProviderConfig(settings, assistant, selectedSession.id);
-    const invalidReason = validateProviderConfig(resolved.config, locale, resolved.meta);
-    if (invalidReason) {
-      this.repository.appendMessage(assistant.id, selectedSession.id, {
-        id: createId('msg'),
-        role: 'assistant',
-        content: invalidReason,
-        timestamp: nowTs(),
-        model: resolved.config.modelLabel
-      });
-      this.postError(invalidReason, context);
-      this.postState(invalidReason, context);
-      return;
-    }
-
-    const providerMessages = toProviderMessages(
-      assistant.systemPrompt,
-      assistant.questionPrefix,
-      sessionAfterUser.messages,
-      assistant.contextCount
-    );
-    const providerTools = await this.buildProviderTools(settings, assistant, resolved);
-    const useToolCalling =
-      providerTools.tools.length > 0 && this.providerSupportsToolCalling(resolved.config.modelRef, resolved.config);
-    const useStreaming = assistant.streaming && !useToolCalling;
-
-    const assistantMessage: ChatMessage = {
-      id: createId('msg'),
-      role: 'assistant',
-      content: '',
-      timestamp: nowTs(),
-      model: resolved.config.modelLabel,
-      reasoning: ''
-    };
-    this.repository.appendMessage(assistant.id, selectedSession.id, assistantMessage);
-
-    this.isGenerating = true;
-    this.abortController = new AbortController();
-    this.abortReason = undefined;
-    this.streamingEnabled = assistant.streaming;
-
-    const timeoutHandle = setTimeout(() => {
-      this.stopGeneration('timeout');
-    }, resolved.config.timeoutMs);
-
-    this.postState(undefined, context);
-
-    const acc = createStreamAccumulator();
-    const streamParams: StreamFlushParams = {
-      assistantId: assistant.id,
-      sessionId: selectedSession.id,
-      fallbackMessageId: assistantMessage.id,
-      modelLabel: resolved.config.modelLabel,
-      context
-    };
-    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.repository, strings, (persist) => {
-      if (persist) {
-        this.flushScheduledStreamStatePost(context);
-        return;
-      }
-      this.scheduleStreamStatePost(context);
-    });
-    const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
-
-    try {
-      if (useStreaming) {
-        await this.providerClient.chatStream(
-          providerMessages,
-          resolved.config,
-          streamCallbacks,
-          locale,
-          this.abortController.signal
-        );
-      } else {
-        const result = await this.providerClient.chat(
-          providerMessages,
-          resolved.config,
-          locale,
-          this.abortController.signal,
-          useToolCalling
-            ? {
-                tools: providerTools.tools
-              }
-            : {}
-        );
-        if (useToolCalling) {
-          const runState: PendingToolContinuation = {
-            assistant,
-            sessionId: selectedSession.id,
-            assistantMessageId: assistantMessage.id,
-            settings,
-            locale,
-            providerMessages,
-            providerTools,
-            providerConfig: resolved.config,
-            toolRounds: [],
-            result
-          };
-          await this.runToolCallingBatch(runState, context);
-          return;
-        }
-        this.applyProviderResultToAssistantMessage(
-          assistant.id,
-          selectedSession.id,
-          assistantMessage.id,
-          result,
-          resolved.config.modelLabel,
-          {
-            fallbackContent: strings.emptyResponse
-          }
-        );
-      }
-    } catch (error) {
-      clearStreamFlush(acc);
-      const fallback = resolveGenerationErrorMessage(error, this.abortReason, strings);
-
-      const partial = buildStreamErrorContent(acc, fallback);
-      this.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
-        id: current?.id ?? assistantMessage.id,
-        role: 'assistant',
-        content: partial.content,
-        timestamp: nowTs(),
-        model: resolved.config.modelLabel,
-        reasoning: partial.reasoning
-      }));
-
-      this.postError(fallback, context);
-      this.postState(fallback, context);
-    } finally {
-      clearTimeout(timeoutHandle);
-      this.isGenerating = false;
-      this.abortController = undefined;
-      this.abortReason = undefined;
-      this.postState(undefined, context);
-      // Trigger background title generation after response completes
-      const currentSession = this.repository.getSessionById(selectedSession.id);
-      if (currentSession && currentSession.titleSource === 'default') {
-        this.triggerTitleGeneration(assistant.id, currentSession.id).catch((err) => {
-          warn('Background title generation failed:', err);
-        });
-      }
-    }
-  }
-
-  private async triggerTitleGeneration(assistantId: string, sessionId: string): Promise<void> {
-    const settings = this.repository.getSettings();
-    const titleBinding = settings.defaultModels.titleSummary;
-    if (!titleBinding) {
-      return;
-    }
-    const session = this.repository.getSessionById(sessionId);
-    if (!session || session.assistantId !== assistantId || session.titleSource !== 'default') {
-      return;
-    }
-
-    const { config, meta } = resolveModelBindingConfig(settings, titleBinding, {
-      maxTokens: TITLE_GENERATION.MAX_TOKENS,
-      temperature: TITLE_GENERATION.TEMPERATURE,
-      contextCount: TITLE_GENERATION.CONTEXT_COUNT,
-      timeoutMs: TITLE_GENERATION.TIMEOUT_MS
-    });
-    if (!meta.providerExists || !meta.providerEnabled || !meta.modelExists) {
-      return;
-    }
-
-    const locale = this.getLocale();
-    const prompt = settings.defaultModels.titleSummaryPrompt?.trim() || DEFAULT_TITLE_SUMMARY_PROMPT;
-
-    try {
-      const contextMessages = session.messages
-        .slice(-6)
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-
-      const result = await this.providerClient.chat(
-        [{ role: 'system', content: prompt }, ...contextMessages],
-        config,
-        locale,
-        AbortSignal.timeout(TITLE_GENERATION.ABORT_TIMEOUT_MS)
-      );
-
-      const title = result.text?.trim();
-      if (title) {
-        this.repository.generateSessionTitle(assistantId, sessionId, title);
-      }
-    } catch (err) {
-      warn('Title generation failed:', err);
-    }
+    await this.generationService.sendMessage(content, context);
   }
 
   private async regenerateReply(context?: PanelMessageContext): Promise<void> {
-    const locale = this.getLocale();
-    const strings = getStrings(locale);
-    if (this.isGenerating) {
-      this.postError(strings.generationBusy, context);
-      return;
-    }
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant || assistant.isDeleted) {
-      return;
-    }
-    const session = this.repository.getSelectedSession(assistant.id);
-    if (!session) {
-      this.postError(strings.sessionNotFound, context);
-      return;
-    }
-
-    let userIndex = -1;
-    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
-      if (session.messages[i].role === 'user') {
-        userIndex = i;
-        break;
-      }
-    }
-    if (userIndex < 0) {
-      this.postError(strings.sessionNotFound, context);
-      return;
-    }
-
-    const removedCount = Math.max(0, session.messages.length - userIndex);
-    const confirmed = await this.confirmDangerousAction(
-      formatString(strings.confirmRegenerateReply, { count: String(removedCount) }),
-      strings.regenerateReplyAction
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    const userContent = session.messages[userIndex].content;
-    this.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent, context);
+    await this.generationService.regenerateReply(context);
   }
 
   private async regenerateFromMessage(messageId: string, context?: PanelMessageContext): Promise<void> {
-    const locale = this.getLocale();
-    const strings = getStrings(locale);
-    if (this.isGenerating) {
-      this.postError(strings.generationBusy, context);
-      return;
-    }
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant || assistant.isDeleted) {
-      return;
-    }
-    const session = this.repository.getSelectedSession(assistant.id);
-    if (!session) {
-      this.postError(strings.sessionNotFound, context);
-      return;
-    }
-
-    const targetIndex = session.messages.findIndex((message) => message.id === messageId);
-    if (targetIndex < 0) {
-      return;
-    }
-
-    let userIndex = -1;
-    for (let i = targetIndex; i >= 0; i -= 1) {
-      if (session.messages[i].role === 'user') {
-        userIndex = i;
-        break;
-      }
-    }
-    if (userIndex < 0) {
-      this.postError(strings.sessionNotFound, context);
-      return;
-    }
-
-    const removedCount = Math.max(0, session.messages.length - userIndex);
-    const confirmed = await this.confirmDangerousAction(
-      formatString(strings.confirmRegenerateFromMessage, { count: String(removedCount) }),
-      strings.regenerateFromMessageAction
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    const userContent = session.messages[userIndex].content;
-    this.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent, context);
+    await this.generationService.regenerateFromMessage(messageId, context);
   }
 
   private async copyMessage(messageId: string): Promise<void> {
-    const strings = getStrings(this.getLocale());
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant) {
-      return;
-    }
-    const session = this.repository.getSelectedSession(assistant.id);
-    if (!session) {
-      return;
-    }
-    const message = session.messages.find((item) => item.id === messageId);
-    if (!message) {
-      return;
-    }
-    try {
-      await vscode.env.clipboard.writeText(message.content);
-      this.postMessage({
-        type: 'toast',
-        message: strings.copyMessageSuccess,
-        tone: 'success'
-      });
-    } catch {
-      this.postError(strings.unknownError);
-    }
+    await this.generationService.copyMessage(messageId);
   }
 
   private async deleteMessage(messageId: string): Promise<void> {
-    const strings = getStrings(this.getLocale());
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant) {
-      return;
-    }
-    const session = this.repository.getSelectedSession(assistant.id);
-    if (!session) {
-      return;
-    }
-    const message = session.messages.find((item) => item.id === messageId);
-    if (!message) {
-      return;
-    }
-    const confirmed = await this.confirmDangerousAction(strings.confirmDeleteMessage, strings.deleteAction);
-    if (!confirmed) {
-      return;
-    }
-    this.repository.deleteMessage(assistant.id, session.id, messageId);
-    this.postState();
+    await this.generationService.deleteMessage(messageId);
   }
 
   private async editMessage(messageId: string, newContent: string): Promise<void> {
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant) {
-      return;
-    }
-    const session = this.repository.getSelectedSession(assistant.id);
-    if (!session) {
-      return;
-    }
-    const message = session.messages.find((item) => item.id === messageId);
-    if (!message) {
-      return;
-    }
-    const trimmedContent = newContent.trim();
-    if (!trimmedContent) {
-      return;
-    }
-    this.repository.editMessage(assistant.id, session.id, messageId, trimmedContent);
-    this.postState();
+    await this.generationService.editMessage(messageId, newContent);
   }
 
   private async clearSession(): Promise<void> {
-    const strings = getStrings(this.getLocale());
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant) {
-      return;
-    }
-    const session = this.repository.getSelectedSession(assistant.id);
-    if (!session) {
-      return;
-    }
-    if (!session.messages.length) {
-      return;
-    }
-    const confirmed = await this.confirmDangerousAction(strings.confirmClearSession, strings.clearAction);
-    if (!confirmed) {
-      return;
-    }
-    this.repository.clearSessionMessages(assistant.id, session.id);
-    const greeting = assistant.greeting?.trim();
-    if (greeting) {
-      this.repository.appendMessage(assistant.id, session.id, {
-        id: createId('msg'),
-        role: 'assistant',
-        content: greeting,
-        timestamp: nowTs()
-      });
-    }
-    this.postState();
+    await this.generationService.clearSession();
   }
 
   private async confirmDangerousAction(message: string, actionLabel: string): Promise<boolean> {

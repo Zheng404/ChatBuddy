@@ -1,0 +1,267 @@
+{
+  "commands": [
+    {
+      "command": "chatbuddy.createAssistant",
+      "icon": "$(add)",
+      "titles": {
+        "en": "Create Assistant",
+        "zh-CN": "新建助手"
+      }
+    },
+    {
+      "command": "chatbuddy.createGroup",
+      "icon": "$(new-folder)",
+      "titles": {
+        "en": "Create Group",
+        "zh-CN": "新建分组"
+      }
+    },
+    {
+      "command": "chatbuddy.searchAssistants",
+      "icon": "$(search)",
+      "titles": {
+        "en": "Search Assistants",
+        "zh-CN": "搜索助手"
+      }
+    },
+    {
+      "command": "chatbuddy.collapseAllAssistants",
+      "icon": "$(collapse-all)",
+      "titles": {
+        "en": "Collapse All",
+        "zh-CN": "全部折叠"
+      }
+    },
+    {
+      "command": "chatbuddy.createSession",
+      "icon": "$(add)",
+      "titles": {
+        "en": "New Session",
+        "zh-CN": "新建会话"
+      }
+    },
+    {
+      "command": "chatbuddy.clearAllSessions",
+      "icon": "$(clear-all)",
+      "titles": {
+        "en": "Clear All Sessions",
+        "zh-CN": "清空全部会话"
+      }
+    },
+    {
+      "command": "chatbuddy.emptyRecycleBin",
+      "icon": "$(trash)",
+      "titles": {
+        "en": "Empty Recycle Bin",
+        "zh-CN": "清空回收站"
+      }
+    },
+    {
+      "command": "chatbuddy.pinAssistant",
+      "titles": {
+        "en": "Pin",
+        "zh-CN": "置顶"
+      }
+    },
+    {
+      "command": "chatbuddy.unpinAssistant",
+      "titles": {
+        "en": "Unpin",
+        "zh-CN": "取消置顶"
+      }
+    },
+    {
+      "command": "chatbuddy.editAssistant",
+      "titles": {
+        "en": "Edit",
+        "zh-CN": "编辑"
+      }
+    },
+    {
+      "command": "chatbuddy.softDeleteAssistant",
+      "titles": {
+        "en": "Delete",
+        "zh-CN": "删除"
+      }
+    },
+    {
+      "command": "chatbuddy.restoreAssistant",
+      "titles": {
+        "en": "Restore",
+        "zh-CN": "恢复"
+      }
+    },
+    {
+      "command": "chatbuddy.hardDeleteAssistant",
+      "icon": "$(trash)",
+      "titles": {
+        "en": "Delete Permanently",
+        "zh-CN": "彻底删除"
+      }
+    },
+    {
+      "command": "chatbuddy.renameGroup",
+      "titles": {
+        "en": "Rename Group",
+        "zh-CN": "重命名分组"
+      }
+    },
+    {
+      "command": "chatbuddy.deleteGroup",
+      "titles": {
+        "en": "Delete Group",
+        "zh-CN": "删除分组"
+      }
+    },
+    {
+      "command": "chatbuddy.renameSession",
+      "icon": "$(edit)",
+      "titles": {
+        "en": "Rename Session",
+        "zh-CN": "重命名会话"
+      }
+    },
+    {
+      "command": "chatbuddy.deleteSession",
+      "icon": "$(trash)",
+      "titles": {
+        "en": "Delete Session",
+        "zh-CN": "删除会话"
+      }
+    },
+    {
+      "command": "chatbuddy.exportSession",
+      "icon": "$(export)",
+      "titles": {
+        "en": "Export Session",
+        "zh-CN": "导出会话"
+      }
+    }
+  ],
+  "menus": {
+    "view/title": [
+      {
+        "command": "chatbuddy.createAssistant",
+        "when": "view == chatbuddy.assistantsView",
+        "group": "navigation@1"
+      },
+      {
+        "command": "chatbuddy.createGroup",
+        "when": "view == chatbuddy.assistantsView",
+        "group": "navigation@2"
+      },
+      {
+        "command": "chatbuddy.searchAssistants",
+        "when": "view == chatbuddy.assistantsView",
+        "group": "navigation@3"
+      },
+      {
+        "command": "chatbuddy.collapseAllAssistants",
+        "when": "view == chatbuddy.assistantsView",
+        "group": "navigation@4"
+      },
+      {
+        "command": "chatbuddy.createSession",
+        "when": "view == chatbuddy.sessionsView",
+        "group": "navigation@1"
+      },
+      {
+        "command": "chatbuddy.clearAllSessions",
+        "when": "view == chatbuddy.sessionsView",
+        "group": "navigation@2"
+      },
+      {
+        "command": "chatbuddy.emptyRecycleBin",
+        "when": "view == chatbuddy.recycleBinView",
+        "group": "navigation@1"
+      }
+    ],
+    "view/item/context": [
+      {
+        "command": "chatbuddy.pinAssistant",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active",
+        "group": "assistant@1"
+      },
+      {
+        "command": "chatbuddy.unpinAssistant",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned",
+        "group": "assistant@1"
+      },
+      {
+        "command": "chatbuddy.editAssistant",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active",
+        "group": "assistant@2"
+      },
+      {
+        "command": "chatbuddy.editAssistant",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned",
+        "group": "assistant@2"
+      },
+      {
+        "command": "chatbuddy.softDeleteAssistant",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active",
+        "group": "assistant@3"
+      },
+      {
+        "command": "chatbuddy.softDeleteAssistant",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned",
+        "group": "assistant@3"
+      },
+      {
+        "command": "chatbuddy.restoreAssistant",
+        "when": "view == chatbuddy.recycleBinView && viewItem == chatbuddy.assistant.deleted",
+        "group": "assistant@1"
+      },
+      {
+        "command": "chatbuddy.hardDeleteAssistant",
+        "when": "view == chatbuddy.recycleBinView && viewItem == chatbuddy.assistant.deleted",
+        "group": "assistant@2"
+      },
+      {
+        "command": "chatbuddy.renameGroup",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.group.default",
+        "group": "group@1"
+      },
+      {
+        "command": "chatbuddy.renameGroup",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.group.custom",
+        "group": "group@1"
+      },
+      {
+        "command": "chatbuddy.deleteGroup",
+        "when": "view == chatbuddy.assistantsView && viewItem == chatbuddy.group.custom",
+        "group": "group@2"
+      },
+      {
+        "command": "chatbuddy.renameSession",
+        "when": "view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item",
+        "group": "session@1"
+      },
+      {
+        "command": "chatbuddy.renameSession",
+        "when": "view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item",
+        "group": "inline@1"
+      },
+      {
+        "command": "chatbuddy.deleteSession",
+        "when": "view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item",
+        "group": "session@2"
+      },
+      {
+        "command": "chatbuddy.exportSession",
+        "when": "view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item",
+        "group": "session@3"
+      },
+      {
+        "command": "chatbuddy.deleteSession",
+        "when": "view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item",
+        "group": "inline@2"
+      },
+      {
+        "command": "chatbuddy.exportSession",
+        "when": "view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item",
+        "group": "inline@3"
+      }
+    ]
+  }
+}

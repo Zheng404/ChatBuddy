@@ -732,6 +732,8 @@
     "vscode"
   ],
   "scripts": {
+    "generate:manifest": "node ./scripts/generateLocaleAwareManifest.cjs",
+    "precompile": "npm run generate:manifest",
     "vscode:prepublish": "npm run compile",
     "clean": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\"",
     "compile": "npm run clean && tsc -p ./",

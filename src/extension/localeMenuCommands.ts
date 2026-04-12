@@ -1,25 +1,8 @@
 import * as vscode from 'vscode';
 
-const LOCALE_AWARE_MENU_COMMANDS = [
-  'chatbuddy.createAssistant',
-  'chatbuddy.createGroup',
-  'chatbuddy.searchAssistants',
-  'chatbuddy.collapseAllAssistants',
-  'chatbuddy.createSession',
-  'chatbuddy.clearAllSessions',
-  'chatbuddy.emptyRecycleBin',
-  'chatbuddy.pinAssistant',
-  'chatbuddy.unpinAssistant',
-  'chatbuddy.editAssistant',
-  'chatbuddy.softDeleteAssistant',
-  'chatbuddy.restoreAssistant',
-  'chatbuddy.hardDeleteAssistant',
-  'chatbuddy.renameGroup',
-  'chatbuddy.deleteGroup',
-  'chatbuddy.renameSession',
-  'chatbuddy.deleteSession',
-  'chatbuddy.exportSession'
-] as const;
+import localeAwareManifestData from './localeAwareManifestData.json';
+
+const LOCALE_AWARE_MENU_COMMANDS = localeAwareManifestData.commands.map((item) => item.command);
 
 export function registerLocaleAwareMenuAliasCommands(): vscode.Disposable[] {
   return LOCALE_AWARE_MENU_COMMANDS.flatMap((commandId) => [
