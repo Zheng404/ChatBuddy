@@ -418,11 +418,72 @@ export function getSettingsCenterCss(): string {
         margin-bottom: 12px;
       }
 
+      .provider-save-status {
+        min-height: 24px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        padding: 0 10px;
+        display: none;
+        align-items: center;
+        font-size: 11px;
+        line-height: 22px;
+        white-space: nowrap;
+      }
+
+      .provider-save-status.visible {
+        display: inline-flex;
+      }
+
+      .provider-save-status.saving {
+        border-color: color-mix(in srgb, var(--accent) 34%, var(--border) 66%);
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 10%, transparent 90%);
+      }
+
+      .provider-save-status.saved {
+        border-color: color-mix(in srgb, #10b981 42%, var(--border) 58%);
+        color: #10b981;
+        background: color-mix(in srgb, #10b981 10%, transparent 90%);
+      }
+
+      .provider-save-status.invalid {
+        border-color: color-mix(in srgb, #f59e0b 42%, var(--border) 58%);
+        color: #f59e0b;
+        background: color-mix(in srgb, #f59e0b 10%, transparent 90%);
+      }
+
       .models-grid {
         display: grid;
         gap: 8px;
-        max-height: 300px;
+        max-height: 260px;
         overflow-y: auto;
+      }
+
+      .model-sections {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .model-section-card {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        background: color-mix(in srgb, var(--bg) 97%, white 3%);
+      }
+
+      .model-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .model-section-title {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 700;
       }
 
       .model-row {
@@ -489,6 +550,81 @@ export function getSettingsCenterCss(): string {
       .cap-pill.active.cap-video { border-color: #10b981; color: #10b981; }
       .cap-pill.active.cap-tools { border-color: #6b7280; color: #6b7280; }
 
+      .selected-model-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: transparent;
+      }
+
+      .selected-model-main {
+        min-width: 0;
+      }
+
+      .selected-model-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .selected-model-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .selected-model-actions .btn-secondary,
+      .selected-model-actions .btn-danger {
+        padding: 4px 10px;
+        font-size: 11px;
+      }
+
+      .source-pill {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0 8px;
+        font-size: 10px;
+        line-height: 18px;
+        color: var(--muted);
+      }
+
+      .source-pill.manual {
+        border-color: color-mix(in srgb, var(--accent) 52%, var(--border) 48%);
+        color: var(--accent);
+      }
+
+      .source-pill.fetched {
+        border-color: color-mix(in srgb, #10b981 50%, var(--border) 50%);
+        color: #10b981;
+      }
+
+      .model-empty {
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+        background: color-mix(in srgb, var(--bg) 98%, white 2%);
+      }
+
+      .capability-editor {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .capability-editor .cap-pill {
+        line-height: 24px;
+        padding: 0 10px;
+      }
+
       .modal-backdrop {
         position: fixed;
         inset: 0;
@@ -514,6 +650,72 @@ export function getSettingsCenterCss(): string {
         gap: 12px;
       }
 
+      .modal-card-wide {
+        width: min(780px, 100%);
+      }
+
+      .modal-header {
+        margin-bottom: 0;
+      }
+
+      .modal-header-copy {
+        min-width: 0;
+      }
+
+      .fetch-models-list {
+        display: grid;
+        gap: 8px;
+        max-height: min(60vh, 520px);
+        overflow-y: auto;
+      }
+
+      .fetch-models-loading {
+        min-height: 220px;
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        gap: 12px;
+        padding: 24px;
+        color: var(--muted);
+        text-align: center;
+        background: color-mix(in srgb, var(--bg) 96%, white 4%);
+      }
+
+      .fetch-models-spinner {
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        border: 2px solid color-mix(in srgb, var(--accent) 22%, var(--border) 78%);
+        border-top-color: var(--accent);
+        animation: settings-modal-spin 0.85s linear infinite;
+      }
+
+      .fetch-models-loading-copy {
+        max-width: 280px;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .fetch-model-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: transparent;
+      }
+
+      .fetch-model-row.is-added {
+        background: color-mix(in srgb, #10b981 10%, var(--bg) 90%);
+      }
+
+      .fetch-model-row .btn-secondary {
+        padding: 6px 12px;
+      }
+
       .modal-title {
         margin: 0;
         font-size: 14px;
@@ -525,6 +727,12 @@ export function getSettingsCenterCss(): string {
         color: var(--muted);
         font-size: 12px;
         line-height: 1.5;
+      }
+
+      @keyframes settings-modal-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
 ${SHARED_TOAST_STYLE}

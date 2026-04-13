@@ -211,6 +211,7 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
           });
         } else {
           reconcileProviderDirty(provider.id);
+          scheduleProviderAutosave(provider.id, 0);
         }
         renderAll();
       });
@@ -227,6 +228,7 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         updateEditingProvider((provider) => {
           provider.name = dom.providerName.value;
         });
+        scheduleProviderAutosave(providerEditorId, 450);
         renderAll();
       });
 
@@ -234,6 +236,7 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         updateEditingProvider((provider) => {
           provider.apiType = dom.apiType.value === 'responses' ? 'responses' : 'chat_completions';
         });
+        scheduleProviderAutosave(providerEditorId, 250);
         renderAll();
       });
 
@@ -241,6 +244,7 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         updateEditingProvider((provider) => {
           provider.apiKey = dom.apiKey.value;
         });
+        scheduleProviderAutosave(providerEditorId, 450);
         renderAll();
       });
 
@@ -248,6 +252,7 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         updateEditingProvider((provider) => {
           provider.baseUrl = dom.baseUrl.value;
         });
+        scheduleProviderAutosave(providerEditorId, 450);
         renderAll();
       });
 
@@ -255,85 +260,163 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         openTestModelModal();
       });
 
+      dom.addManualModelBtn.addEventListener('click', () => {
+        openManualModelModal('create');
+      });
+
       dom.fetchModelsBtn.addEventListener('click', () => {
         const provider = getEditingProvider();
         if (!provider) {
           return;
         }
+        isFetchingProviderModels = true;
+        openFetchModelsModal(provider.id);
+        renderAll();
         vscode.postMessage({
           type: 'fetchModels',
           payload: provider
         });
       });
 
-      dom.modelsList.addEventListener('change', (event) => {
+      dom.manualModelsList.addEventListener('click', (event) => {
         const target = event.target;
-        if (!(target instanceof HTMLInputElement)) {
+        if (!(target instanceof HTMLElement)) {
           return;
         }
-        const modelId = target.getAttribute('data-model-id');
-        if (!modelId) {
+        const actionTarget = target.closest('[data-model-action]');
+        if (!(actionTarget instanceof HTMLElement)) {
           return;
         }
-        updateEditingProvider((provider) => {
-          const bucket = ensureFetchedModels(provider);
-          if (target.checked) {
-            provider.models = mergeModels([...(provider.models || []), ...bucket.filter((model) => model.id === modelId)]);
-          } else {
-            provider.models = (provider.models || []).filter((model) => model.id !== modelId);
-          }
-          normalizeTestModelForProvider(provider);
-        });
+        const action = actionTarget.getAttribute('data-model-action');
+        const modelId = actionTarget.getAttribute('data-model-id');
+        const provider = getEditingProvider();
+        if (!provider || !action || !modelId) {
+          return;
+        }
+        if (action === 'edit') {
+          openManualModelModal('edit', modelId);
+          return;
+        }
+        if (action === 'delete') {
+          removeProviderModel(provider.id, modelId);
+        }
         renderAll();
       });
 
-      dom.modelsList.addEventListener('click', (event) => {
+      dom.fetchedModelsList.addEventListener('click', (event) => {
         const target = event.target;
-        if (!(target instanceof HTMLElement) || !target.classList.contains('cap-pill')) {
+        if (!(target instanceof HTMLElement)) {
           return;
         }
-        const modelId = target.getAttribute('data-model-id');
-        const capKey = target.getAttribute('data-cap');
-        if (!modelId || !capKey) {
+        const actionTarget = target.closest('[data-model-action]');
+        if (!(actionTarget instanceof HTMLElement)) {
           return;
         }
-        event.preventDefault();
-        event.stopPropagation();
-        updateEditingProvider((provider) => {
-          const bucket = ensureFetchedModels(provider);
-          const model = bucket.find((item) => item.id === modelId);
-          if (!model) {
-            return;
-          }
-          if (!model.capabilities) {
-            model.capabilities = {};
-          }
-          model.capabilities[capKey] = !model.capabilities[capKey];
-          const selected = (provider.models || []).find((item) => item.id === modelId);
-          if (selected) {
-            if (!selected.capabilities) {
-              selected.capabilities = {};
-            }
-            selected.capabilities[capKey] = model.capabilities[capKey];
-          }
-        });
+        const action = actionTarget.getAttribute('data-model-action');
+        const modelId = actionTarget.getAttribute('data-model-id');
+        const provider = getEditingProvider();
+        if (!provider || action !== 'delete' || !modelId) {
+          return;
+        }
+        removeProviderModel(provider.id, modelId);
         renderAll();
+      });
+
+      dom.fetchModelsModalSearch.addEventListener('input', () => {
+        fetchModelsSearchKeyword = dom.fetchModelsModalSearch.value || '';
+        renderFetchModelsModal();
+      });
+
+      dom.fetchModelsModalList.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const trigger = target.closest('[data-fetch-model-id]');
+        if (!(trigger instanceof HTMLElement)) {
+          return;
+        }
+        const modelId = trigger.getAttribute('data-fetch-model-id');
+        if (!fetchModelsModalProviderId || !modelId) {
+          return;
+        }
+        addFetchedModelToProvider(fetchModelsModalProviderId, modelId);
+        renderAll();
+      });
+
+      dom.closeFetchModelsModalBtn.addEventListener('click', () => {
+        closeFetchModelsModal();
+      });
+
+      dom.fetchModelsModal.addEventListener('click', (event) => {
+        if (event.target === dom.fetchModelsModal) {
+          closeFetchModelsModal();
+        }
+      });
+
+      dom.manualModelId.addEventListener('input', () => {
+        if (!manualModelModalState) {
+          return;
+        }
+        manualModelModalState.draft.id = dom.manualModelId.value;
+      });
+
+      dom.manualModelName.addEventListener('input', () => {
+        if (!manualModelModalState) {
+          return;
+        }
+        manualModelModalState.draft.name = dom.manualModelName.value;
+      });
+
+      dom.manualModelCapabilities.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement) || !manualModelModalState) {
+          return;
+        }
+        const trigger = target.closest('[data-manual-model-cap]');
+        if (!(trigger instanceof HTMLElement)) {
+          return;
+        }
+        const capKey = trigger.getAttribute('data-manual-model-cap');
+        if (!capKey) {
+          return;
+        }
+        if (!manualModelModalState.draft.capabilities) {
+          manualModelModalState.draft.capabilities = {};
+        }
+        manualModelModalState.draft.capabilities[capKey] = !manualModelModalState.draft.capabilities[capKey];
+        if (!manualModelModalState.draft.capabilities[capKey]) {
+          delete manualModelModalState.draft.capabilities[capKey];
+        }
+        if (Object.keys(manualModelModalState.draft.capabilities).length === 0) {
+          manualModelModalState.draft.capabilities = undefined;
+        }
+        renderManualModelModal();
+      });
+
+      dom.cancelManualModelBtn.addEventListener('click', () => {
+        closeManualModelModal();
+      });
+
+      dom.saveManualModelBtn.addEventListener('click', () => {
+        saveManualModel();
+      });
+
+      dom.manualModelModal.addEventListener('click', (event) => {
+        if (event.target === dom.manualModelModal) {
+          closeManualModelModal();
+        }
       });
 
       dom.saveProviderBtn.addEventListener('click', () => {
         const provider = getEditingProvider();
-        const validationMessage = validateProvider(provider);
-        if (validationMessage) {
-          showToast(validationMessage, 'error');
-          renderAll();
+        if (!provider) {
           return;
         }
-        vscode.postMessage({
-          type: 'saveProvider',
-          payload: {
-            provider
-          }
-        });
+        if (!persistProviderDraft(provider.id, false)) {
+          showToast(validateProvider(provider), 'error');
+          renderAll();
+        }
       });
 
       dom.cancelTestModelBtn.addEventListener('click', () => {
@@ -367,6 +450,14 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
       window.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && dom.titleSummaryPromptModal.classList.contains('visible')) {
           closeTitleSummaryPromptModal();
+          return;
+        }
+        if (event.key === 'Escape' && dom.manualModelModal.classList.contains('visible')) {
+          closeManualModelModal();
+          return;
+        }
+        if (event.key === 'Escape' && dom.fetchModelsModal.classList.contains('visible')) {
+          closeFetchModelsModal();
           return;
         }
         if (event.key === 'Escape' && dom.testModelModal.classList.contains('visible')) {

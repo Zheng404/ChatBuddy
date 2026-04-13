@@ -11,7 +11,6 @@ import { clamp, createId, nowTs } from './utils';
 import {
   getDefaultAssistantModelRef,
   inferProviderKind,
-  mergeModelBindingsIntoProviders,
   normalizeTitleSource,
   resolveDefaultAssistantName,
   createSystemGroups
@@ -239,11 +238,10 @@ export function sanitizeSettings(raw: unknown): ChatBuddySettings {
         }
       : undefined;
   const defaultModels = sanitizeDefaultModels(saved.defaultModels, legacyAssistantBinding);
-  const hydratedProviders = mergeModelBindingsIntoProviders(providers, [defaultModels.assistant, defaultModels.titleSummary]);
   const mcp = sanitizeMcpSettings(saved.mcp);
 
   return {
-    providers: hydratedProviders,
+    providers,
     defaultModels,
     mcp,
     temperature: clamp(saved.temperature ?? DEFAULT_SETTINGS.temperature, 0, 2, DEFAULT_SETTINGS.temperature),

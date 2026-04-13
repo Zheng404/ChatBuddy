@@ -1,6 +1,5 @@
 import { cloneProvider } from './stateClone';
 import {
-  mergeModelBindingsIntoProviders,
   resolveUntitledSessionTitle
 } from './stateHelpers';
 import {
@@ -63,12 +62,6 @@ export function mergePersistedState(
   const groups = sanitizeGroups(source.groups);
   const groupIds = new Set(groups.map((group) => group.id));
   const assistants = migrateAssistants(source.assistants, settings, groupIds, timestamp);
-  const mergedProviders = mergeModelBindingsIntoProviders(
-    settings.providers,
-    [settings.defaultModels.assistant, settings.defaultModels.titleSummary],
-    assistants.map((assistant) => assistant.modelRef)
-  );
-  settings.providers = mergedProviders;
   const assistantIds = new Set(assistants.map((assistant) => assistant.id));
   const untitledSessionTitle = resolveUntitledSessionTitle(settings.locale);
   const sessions = sanitizeSessions(

@@ -29,13 +29,17 @@ export function getMessageHandlerJs(): string {
           return;
         }
         if (message && message.type === 'modelsFetched') {
-          const provider = providers.find((item) => item.id === message.payload.providerId);
-          if (provider) {
-            const merged = mergeModels([...(message.payload.models || []), ...(provider.models || [])]);
-            fetchedModelsByProvider[provider.id] = merged;
+          const shouldFocusModalSearch = fetchModelsModalProviderId === message.payload.providerId;
+          isFetchingProviderModels = false;
+          if (message.payload.success) {
+            rememberFetchedModels(message.payload.providerId, message.payload.models || []);
           }
           showToast(message.payload.message || '', message.payload.success ? 'success' : 'error');
           renderAll();
+          if (shouldFocusModalSearch && dom.fetchModelsModal.classList.contains('visible')) {
+            dom.fetchModelsModalSearch.focus();
+          }
+          return;
         }
         if (message && message.type === 'mcpProbeResult') {
           var probeItems = message.payload || [];

@@ -6,6 +6,7 @@ export type ChatTabMode = 'single' | 'multi';
 export type AssistantGroupKind = 'default' | 'deleted' | 'custom';
 export type ProviderApiType = 'chat_completions' | 'responses';
 export type ProviderKind = 'openai' | 'gemini' | 'openrouter' | 'ollama' | 'custom';
+export type ProviderModelSource = 'manual' | 'fetched';
 export type McpTransportType = 'stdio' | 'streamableHttp' | 'sse';
 
 export interface AssistantOverrides {
@@ -52,6 +53,7 @@ export interface ProviderModelProfile {
   id: string;
   name: string;
   capabilities?: ModelCapabilities;
+  source?: ProviderModelSource;
 }
 
 export interface ProviderProfile {

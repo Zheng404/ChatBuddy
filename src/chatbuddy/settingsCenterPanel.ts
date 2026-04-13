@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 
-import { createModelRef, DEFAULT_TITLE_SUMMARY_PROMPT, parseModelRef } from './modelCatalog';
+import { createModelRef, DEFAULT_TITLE_SUMMARY_PROMPT, getProviderModelOptions, parseModelRef } from './modelCatalog';
 import { getCodiconStyleText } from './codicon';
 import { formatString, getLanguageOptions, getStrings } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { McpRuntime } from './mcpRuntime';
 import { OpenAICompatibleClient } from './providerClient';
 import { ChatStateRepository } from './stateRepository';
+import { mergeModelBindingsIntoProviders } from './stateHelpers';
 import { TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
 import { getSettingsCenterCss } from './settingsCenterStyles';
 import { getSettingsCenterJs } from './settingsCenterJs';
@@ -45,6 +46,7 @@ type SettingsCenterMessage =
       type: 'saveProvider';
       payload: {
         provider: ProviderProfile;
+        silent?: boolean;
       };
     }
   | {
@@ -320,6 +322,7 @@ export class SettingsCenterPanelController {
 
     if (message.type === 'saveProvider') {
       const provider = normalizeProvider(message.payload.provider);
+      const silent = message.payload.silent === true;
       const current = this.repository.getSettings();
       const nextProviders = current.providers.map((item) => (item.id === provider.id ? provider : item));
       const providerExists = nextProviders.some((item) => item.id === provider.id);
@@ -330,7 +333,7 @@ export class SettingsCenterPanelController {
         ...current,
         providers: nextProviders
       });
-      this.postState(this.getStrings().providerSaved, 'success');
+      this.postState(silent ? undefined : this.getStrings().providerSaved, silent ? 'info' : 'success');
       return;
     }
 
@@ -635,7 +638,9 @@ export class SettingsCenterPanelController {
 
     const strings = this.getStrings();
     const settings = this.repository.getSettings();
-    const modelOptions = this.repository.getModelOptions();
+    const modelOptions = getProviderModelOptions(
+      mergeModelBindingsIntoProviders(settings.providers, [settings.defaultModels.assistant, settings.defaultModels.titleSummary])
+    );
     const currentDefaultRef = toModelRef(settings.defaultModels.assistant);
     const invalidDefaultSelection =
       currentDefaultRef && !modelOptions.some((option) => option.ref === currentDefaultRef) ? currentDefaultRef : '';
@@ -725,7 +730,8 @@ export class SettingsCenterPanelController {
                   <div class="panel-header">
                     <h2 class="panel-title" id="providerPanelTitle"></h2>
                     <div class="panel-actions">
-                      <button class="btn-primary" id="saveProviderBtn" type="button"></button>
+                      <div class="provider-save-status" id="providerSaveStatus" aria-live="polite"></div>
+                      <button class="btn-primary" id="saveProviderBtn" type="button" hidden></button>
                       <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
                     </div>
                   </div>
@@ -757,12 +763,28 @@ export class SettingsCenterPanelController {
                   <div class="panel-header">
                     <h2 class="panel-title" id="modelsPanelTitle"></h2>
                     <div class="panel-actions">
+                      <button class="btn-secondary" id="addManualModelBtn" type="button"></button>
                       <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
                       <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
                     </div>
                   </div>
                   <div class="help" id="modelsHelp"></div>
-                  <div class="models-grid" id="modelsList"></div>
+                  <div class="model-sections">
+                    <section class="model-section-card">
+                      <div class="model-section-header">
+                        <h3 class="model-section-title" id="manualModelsTitle"></h3>
+                      </div>
+                      <div class="help" id="manualModelsHelp"></div>
+                      <div class="models-grid" id="manualModelsList"></div>
+                    </section>
+                    <section class="model-section-card">
+                      <div class="model-section-header">
+                        <h3 class="model-section-title" id="fetchedModelsTitle"></h3>
+                      </div>
+                      <div class="help" id="fetchedModelsHelp"></div>
+                      <div class="models-grid" id="fetchedModelsList"></div>
+                    </section>
+                  </div>
                 </section>
               </section>
             </div>
@@ -879,6 +901,44 @@ export class SettingsCenterPanelController {
         <div class="panel-actions">
           <button class="btn-secondary" id="discardChangesStayBtn" type="button"></button>
           <button class="btn-danger" id="discardChangesConfirmBtn" type="button"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="fetchModelsModal" aria-hidden="true">
+      <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="fetchModelsModalTitle">
+        <div class="panel-header modal-header">
+          <div class="modal-header-copy">
+            <h3 class="modal-title" id="fetchModelsModalTitle"></h3>
+            <p class="modal-copy" id="fetchModelsModalDescription"></p>
+          </div>
+          <button class="btn-secondary" id="closeFetchModelsModalBtn" type="button"></button>
+        </div>
+        <input id="fetchModelsModalSearch" class="provider-search" type="text" />
+        <div class="fetch-models-list" id="fetchModelsModalList"></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="manualModelModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="manualModelModalTitle">
+        <h3 class="modal-title" id="manualModelModalTitle"></h3>
+        <div class="field-grid">
+          <div class="field full">
+            <label for="manualModelId" id="manualModelIdLabel"></label>
+            <input id="manualModelId" type="text" />
+          </div>
+          <div class="field full">
+            <label for="manualModelName" id="manualModelNameLabel"></label>
+            <input id="manualModelName" type="text" />
+          </div>
+          <div class="field full">
+            <label id="manualModelCapabilitiesLabel"></label>
+            <div class="capability-editor" id="manualModelCapabilities"></div>
+          </div>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-secondary" id="cancelManualModelBtn" type="button"></button>
+          <button class="btn-primary" id="saveManualModelBtn" type="button"></button>
         </div>
       </div>
     </div>

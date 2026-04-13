@@ -6,6 +6,7 @@ import {
   ProviderModelOption,
   ProviderModelProfile,
   ProviderProfile,
+  ProviderModelSource,
   RuntimeStrings
 } from './types';
 
@@ -43,6 +44,10 @@ export function getModelDisplayLabel(modelId: string, providerName: string): str
   return `${modelId} | ${providerName}`;
 }
 
+function normalizeModelSource(source: unknown, fallback: ProviderModelSource = 'manual'): ProviderModelSource {
+  return source === 'fetched' ? 'fetched' : fallback;
+}
+
 function normalizeModelProfile(raw: Partial<ProviderModelProfile> | string): ProviderModelProfile | undefined {
   if (typeof raw === 'string') {
     const normalized = raw.trim();
@@ -51,7 +56,8 @@ function normalizeModelProfile(raw: Partial<ProviderModelProfile> | string): Pro
     }
     return {
       id: normalized,
-      name: normalized
+      name: normalized,
+      source: 'manual'
     };
   }
   const id = typeof raw.id === 'string' ? raw.id.trim() : '';
@@ -63,7 +69,8 @@ function normalizeModelProfile(raw: Partial<ProviderModelProfile> | string): Pro
   return {
     id,
     name,
-    capabilities: rawCaps
+    capabilities: rawCaps,
+    source: normalizeModelSource((raw as Partial<ProviderModelProfile>).source)
   };
 }
 

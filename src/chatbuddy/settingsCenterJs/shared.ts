@@ -58,6 +58,7 @@ export function getSharedJs(): string {
         providerSearch: document.getElementById('providerSearch'),
         providerList: document.getElementById('providerList'),
         providerPanelTitle: document.getElementById('providerPanelTitle'),
+        providerSaveStatus: document.getElementById('providerSaveStatus'),
         saveProviderBtn: document.getElementById('saveProviderBtn'),
         testConnectionBtn: document.getElementById('testConnectionBtn'),
         fetchModelsBtn: document.getElementById('fetchModelsBtn'),
@@ -73,7 +74,29 @@ export function getSharedJs(): string {
         baseUrl: document.getElementById('baseUrl'),
         modelsPanelTitle: document.getElementById('modelsPanelTitle'),
         modelsHelp: document.getElementById('modelsHelp'),
-        modelsList: document.getElementById('modelsList'),
+        addManualModelBtn: document.getElementById('addManualModelBtn'),
+        manualModelsTitle: document.getElementById('manualModelsTitle'),
+        manualModelsHelp: document.getElementById('manualModelsHelp'),
+        manualModelsList: document.getElementById('manualModelsList'),
+        fetchedModelsTitle: document.getElementById('fetchedModelsTitle'),
+        fetchedModelsHelp: document.getElementById('fetchedModelsHelp'),
+        fetchedModelsList: document.getElementById('fetchedModelsList'),
+        fetchModelsModal: document.getElementById('fetchModelsModal'),
+        fetchModelsModalTitle: document.getElementById('fetchModelsModalTitle'),
+        fetchModelsModalDescription: document.getElementById('fetchModelsModalDescription'),
+        fetchModelsModalSearch: document.getElementById('fetchModelsModalSearch'),
+        fetchModelsModalList: document.getElementById('fetchModelsModalList'),
+        closeFetchModelsModalBtn: document.getElementById('closeFetchModelsModalBtn'),
+        manualModelModal: document.getElementById('manualModelModal'),
+        manualModelModalTitle: document.getElementById('manualModelModalTitle'),
+        manualModelIdLabel: document.getElementById('manualModelIdLabel'),
+        manualModelId: document.getElementById('manualModelId'),
+        manualModelNameLabel: document.getElementById('manualModelNameLabel'),
+        manualModelName: document.getElementById('manualModelName'),
+        manualModelCapabilitiesLabel: document.getElementById('manualModelCapabilitiesLabel'),
+        manualModelCapabilities: document.getElementById('manualModelCapabilities'),
+        cancelManualModelBtn: document.getElementById('cancelManualModelBtn'),
+        saveManualModelBtn: document.getElementById('saveManualModelBtn'),
         testModelModal: document.getElementById('testModelModal'),
         testModelModalTitle: document.getElementById('testModelModalTitle'),
         testModelModalDescription: document.getElementById('testModelModalDescription'),
@@ -132,9 +155,16 @@ export function getSharedJs(): string {
       let providers = [];
       let persistedProvidersById = {};
       let dirtyProviderIds = new Set();
+      let providerAutosaveTimer = 0;
+      let providerAutosaveTargetId = '';
+      let providerSaveStatusById = {};
       let fetchedModelsByProvider = {};
       let testModelByProviderId = {};
       let testModelModalProviderId = '';
+      let fetchModelsModalProviderId = '';
+      let fetchModelsSearchKeyword = '';
+      let isFetchingProviderModels = false;
+      let manualModelModalState = null;
       let discardModalResolver = null;
       let providerEditorId = '';
       let searchKeyword = '';
