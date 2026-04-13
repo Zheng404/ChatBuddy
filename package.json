@@ -739,6 +739,8 @@
     "compile": "npm run clean && tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
+    "check:changelog": "node ./scripts/validateChangelogVersion.cjs",
+    "extract:release-notes": "node ./scripts/extractReleaseNotes.cjs",
     "test:unit": "node --require ./out/test/setup.js --test out/test/**/*.test.js",
     "test": "npm run lint && npm run compile && npm run test:unit",
     "package": "vsce package",

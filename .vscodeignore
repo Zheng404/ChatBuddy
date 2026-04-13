@@ -8,6 +8,7 @@ img/**
 **/*.map
 **/*.ts
 package-lock.json
+.github-release-notes.md
 out/test/**
 .codex
 .claude
