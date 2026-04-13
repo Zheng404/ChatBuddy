@@ -242,8 +242,18 @@ export class ChatController {
   }
 
   public openAssistantChat(assistantId?: string): void {
-    this.panelManager.openAssistantChat(assistantId);
-    this.postState();
+    const { panel, panelReady } = this.panelManager.openAssistantChat(assistantId);
+    const selectedAssistantId = this.repository.getSelectedAssistant()?.id;
+    if (!panelReady) {
+      this.panelManager.queuePendingState(panel, {
+        assistantId: selectedAssistantId
+      });
+      return;
+    }
+    this.postState(undefined, {
+      panel,
+      assistantId: selectedAssistantId
+    });
   }
 
   public stopGeneration(reason: GenerationAbortReason = 'manual'): void {
@@ -332,6 +342,7 @@ export class ChatController {
       repository: this.repository,
       getLocale: () => this.getLocale(),
       hasPendingToolContinuation: Boolean(this.pendingToolContinuation),
+      handleReady: (targetContext) => this.handlePanelReady(targetContext),
       postError: (errorMessage, targetContext) => this.postError(errorMessage, targetContext),
       postState: (errorMessage, targetContext) => this.postState(errorMessage, targetContext),
       createSessionForAssistant: (assistantId) => this.createSessionForAssistant(assistantId),
@@ -356,6 +367,18 @@ export class ChatController {
         this.insertMcpPrompt(serverId, name, args, targetContext),
       stopGeneration: (reason) => this.stopGeneration(reason),
       confirmDangerousAction: (confirmMessage, actionLabel) => this.confirmDangerousAction(confirmMessage, actionLabel)
+    });
+  }
+
+  private handlePanelReady(context?: PanelMessageContext): void {
+    const targetPanel = context?.panel ?? this.panelManager.getActivePanel();
+    if (!targetPanel) {
+      return;
+    }
+    const pending = this.panelManager.markPanelReady(targetPanel);
+    this.postState(pending?.error, {
+      panel: targetPanel,
+      assistantId: pending?.assistantId ?? context?.assistantId
     });
   }
 
@@ -577,6 +600,13 @@ export class ChatController {
   private postState(error?: string, context?: PanelMessageContext): void {
     const targetPanel = context?.panel ?? this.panelManager.getActivePanel();
     if (!targetPanel) {
+      return;
+    }
+    if (!this.panelManager.isPanelReady(targetPanel)) {
+      this.panelManager.queuePendingState(targetPanel, {
+        error,
+        assistantId: context?.assistantId
+      });
       return;
     }
     const payload = this.buildPayload(error, context?.assistantId);

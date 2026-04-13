@@ -7,13 +7,14 @@ export function getChatEventScript(): string {
         }
         if (message.type === 'state') {
           const wasGenerating = state.isGenerating;
+          const optimisticResolved = reconcileOptimisticSend(message.payload);
           state = message.payload;
           const editStateChanged = syncMessageEditState();
           if (!state.awaitingToolContinuation) {
             toolContinuationActionPending = false;
           }
-          renderByDiff(editStateChanged);
-          if (wasGenerating && !state.isGenerating) {
+          renderByDiff(editStateChanged || optimisticResolved);
+          if ((wasGenerating || optimisticResolved) && !state.isGenerating) {
             dom.messagesInner.querySelectorAll('.streaming-cursor, .loading-indicator-wrapper').forEach((el) => el.remove());
           }
           if (state.error) {
@@ -27,6 +28,7 @@ export function getChatEventScript(): string {
         }
         if (message.type === 'error') {
           const text = typeof message.message === 'string' ? message.message : state.strings.unknownError || '';
+          scheduleOptimisticSendRestore();
           showToast(text, 'error');
         }
         if (message.type === 'toast') {
@@ -57,7 +59,7 @@ export function getChatEventScript(): string {
       });
 
       dom.sendBtn.addEventListener('click', () => {
-        if (!state.canChat) {
+        if (!state.canChat || state.isGenerating || optimisticSendState) {
           return;
         }
         const content = dom.composerInput.value.trim();
@@ -78,6 +80,8 @@ export function getChatEventScript(): string {
           return;
         }
         dom.composerInput.value = '';
+        beginOptimisticSend(content);
+        renderByDiff(true);
         vscode.postMessage({ type: 'sendMessage', content });
       });
 

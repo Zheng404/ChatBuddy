@@ -8,10 +8,12 @@ const LATEX_DISPLAY_BLOCK_PATTERN = String.raw`/\\\[([\s\S]+?)\\\]/g`;
 const LATEX_INLINE_BLOCK_PATTERN = String.raw`/\\\(([\s\S]+?)\\\)/g`;
 const LATEX_ENV_BLOCK_PATTERN = String.raw`/\\begin\{(equation\*?|align\*?|gather\*?|aligned|cases|split|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|cd|CD|darray)\}([\s\S]+?)\\end\{\1\}/g`;
 
-export function getChatScript(nonce: string): string {
+export function getChatScript(args: { nonce: string; mermaidScriptUri: string }): string {
+  const { nonce, mermaidScriptUri } = args;
   return `
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
+      const MERMAID_SCRIPT_URI = ${JSON.stringify(mermaidScriptUri)};
 
       const icons = {
         send: '<span class="codicon codicon-send"></span>',
@@ -75,21 +77,13 @@ export function getChatScript(nonce: string): string {
         readOnlyReason: ''
       };
 
-      if (typeof mermaid !== 'undefined') {
-        var bg = getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-background').trim();
-        var isDark = !bg || bg < '#888888';
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: isDark ? 'dark' : 'default',
-          securityLevel: 'loose'
-        });
-      }
-
       const renderSigs = {
         messages: '',
         composer: ''
       };
       let lastStateError = '';
+      let optimisticSendState;
+      let optimisticSendRestoreTimer = 0;
       const COMPOSER_MIN_HEIGHT = 100;
       const COMPOSER_MAX_HEIGHT = 340;
       let isResizingComposer = false;

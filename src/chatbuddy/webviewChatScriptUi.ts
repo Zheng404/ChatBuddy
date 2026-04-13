@@ -28,10 +28,99 @@ export function getChatUiScript(): string {
         ].join('~');
       }
 
+      function buildSessionSyncMarker(payload) {
+        const session = payload?.selectedSession;
+        const messages = Array.isArray(session?.messages) ? session.messages : [];
+        return [
+          String(payload?.selectedAssistantId || ''),
+          String(payload?.selectedSessionId || ''),
+          String(session?.updatedAt || ''),
+          String(messages.length),
+          messageDigest(messages[messages.length - 1])
+        ].join('|');
+      }
+
+      function getOptimisticSendForCurrentSession() {
+        if (!optimisticSendState) {
+          return undefined;
+        }
+        const currentSessionId = String(state.selectedSessionId || '');
+        if (optimisticSendState.sessionId !== currentSessionId) {
+          return undefined;
+        }
+        return optimisticSendState;
+      }
+
+      function clearOptimisticSend(options) {
+        if (optimisticSendRestoreTimer) {
+          clearTimeout(optimisticSendRestoreTimer);
+          optimisticSendRestoreTimer = 0;
+        }
+        const pending = optimisticSendState;
+        if (!pending) {
+          return false;
+        }
+        optimisticSendState = undefined;
+        if (options?.restoreInput && !String(dom.composerInput.value || '').trim()) {
+          dom.composerInput.value = pending.content;
+        }
+        return true;
+      }
+
+      function beginOptimisticSend(content) {
+        clearOptimisticSend();
+        optimisticSendState = {
+          content,
+          sessionId: String(state.selectedSessionId || ''),
+          startedAt: Date.now(),
+          baseMarker: buildSessionSyncMarker(state)
+        };
+      }
+
+      function scheduleOptimisticSendRestore() {
+        if (!optimisticSendState || optimisticSendRestoreTimer) {
+          return;
+        }
+        optimisticSendRestoreTimer = setTimeout(function() {
+          if (!clearOptimisticSend({ restoreInput: true })) {
+            return;
+          }
+          renderByDiff(true);
+        }, 180);
+      }
+
+      function reconcileOptimisticSend(nextState) {
+        if (!optimisticSendState) {
+          return false;
+        }
+        const sameSession = String(nextState?.selectedSessionId || '') === optimisticSendState.sessionId;
+        const shouldRestore =
+          sameSession &&
+          !nextState?.isGenerating &&
+          buildSessionSyncMarker(nextState) === optimisticSendState.baseMarker;
+        return clearOptimisticSend({ restoreInput: shouldRestore });
+      }
+
+      function getDisplayedMessages() {
+        const current = state.selectedSession?.messages ?? [];
+        const pending = getOptimisticSendForCurrentSession();
+        if (!pending) {
+          return current;
+        }
+        return current.concat([
+          {
+            id: 'optimistic-user-message',
+            role: 'user',
+            content: pending.content,
+            timestamp: pending.startedAt
+          }
+        ]);
+      }
+
       var cachedMessagesSigStatic = '';
 
       function buildMessagesSignature() {
-        const current = state.selectedSession?.messages ?? [];
+        const current = getDisplayedMessages();
         const selectedAssistantName = String(state.selectedAssistant?.name || '').trim();
         var staticPart = cachedMessagesSigStatic;
         var staticKey = String(state.locale || '') + '|' + String(state.selectedAssistantId || '') + '|' +
@@ -56,9 +145,11 @@ export function getChatUiScript(): string {
           .map((option) => option.ref + '~' + option.label + '~' + JSON.stringify(option.capabilities || {}))
           .join('^');
         const isEditingMessage = !!editingMessageId;
+        const isAwaitingSendCommit = !!optimisticSendState;
         return [
           isEditingMessage ? '1' : '0',
           editingMessageId,
+          isAwaitingSendCommit ? '1' : '0',
           state.canChat ? '1' : '0',
           state.isGenerating ? '1' : '0',
           state.streaming ? '1' : '0',
@@ -134,8 +225,9 @@ export function getChatUiScript(): string {
 
       var messageHtmlCache = {};
 
-      function generateMessageHtml(message, latestAssistantId, assistantDisplayName, isGenerating, lastMsg) {
+      function generateMessageHtml(message, latestAssistantId, assistantDisplayName, isGenerating, lastMsg, options) {
         const showCursor = isGenerating && lastMsg && lastMsg.role === 'assistant' && message.id === lastMsg.id;
+        const suppressActions = !!(options && options.suppressActions);
         const role =
           message.role === 'user'
             ? state.strings.userRole
@@ -209,7 +301,9 @@ export function getChatUiScript(): string {
               '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>' +
             '</details>'
           : '';
-        const messageActions = state.canChat ? '' +
+        const messageActions = suppressActions
+          ? ''
+          : state.canChat ? '' +
           '<div class="message-meta-actions">' +
             '<button class="message-action-btn" type="button" data-msg-action="view-raw" data-id="' + escapeHtml(message.id) + '" title="' + escapeHtml(state.strings.viewRawTextAction || '') + '">' + icons.rawText + '</button>' +
             (message.id === latestAssistantId && message.role === 'assistant'
@@ -247,7 +341,9 @@ export function getChatUiScript(): string {
 
       function renderMessages() {
         const current = state.selectedSession?.messages ?? [];
-        if (!current.length) {
+        const displayedMessages = getDisplayedMessages();
+        const optimisticSend = getOptimisticSendForCurrentSession();
+        if (!displayedMessages.length) {
           renderEmptyState();
           messageHtmlCache = {};
           return;
@@ -256,11 +352,12 @@ export function getChatUiScript(): string {
         const latestAssistantId = [...current].reverse().find((item) => item.role === 'assistant')?.id || '';
         const assistantDisplayName = String(state.selectedAssistant?.name || '').trim() || state.strings.assistantRole;
         const isGenerating = state.isGenerating;
-        const lastMsg = current[current.length - 1];
+        const authoritativeLastMsg = current[current.length - 1];
+        const lastMsg = displayedMessages[displayedMessages.length - 1];
 
         const htmlParts = [];
-        for (var mi = 0; mi < current.length; mi++) {
-          var msg = current[mi];
+        for (var mi = 0; mi < displayedMessages.length; mi++) {
+          var msg = displayedMessages[mi];
           var digest = messageDigest(msg);
           var cacheKey = msg.id + '|' + digest;
           if (isGenerating && msg.id === lastMsg.id) {
@@ -269,15 +366,17 @@ export function getChatUiScript(): string {
           if (messageHtmlCache[cacheKey]) {
             htmlParts.push(messageHtmlCache[cacheKey]);
           } else {
-            var html = generateMessageHtml(msg, latestAssistantId, assistantDisplayName, isGenerating, lastMsg);
+            var html = generateMessageHtml(msg, latestAssistantId, assistantDisplayName, isGenerating, lastMsg, {
+              suppressActions: msg.id === 'optimistic-user-message'
+            });
             messageHtmlCache[cacheKey] = html;
             htmlParts.push(html);
           }
         }
 
         var currentKeys = {};
-        for (var pi = 0; pi < current.length; pi++) {
-          currentKeys[current[pi].id] = true;
+        for (var pi = 0; pi < displayedMessages.length; pi++) {
+          currentKeys[displayedMessages[pi].id] = true;
         }
         var staleKeys = Object.keys(messageHtmlCache);
         for (var si = 0; si < staleKeys.length; si++) {
@@ -287,7 +386,11 @@ export function getChatUiScript(): string {
           }
         }
 
-        dom.messagesInner.innerHTML = htmlParts.join('') + (isGenerating && lastMsg && lastMsg.role === 'assistant' && !lastMsg.content ? '<div class="loading-indicator-wrapper"><div class="loading-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>' : '');
+        const showLoadingIndicator =
+          !!optimisticSend ||
+          (isGenerating && authoritativeLastMsg && authoritativeLastMsg.role === 'assistant' && !authoritativeLastMsg.content);
+
+        dom.messagesInner.innerHTML = htmlParts.join('') + (showLoadingIndicator ? '<div class="loading-indicator-wrapper"><div class="loading-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>' : '');
 
         dom.messages.scrollTop = dom.messages.scrollHeight;
         renderEnhancedContent();
@@ -295,6 +398,8 @@ export function getChatUiScript(): string {
 
       function renderComposer() {
         const isEditingMessage = !!editingMessageId;
+        const isAwaitingSendCommit = !!optimisticSendState;
+        const isBusy = state.isGenerating || isAwaitingSendCommit;
         const assistantModelRef = String(state.selectedAssistant?.modelRef || '').trim();
         const assistantModelLabel = state.modelLabel || '-';
         const activeModelRef = String(state.sessionTempModelRef || assistantModelRef || '').trim();
@@ -342,14 +447,14 @@ export function getChatUiScript(): string {
         dom.tempModelSelect.title = state.strings.model + ': ' + activeLabel;
         dom.streamingToggle.checked = !!state.streaming;
         dom.composerInput.disabled = !state.canChat;
-        dom.tempModelSelect.disabled = !state.canChat || state.isGenerating;
-        dom.streamingToggle.disabled = !state.canChat || state.isGenerating;
-        dom.sendBtn.disabled = state.isGenerating || !state.canChat;
+        dom.tempModelSelect.disabled = !state.canChat || isBusy;
+        dom.streamingToggle.disabled = !state.canChat || isBusy;
+        dom.sendBtn.disabled = isBusy || !state.canChat;
         dom.stopBtn.disabled = !state.isGenerating;
         dom.clearBtn.title = isEditingMessage ? (state.strings.cancelAction || '') : (state.strings.clearSessionAction || '');
         dom.clearBtn.disabled = isEditingMessage
           ? false
-          : (!state.canChat || state.isGenerating || !state.selectedSession?.messages?.length);
+          : (!state.canChat || isBusy || !state.selectedSession?.messages?.length);
       }
 
       function renderByDiff(force) {

@@ -27,6 +27,7 @@ export type ChatControllerWebviewRouterArgs = {
   repository: RouterRepository;
   getLocale: () => RuntimeLocale;
   hasPendingToolContinuation: boolean;
+  handleReady: (context?: ChatControllerPanelMessageContext) => void;
   postError: (message: string, context?: ChatControllerPanelMessageContext) => void;
   postState: (error?: string, context?: ChatControllerPanelMessageContext) => void;
   createSessionForAssistant: (assistantId: string) => string | undefined;
@@ -62,6 +63,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
     repository,
     getLocale,
     hasPendingToolContinuation,
+    handleReady,
     postError,
     postState,
     createSessionForAssistant,
@@ -100,7 +102,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
 
   switch (message.type) {
     case 'ready':
-      postState(undefined, context);
+      handleReady(context);
       return;
     case 'createSession': {
       const assistant = repository.getSelectedAssistant();

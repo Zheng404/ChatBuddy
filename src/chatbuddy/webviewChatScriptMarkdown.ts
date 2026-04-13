@@ -398,38 +398,109 @@ export function getChatMarkdownRendererScript(args: {
 
       var mermaidRenderQueue = [];
       var mermaidRendering = false;
+      var mermaidInitialized = false;
+      var mermaidLoadPromise;
+
+      function isMermaidDarkTheme() {
+        var background = getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-background').trim();
+        if (!background) {
+          return true;
+        }
+        var rgb = background.match(/^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/i);
+        if (rgb) {
+          return ((Number(rgb[1]) + Number(rgb[2]) + Number(rgb[3])) / 3) < 136;
+        }
+        var hex = background.replace('#', '').trim();
+        if (hex.length === 3) {
+          hex = hex.split('').map(function(part) { return part + part; }).join('');
+        }
+        if (hex.length !== 6) {
+          return true;
+        }
+        var red = parseInt(hex.slice(0, 2), 16);
+        var green = parseInt(hex.slice(2, 4), 16);
+        var blue = parseInt(hex.slice(4, 6), 16);
+        return ((red + green + blue) / 3) < 136;
+      }
+
+      function ensureMermaidInitialized() {
+        if (mermaidInitialized || typeof mermaid === 'undefined') {
+          return mermaidInitialized;
+        }
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: isMermaidDarkTheme() ? 'dark' : 'default',
+          securityLevel: 'loose'
+        });
+        mermaidInitialized = true;
+        return true;
+      }
+
+      function ensureMermaidReady() {
+        if (typeof mermaid !== 'undefined') {
+          return Promise.resolve(ensureMermaidInitialized());
+        }
+        if (mermaidLoadPromise) {
+          return mermaidLoadPromise;
+        }
+        if (!MERMAID_SCRIPT_URI) {
+          return Promise.resolve(false);
+        }
+        mermaidLoadPromise = new Promise(function(resolve) {
+          var script = document.createElement('script');
+          script.src = MERMAID_SCRIPT_URI;
+          script.onload = function() {
+            mermaidLoadPromise = undefined;
+            resolve(ensureMermaidInitialized());
+          };
+          script.onerror = function() {
+            mermaidLoadPromise = Promise.resolve(false);
+            resolve(false);
+          };
+          document.head.appendChild(script);
+        });
+        return mermaidLoadPromise;
+      }
+
+      function replaceMermaidWithCode(el) {
+        if (!el) {
+          return;
+        }
+        var pre = document.createElement('pre');
+        pre.textContent = el.textContent || '';
+        el.replaceWith(pre);
+      }
 
       function processMermaidQueue() {
         if (mermaidRendering || !mermaidRenderQueue.length) { return; }
         mermaidRendering = true;
         var el = mermaidRenderQueue.shift();
-        if (typeof mermaid === 'undefined') {
-          mermaidRendering = false;
-          processMermaidQueue();
-          return;
-        }
-        var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
-        try {
-          mermaid.render(id, el.textContent).then(function(result) {
-            el.innerHTML = result.svg;
-            el.setAttribute('data-rendered', 'true');
-            el.removeAttribute('data-mermaid');
+        ensureMermaidReady().then(function(ready) {
+          if (!ready || typeof mermaid === 'undefined') {
+            replaceMermaidWithCode(el);
             mermaidRendering = false;
             processMermaidQueue();
-          }).catch(function() {
-            var pre = document.createElement('pre');
-            pre.textContent = el.textContent;
-            el.replaceWith(pre);
+            return;
+          }
+          var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+          try {
+            mermaid.render(id, el.textContent || '').then(function(result) {
+              el.innerHTML = result.svg;
+              el.setAttribute('data-rendered', 'true');
+              el.removeAttribute('data-mermaid');
+              mermaidRendering = false;
+              processMermaidQueue();
+            }).catch(function() {
+              replaceMermaidWithCode(el);
+              mermaidRendering = false;
+              processMermaidQueue();
+            });
+          } catch (e) {
+            replaceMermaidWithCode(el);
             mermaidRendering = false;
             processMermaidQueue();
-          });
-        } catch (e) {
-          var pre = document.createElement('pre');
-          pre.textContent = el.textContent;
-          el.replaceWith(pre);
-          mermaidRendering = false;
-          processMermaidQueue();
-        }
+          }
+        });
       }
 
       function renderEnhancedContentImpl() {

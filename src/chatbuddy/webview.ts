@@ -35,8 +35,10 @@ export function getChatWebviewHtml(webview: vscode.Webview, extensionUri: vscode
   <body>
     ${getChatBodyHtml()}
     <script nonce="${nonce}" src="${katexJsUri}"></script>
-    <script nonce="${nonce}" src="${mermaidJsUri}"></script>
-    ${getChatScript(nonce)}
+    ${getChatScript({
+      nonce,
+      mermaidScriptUri: mermaidJsUri.toString()
+    })}
   </body>
 </html>`;
 }

@@ -20,9 +20,21 @@ type ChatPanelManagerDeps = {
   handlePanelDisposing: (panel: vscode.WebviewPanel, assistantId?: string) => void;
 };
 
+type PendingPanelState = {
+  error?: string;
+  assistantId?: string;
+};
+
+export type OpenAssistantChatResult = {
+  panel: vscode.WebviewPanel;
+  panelReady: boolean;
+};
+
 export class ChatPanelManager {
   private panel: vscode.WebviewPanel | undefined;
   private readonly panelsByAssistantId = new Map<string, vscode.WebviewPanel>();
+  private readonly panelReadyState = new WeakMap<vscode.WebviewPanel, boolean>();
+  private readonly pendingPanelStates = new WeakMap<vscode.WebviewPanel, PendingPanelState>();
   private onActivePanelChange?: () => void;
 
   constructor(private readonly deps: ChatPanelManagerDeps) {}
@@ -39,7 +51,26 @@ export class ChatPanelManager {
     this.panel = panel;
   }
 
-  public openAssistantChat(assistantId?: string): void {
+  public isPanelReady(panel: vscode.WebviewPanel): boolean {
+    return this.panelReadyState.get(panel) === true;
+  }
+
+  public queuePendingState(panel: vscode.WebviewPanel, state: PendingPanelState): void {
+    const current = this.pendingPanelStates.get(panel);
+    this.pendingPanelStates.set(panel, {
+      assistantId: state.assistantId ?? current?.assistantId,
+      error: state.error
+    });
+  }
+
+  public markPanelReady(panel: vscode.WebviewPanel): PendingPanelState | undefined {
+    this.panelReadyState.set(panel, true);
+    const pending = this.pendingPanelStates.get(panel);
+    this.pendingPanelStates.delete(panel);
+    return pending;
+  }
+
+  public openAssistantChat(assistantId?: string): OpenAssistantChatResult {
     if (assistantId) {
       this.deps.repository.setSelectedAssistant(assistantId);
     }
@@ -61,21 +92,35 @@ export class ChatPanelManager {
         this.presentPanel(existing, panelTitle, panelIcon);
         existing.reveal(vscode.ViewColumn.One);
         this.panel = existing;
+        return {
+          panel: existing,
+          panelReady: this.isPanelReady(existing)
+        };
       } else {
         const newPanel = this.createChatPanel(panelTitle, panelIcon, { assistantId: assistant.id });
         this.panelsByAssistantId.set(assistant.id, newPanel);
         this.panel = newPanel;
+        return {
+          panel: newPanel,
+          panelReady: false
+        };
       }
-      return;
     }
 
     if (!this.panel) {
       this.panel = this.createChatPanel(panelTitle, panelIcon);
-      return;
+      return {
+        panel: this.panel,
+        panelReady: false
+      };
     }
 
     this.presentPanel(this.panel, panelTitle, panelIcon);
     this.panel.reveal(vscode.ViewColumn.One);
+    return {
+      panel: this.panel,
+      panelReady: this.isPanelReady(this.panel)
+    };
   }
 
   public disposePanelForAssistant(assistantId: string): void {
@@ -129,6 +174,7 @@ export class ChatPanelManager {
     );
     this.presentPanel(panel, panelTitle, panelIcon);
     panel.webview.html = this.deps.renderWebviewHtml(panel.webview);
+    this.panelReadyState.set(panel, false);
 
     const messageListener = panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
       this.panel = panel;
@@ -154,6 +200,8 @@ export class ChatPanelManager {
       if (context.assistantId) {
         this.panelsByAssistantId.delete(context.assistantId);
       }
+      this.panelReadyState.delete(panel);
+      this.pendingPanelStates.delete(panel);
       if (this.panel === panel) {
         this.panel = undefined;
       }
