@@ -6,7 +6,6 @@ import {
   ChatBuddySettings,
   ModelBinding,
   ProviderConfig,
-  ProviderToolDefinition,
   ProviderMessage,
   ProviderModelProfile,
   RuntimeLocale
@@ -15,17 +14,20 @@ import {
   extractChatCompletionResult,
   extractChatCompletionsStreamDelta,
   extractResponsesResult,
-  extractResponsesStreamEvent,
-  parseGeminiModels,
-  parseOllamaModels,
-  parseStandardModelList
+  extractResponsesStreamEvent
 } from './providerClientParsers';
+import { fetchProviderModels, isOllamaProvider } from './providerClientModelFetchers';
+import {
+  createHeaders,
+  normalizeBaseUrl,
+  toChatCompletionBody,
+  toResponsesBody
+} from './providerClientRequestBuilders';
 import {
   ProviderChatResult,
   ProviderConnectionInput,
   ProviderRequestOptions,
   ProviderResolveMeta,
-  ProviderToolRound,
   StreamHandlers
 } from './providerClientTypes';
 import { clamp, resolveLocaleString, retryWithBackoff } from './utils';
@@ -39,10 +41,6 @@ export type {
   StreamHandlers
 } from './providerClientTypes';
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '');
-}
-
 function toErrorMessage(status: number, fallback: string, locale: RuntimeLocale): string {
   const strings = getStrings(locale);
   if (status === 401) {
@@ -55,163 +53,6 @@ function toErrorMessage(status: number, fallback: string, locale: RuntimeLocale)
     return strings.serviceUnavailable;
   }
   return fallback;
-}
-
-function normalizeBaseUrlForDetect(baseUrl: string | undefined): string {
-  return String(baseUrl || '').trim().toLowerCase();
-}
-
-function isGeminiProvider(provider: Pick<ProviderConnectionInput, 'kind' | 'baseUrl'>): boolean {
-  const baseUrl = normalizeBaseUrlForDetect(provider.baseUrl);
-  if (baseUrl.includes('generativelanguage.googleapis.com')) {
-    return true;
-  }
-  if (baseUrl.includes('/v1beta/openai')) {
-    return true;
-  }
-  return provider.kind === 'gemini' && baseUrl.length === 0;
-}
-
-function isOllamaProvider(provider: Pick<ProviderConnectionInput, 'kind' | 'baseUrl'>): boolean {
-  const baseUrl = normalizeBaseUrlForDetect(provider.baseUrl);
-  if (!baseUrl) {
-    return provider.kind === 'ollama';
-  }
-  if (
-    baseUrl.includes(':11434') ||
-    baseUrl.includes('/api/tags') ||
-    baseUrl.includes('localhost:11434') ||
-    baseUrl.includes('127.0.0.1:11434')
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function createHeaders(provider: ProviderConnectionInput, json = true): Record<string, string> {
-  const headers: Record<string, string> = {};
-  if (json) {
-    headers['Content-Type'] = 'application/json';
-  }
-  if (provider.apiKey.trim()) {
-    if (isGeminiProvider(provider)) {
-      headers.Authorization = `Bearer ${provider.apiKey.trim()}`;
-      headers['x-goog-api-key'] = provider.apiKey.trim();
-    } else {
-      headers.Authorization = `Bearer ${provider.apiKey.trim()}`;
-    }
-  }
-  return headers;
-}
-
-function toChatCompletionsMessages(messages: ProviderMessage[], toolRounds: ProviderToolRound[] = []) {
-  const result: Array<Record<string, unknown>> = messages.map((message) => ({
-    role: message.role,
-    content: message.content
-  }));
-  for (const round of toolRounds) {
-    if (round.toolCalls.length > 0) {
-      result.push({
-        role: 'assistant',
-        tool_calls: round.toolCalls.map((call) => ({
-          id: call.id,
-          type: 'function',
-          function: {
-            name: call.name,
-            arguments: call.argumentsText
-          }
-        }))
-      });
-    }
-    for (const toolResult of round.results) {
-      result.push({
-        role: 'tool',
-        tool_call_id: toolResult.toolCallId,
-        content: toolResult.output
-      });
-    }
-  }
-  return result;
-}
-
-function toResponsesInput(messages: ProviderMessage[], toolRounds: ProviderToolRound[] = []) {
-  const input: Array<Record<string, unknown>> = messages.map((message) => ({
-    role: message.role,
-    content: [
-      {
-        type: 'input_text',
-        text: message.content
-      }
-    ]
-  }));
-  for (const round of toolRounds) {
-    for (const toolCall of round.toolCalls) {
-      input.push({
-        type: 'function_call',
-        call_id: toolCall.id,
-        name: toolCall.name,
-        arguments: toolCall.argumentsText
-      });
-    }
-    for (const result of round.results) {
-      input.push({
-        type: 'function_call_output',
-        call_id: result.toolCallId,
-        output: result.output
-      });
-    }
-  }
-  return input;
-}
-
-function toChatCompletionBody(
-  messages: ProviderMessage[],
-  providerConfig: ProviderConfig,
-  stream: boolean,
-  tools: ProviderToolDefinition[] = [],
-  toolRounds: ProviderToolRound[] = []
-) {
-  const body: Record<string, unknown> = {
-    model: providerConfig.modelId,
-    temperature: providerConfig.temperature,
-    top_p: providerConfig.topP,
-    presence_penalty: providerConfig.presencePenalty,
-    frequency_penalty: providerConfig.frequencyPenalty,
-    stream,
-    messages: toChatCompletionsMessages(messages, toolRounds)
-  };
-  if (tools.length > 0) {
-    body.tools = tools;
-  }
-  if (providerConfig.maxTokens > 0) {
-    body.max_tokens = providerConfig.maxTokens;
-  }
-  return body;
-}
-
-function toResponsesBody(
-  messages: ProviderMessage[],
-  providerConfig: ProviderConfig,
-  stream: boolean,
-  tools: ProviderToolDefinition[] = [],
-  toolRounds: ProviderToolRound[] = []
-) {
-  const body: Record<string, unknown> = {
-    model: providerConfig.modelId,
-    input: toResponsesInput(messages, toolRounds),
-    temperature: providerConfig.temperature,
-    top_p: providerConfig.topP,
-    presence_penalty: providerConfig.presencePenalty,
-    frequency_penalty: providerConfig.frequencyPenalty,
-    stream
-  };
-  if (tools.length > 0) {
-    body.tools = tools;
-  }
-  if (providerConfig.maxTokens > 0) {
-    body.max_output_tokens = providerConfig.maxTokens;
-  }
-  return body;
 }
 
 /** Error carrying the HTTP status code for retry logic. */
@@ -412,13 +253,7 @@ export class OpenAICompatibleClient {
     signal?: AbortSignal
   ): Promise<ProviderModelProfile[]> {
     try {
-      if (isOllamaProvider(provider)) {
-        return this.fetchOllamaModels(provider, locale, signal);
-      }
-      if (isGeminiProvider(provider)) {
-        return this.fetchGeminiModels(provider, locale, signal);
-      }
-      return this.fetchStandardModels(provider, locale, signal);
+      return await fetchProviderModels(provider, locale, signal);
     } catch (error) {
       if (error instanceof Error) {
         throw error;
@@ -602,53 +437,6 @@ export class OpenAICompatibleClient {
       },
       handlers.onDone
     );
-  }
-
-  private async fetchStandardModels(
-    provider: ProviderConnectionInput,
-    locale: RuntimeLocale,
-    signal?: AbortSignal
-  ): Promise<ProviderModelProfile[]> {
-    const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/models`, {
-      method: 'GET',
-      headers: createHeaders(provider, false),
-      signal
-    });
-    await ensureSuccess(response, locale);
-    return parseStandardModelList(await response.json());
-  }
-
-  private async fetchGeminiModels(
-    provider: ProviderConnectionInput,
-    locale: RuntimeLocale,
-    signal?: AbortSignal
-  ): Promise<ProviderModelProfile[]> {
-    const base = normalizeBaseUrl(provider.baseUrl).replace(/\/openai$/, '');
-    const url = provider.apiKey.trim()
-      ? `${base}/models?key=${encodeURIComponent(provider.apiKey.trim())}`
-      : `${base}/models`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: createHeaders(provider, false),
-      signal
-    });
-    await ensureSuccess(response, locale);
-    return parseGeminiModels(await response.json());
-  }
-
-  private async fetchOllamaModels(
-    provider: ProviderConnectionInput,
-    locale: RuntimeLocale,
-    signal?: AbortSignal
-  ): Promise<ProviderModelProfile[]> {
-    const base = normalizeBaseUrl(provider.baseUrl).replace(/\/v1$/, '');
-    const response = await fetch(`${base}/api/tags`, {
-      method: 'GET',
-      headers: createHeaders(provider, false),
-      signal
-    });
-    await ensureSuccess(response, locale);
-    return parseOllamaModels(await response.json());
   }
 }
 

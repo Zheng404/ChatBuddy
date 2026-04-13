@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 
 import { cloneDefaultModels, getProviderModelOptions, resolveModelOption } from './modelCatalog';
-import { error } from './utils';
 import {
   AssistantGroup,
   AssistantProfile,
@@ -15,7 +14,7 @@ import {
 } from './types';
 import { ChatStorage } from './chatStorage';
 import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider } from './stateClone';
-import { parsePersistedStateLiteStore, parseProviderApiKeysStore, unwrapImportedState } from './stateHelpers';
+import { unwrapImportedState } from './stateHelpers';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
 import { AssistantStateService } from './stateRepositoryAssistantService';
 import {
@@ -25,10 +24,9 @@ import {
   normalizeLocalizedDefaultTitles,
   normalizeTitleSourceConsistency
 } from './stateRepositoryImportExport';
+import { StatePersistenceService } from './stateRepositoryPersistenceService';
 import { SessionStateService } from './stateRepositorySessionService';
 
-const SQLITE_STATE_KEY = 'chatbuddy.sqlite.state.v1';
-const SQLITE_PROVIDER_API_KEYS_KEY = 'chatbuddy.sqlite.providerApiKeys.v1';
 const BACKUP_SCHEMA = 'chatbuddy.backup';
 const BACKUP_VERSION = 1;
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
@@ -69,12 +67,10 @@ export class ChatStateRepository {
   private state: import('./types').PersistedStateLite;
   private readonly storage = new ChatStorage();
   private providerApiKeys: Record<string, string> = {};
-  private persistQueue: Promise<void> = Promise.resolve();
   private storageReady = false;
   private version = 0;
   private cachedState: import('./types').PersistedStateLite | undefined;
   private cachedStateVersion = -1;
-  private persistScheduled = false;
   private readonly assistantStateService = new AssistantStateService({
     getState: () => this.state,
     setState: (state) => {
@@ -83,7 +79,7 @@ export class ChatStateRepository {
     storage: this.storage,
     storageReady: () => this.storageReady,
     persistLater: () => {
-      void this.persist();
+      void this.persistenceService.persist();
     },
     isWritableGroup: (groupId) => this.isWritableGroup(groupId),
     defaultAssistantSystemPrompt: DEFAULT_ASSISTANT_SYSTEM_PROMPT
@@ -93,11 +89,24 @@ export class ChatStateRepository {
     storage: this.storage,
     storageReady: () => this.storageReady,
     persistLater: () => {
-      void this.persist();
+      void this.persistenceService.persist();
     },
     ensureStorageReady: () => this.ensureStorageReady(),
     getSelectedAssistantId: () => this.getSelectedAssistantId(),
     markAssistantInteracted: (assistantId, persist) => this.assistantStateService.markAssistantInteracted(assistantId, persist)
+  });
+  private readonly persistenceService = new StatePersistenceService({
+    storage: this.storage,
+    storageReady: () => this.storageReady,
+    getState: () => this.state,
+    setState: (state) => {
+      this.state = state;
+    },
+    getProviderApiKeys: () => this.providerApiKeys,
+    setProviderApiKeys: (providerApiKeys) => {
+      this.providerApiKeys = providerApiKeys;
+    },
+    bumpVersion: () => this.bump()
   });
 
   private bump(): void {
@@ -111,13 +120,13 @@ export class ChatStateRepository {
   public async initialize(): Promise<void> {
     await this.storage.initialize(this.context.globalStorageUri.fsPath);
     this.storageReady = true;
-    this.hydrateStateFromSqlite();
-    this.hydrateProviderApiKeysFromSqlite();
+    this.persistenceService.hydrateStateFromSqlite();
+    this.persistenceService.hydrateProviderApiKeysFromSqlite();
     this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, this.state.settings);
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
-    await this.persistSecrets();
-    await this.persist();
+    await this.persistenceService.persistSecrets();
+    await this.persistenceService.persist();
   }
 
   public async close(): Promise<void> {
@@ -190,8 +199,8 @@ export class ChatStateRepository {
       enabledMcpServerIds: assistant.enabledMcpServerIds.filter((serverId) => validMcpServerIds.has(serverId))
     }));
     normalizeLocalizedDefaultTitles(this.storage, normalized.locale);
-    void this.persistSecrets();
-    void this.persist();
+    void this.persistenceService.persistSecrets();
+    void this.persistenceService.persist();
   }
 
   public getMcpServers(): import('./types').McpServerProfile[] {
@@ -205,8 +214,8 @@ export class ChatStateRepository {
       this.storage.replaceAllSessions([], false);
       await this.storage.flush();
     }
-    await this.persistSecrets();
-    await this.persist();
+    await this.persistenceService.persistSecrets();
+    await this.persistenceService.persist();
   }
 
   public exportBackupData(): ChatBuddyBackupData {
@@ -235,8 +244,8 @@ export class ChatStateRepository {
     await this.storage.flush();
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
-    await this.persistSecrets();
-    await this.persist();
+    await this.persistenceService.persistSecrets();
+    await this.persistenceService.persist();
   }
 
   public getProviderById(providerId: string): ProviderProfile | undefined {
@@ -405,29 +414,15 @@ export class ChatStateRepository {
   public setGroupCollapsed(groupId: string, collapsed: boolean): void {
     const ids = this.state.collapsedGroupIds;
     const index = ids.indexOf(groupId);
-    if (collapsed) {
-      if (index < 0) {
-        ids.push(groupId);
-        void this.persist();
+      if (collapsed) {
+        if (index < 0) {
+          ids.push(groupId);
+          void this.persistenceService.persist();
+        }
+      } else if (index >= 0) {
+        ids.splice(index, 1);
+        void this.persistenceService.persist();
       }
-    } else if (index >= 0) {
-      ids.splice(index, 1);
-      void this.persist();
-    }
-  }
-
-  private hydrateStateFromSqlite(): void {
-    const stored = parsePersistedStateLiteStore(this.storage.getKv(SQLITE_STATE_KEY));
-    if (!stored) {
-      return;
-    }
-    const merged = mergePersistedState(stored);
-    this.state = merged.state;
-  }
-
-  private hydrateProviderApiKeysFromSqlite(): void {
-    const stored = parseProviderApiKeysStore(this.storage.getKv(SQLITE_PROVIDER_API_KEYS_KEY));
-    this.providerApiKeys = stored;
   }
 
   private mergeState(
@@ -463,95 +458,5 @@ export class ChatStateRepository {
     if (!this.storageReady) {
       throw new Error('Chat storage not initialized');
     }
-  }
-
-  private readonly PERSIST_MAX_RETRIES = 2;
-  private readonly PERSIST_RETRY_DELAY_MS = 500;
-  private persistFailureNotified = false;
-
-  private queuePersist(task: () => Promise<void>): Promise<void> {
-    const run = this.persistQueue.then(
-      () => this.executeWithRetry(task),
-      () => this.executeWithRetry(task)
-    );
-    this.persistQueue = run.catch((err) => {
-      error('Persist queue error:', err);
-      this.notifyPersistFailure();
-    });
-    return run;
-  }
-
-  private async executeWithRetry(task: () => Promise<void>): Promise<void> {
-    let lastErr: unknown;
-    for (let attempt = 0; attempt <= this.PERSIST_MAX_RETRIES; attempt++) {
-      try {
-        await task();
-        this.persistFailureNotified = false;
-        return;
-      } catch (err) {
-        lastErr = err;
-        if (attempt < this.PERSIST_MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, this.PERSIST_RETRY_DELAY_MS * (attempt + 1)));
-        }
-      }
-    }
-    throw lastErr;
-  }
-
-  private notifyPersistFailure(): void {
-    if (this.persistFailureNotified) {
-      return;
-    }
-    this.persistFailureNotified = true;
-    void vscode.window.showWarningMessage(
-      'ChatBuddy: Failed to save data. Your changes may not be persisted.'
-    );
-  }
-
-  private async persistSecrets(): Promise<void> {
-    if (!this.storageReady) {
-      return;
-    }
-    await this.queuePersist(async () => {
-      const providerIds = new Set(this.state.settings.providers.map((provider) => provider.id.trim()));
-      const normalizedEntries = Object.entries(this.providerApiKeys).filter(([providerId, apiKey]) => {
-        const normalizedProviderId = providerId.trim();
-        return normalizedProviderId.length > 0 && providerIds.has(normalizedProviderId) && apiKey.trim().length > 0;
-      });
-      const normalized = Object.fromEntries(
-        normalizedEntries.map(([providerId, apiKey]) => [providerId.trim(), apiKey.trim()])
-      );
-      this.storage.setKv(SQLITE_PROVIDER_API_KEYS_KEY, JSON.stringify(normalized), false);
-      await this.storage.flush();
-    });
-  }
-
-  private async persist(): Promise<void> {
-    if (!this.storageReady) {
-      return;
-    }
-    this.bump();
-    if (this.persistScheduled) {
-      return;
-    }
-    this.persistScheduled = true;
-    await this.queuePersist(async () => {
-      const persistedState: import('./types').PersistedStateLite = {
-        ...this.state,
-        settings: {
-          ...this.state.settings,
-          defaultModels: cloneDefaultModels(this.state.settings.defaultModels),
-          mcp: cloneMcpSettings(this.state.settings.mcp),
-          providers: this.state.settings.providers.map((provider) => ({
-            ...provider,
-            apiKey: '',
-            models: provider.models.map((model) => ({ ...model }))
-          }))
-        }
-      };
-      this.storage.setKv(SQLITE_STATE_KEY, JSON.stringify(persistedState), false);
-      await this.storage.flush();
-      this.persistScheduled = false;
-    });
   }
 }
