@@ -680,39 +680,33 @@ export class SettingsCenterPanelController {
   <body>
     <div class="shell">
       <div class="frame">
-        <aside class="settings-nav">
-          <div class="nav-heading">
-            <h2 class="nav-heading-title" id="navHeading"></h2>
-          </div>
-          <button class="nav-item" id="navModelConfig" type="button" data-section="modelConfig">
-            <span class="nav-item-icon"><span class="codicon codicon-hubot"></span></span>
-            <span class="nav-item-content">
+        <header class="settings-bar" id="settingsBar">
+          <h2 class="settings-bar-title" id="navHeading"></h2>
+          <button class="tab-arrow" id="tabArrowLeft" type="button">
+            <span class="codicon codicon-chevron-left"></span>
+          </button>
+          <nav class="settings-tabs" id="settingsTabs">
+            <button class="nav-item" id="navModelConfig" type="button" data-section="modelConfig">
+              <span class="nav-item-icon"><span class="codicon codicon-hubot"></span></span>
               <span class="nav-item-title" id="navModelConfigTitle"></span>
-              <span class="nav-item-desc" id="navModelConfigDescription"></span>
-            </span>
-          </button>
-          <button class="nav-item" id="navDefaultModels" type="button" data-section="defaultModels">
-            <span class="nav-item-icon"><span class="codicon codicon-symbol-constant"></span></span>
-            <span class="nav-item-content">
+            </button>
+            <button class="nav-item" id="navDefaultModels" type="button" data-section="defaultModels">
+              <span class="nav-item-icon"><span class="codicon codicon-symbol-constant"></span></span>
               <span class="nav-item-title" id="navDefaultModelsTitle"></span>
-              <span class="nav-item-desc" id="navDefaultModelsDescription"></span>
-            </span>
-          </button>
-          <button class="nav-item" id="navMcp" type="button" data-section="mcp">
-            <span class="nav-item-icon"><span class="codicon codicon-plug"></span></span>
-            <span class="nav-item-content">
+            </button>
+            <button class="nav-item" id="navMcp" type="button" data-section="mcp">
+              <span class="nav-item-icon"><span class="codicon codicon-plug"></span></span>
               <span class="nav-item-title" id="navMcpTitle"></span>
-              <span class="nav-item-desc" id="navMcpDescription"></span>
-            </span>
-          </button>
-          <button class="nav-item" id="navGeneral" type="button" data-section="general">
-            <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
-            <span class="nav-item-content">
+            </button>
+            <button class="nav-item" id="navGeneral" type="button" data-section="general">
+              <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
               <span class="nav-item-title" id="navGeneralTitle"></span>
-              <span class="nav-item-desc" id="navGeneralDescription"></span>
-            </span>
+            </button>
+          </nav>
+          <button class="tab-arrow" id="tabArrowRight" type="button">
+            <span class="codicon codicon-chevron-right"></span>
           </button>
-        </aside>
+        </header>
 
         <main class="settings-content">
           <section class="settings-pane" id="paneModelConfig" data-section="modelConfig">
@@ -726,66 +720,73 @@ export class SettingsCenterPanelController {
               </aside>
 
               <section class="editor">
-                <section class="panel">
-                  <div class="panel-header">
-                    <h2 class="panel-title" id="providerPanelTitle"></h2>
-                    <div class="panel-actions">
-                      <div class="provider-save-status" id="providerSaveStatus" aria-live="polite"></div>
-                      <button class="btn-primary" id="saveProviderBtn" type="button" hidden></button>
-                      <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
-                    </div>
-                  </div>
-                  <div class="field-grid">
-                    <div class="field">
-                      <label for="providerName" id="providerNameLabel"></label>
-                      <input id="providerName" type="text" />
-                    </div>
-                    <div class="field">
-                      <label for="apiType" id="apiTypeLabel"></label>
-                      <select id="apiType">
-                        <option value="chat_completions">chat/completions</option>
-                        <option value="responses">responses</option>
-                      </select>
-                    </div>
-                    <div class="field full">
-                      <label for="apiKey" id="apiKeyLabel"></label>
-                      <input id="apiKey" type="password" />
-                    </div>
-                    <div class="field full">
-                      <label for="baseUrl" id="baseUrlLabel"></label>
-                      <input id="baseUrl" type="text" />
-                      <div class="help" id="baseUrlHelp"></div>
-                    </div>
-                  </div>
-                </section>
-
-                <section class="panel">
-                  <div class="panel-header">
-                    <h2 class="panel-title" id="modelsPanelTitle"></h2>
-                    <div class="panel-actions">
-                      <button class="btn-secondary" id="addManualModelBtn" type="button"></button>
-                      <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
-                      <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
-                    </div>
-                  </div>
-                  <div class="help" id="modelsHelp"></div>
-                  <div class="model-sections">
-                    <section class="model-section-card">
-                      <div class="model-section-header">
-                        <h3 class="model-section-title" id="manualModelsTitle"></h3>
+                <div class="editor-tabs">
+                  <button class="editor-tab active" id="editorTabConfig" type="button" data-tab="config"></button>
+                  <button class="editor-tab" id="editorTabModels" type="button" data-tab="models"></button>
+                </div>
+                <div class="editor-pane active" data-tab="config">
+                  <section class="panel">
+                    <div class="panel-header">
+                      <h2 class="panel-title" id="providerPanelTitle"></h2>
+                      <div class="panel-actions">
+                        <div class="provider-save-status" id="providerSaveStatus" aria-live="polite"></div>
+                        <button class="btn-primary" id="saveProviderBtn" type="button" hidden></button>
+                        <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
                       </div>
-                      <div class="help" id="manualModelsHelp"></div>
-                      <div class="models-grid" id="manualModelsList"></div>
-                    </section>
-                    <section class="model-section-card">
-                      <div class="model-section-header">
-                        <h3 class="model-section-title" id="fetchedModelsTitle"></h3>
+                    </div>
+                    <div class="field-grid">
+                      <div class="field">
+                        <label for="providerName" id="providerNameLabel"></label>
+                        <input id="providerName" type="text" />
                       </div>
-                      <div class="help" id="fetchedModelsHelp"></div>
-                      <div class="models-grid" id="fetchedModelsList"></div>
-                    </section>
-                  </div>
-                </section>
+                      <div class="field">
+                        <label for="apiType" id="apiTypeLabel"></label>
+                        <select id="apiType">
+                          <option value="chat_completions">chat/completions</option>
+                          <option value="responses">responses</option>
+                        </select>
+                      </div>
+                      <div class="field full">
+                        <label for="apiKey" id="apiKeyLabel"></label>
+                        <input id="apiKey" type="password" />
+                      </div>
+                      <div class="field full">
+                        <label for="baseUrl" id="baseUrlLabel"></label>
+                        <input id="baseUrl" type="text" />
+                        <div class="help" id="baseUrlHelp"></div>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+                <div class="editor-pane" data-tab="models">
+                  <section class="panel">
+                    <div class="panel-header">
+                      <h2 class="panel-title" id="modelsPanelTitle"></h2>
+                      <div class="panel-actions">
+                        <button class="btn-secondary" id="addManualModelBtn" type="button"></button>
+                        <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
+                        <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
+                      </div>
+                    </div>
+                    <div class="help" id="modelsHelp"></div>
+                    <div class="model-sections">
+                      <section class="model-section-card">
+                        <div class="model-section-header">
+                          <h3 class="model-section-title" id="manualModelsTitle"></h3>
+                        </div>
+                        <div class="help" id="manualModelsHelp"></div>
+                        <div class="models-grid" id="manualModelsList"></div>
+                      </section>
+                      <section class="model-section-card">
+                        <div class="model-section-header">
+                          <h3 class="model-section-title" id="fetchedModelsTitle"></h3>
+                        </div>
+                        <div class="help" id="fetchedModelsHelp"></div>
+                        <div class="models-grid" id="fetchedModelsList"></div>
+                      </section>
+                    </div>
+                  </section>
+                </div>
               </section>
             </div>
           </section>

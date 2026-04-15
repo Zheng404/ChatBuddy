@@ -30,48 +30,93 @@ export function getSettingsCenterCss(): string {
       .frame {
         border: 1px solid var(--border);
         border-radius: 14px;
-        overflow: hidden;
         display: grid;
-        grid-template-columns: 260px minmax(0, 1fr);
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
         min-height: 720px;
         background: var(--panel-bg);
       }
 
-      .settings-nav {
-        border-right: 1px solid var(--border);
-        background: color-mix(in srgb, var(--bg) 96%, white 4%);
-        padding: 16px 12px;
+      .settings-bar {
         display: flex;
-        flex-direction: column;
-        gap: 8px;
+        align-items: center;
+        gap: 4px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in srgb, var(--bg) 96%, white 4%);
+        border-radius: 14px 14px 0 0;
+        min-width: 0;
       }
 
-      .nav-heading {
-        padding: 4px 6px 10px;
-      }
-
-      .nav-heading-title {
+      .settings-bar-title {
         margin: 0;
         font-size: 12px;
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--muted);
+        margin-right: 8px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .settings-tabs {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        overflow-x: auto;
+        flex: 1;
+        min-width: 0;
+        scrollbar-width: none;
+        scroll-behavior: smooth;
+      }
+
+      .settings-tabs::-webkit-scrollbar {
+        display: none;
+      }
+
+      .tab-arrow {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border: none;
+        border-radius: 50%;
+        background: var(--panel-bg-strong);
+        color: var(--fg);
+        cursor: pointer;
+        padding: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s;
+      }
+
+      .tab-arrow.visible {
+        opacity: 0.7;
+        pointer-events: auto;
+      }
+
+      .tab-arrow.visible:hover {
+        opacity: 1;
       }
 
       .nav-item {
-        width: 100%;
+        flex-shrink: 0;
         border: 1px solid transparent;
-        border-radius: 12px;
+        border-bottom: 2px solid transparent;
+        border-radius: 8px 8px 0 0;
         background: transparent;
         color: inherit;
         text-align: left;
-        padding: 12px;
+        padding: 6px 12px;
         cursor: pointer;
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 10px;
+        display: inline-flex;
         align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        font-size: 13px;
       }
 
       .nav-item:hover {
@@ -79,25 +124,19 @@ export function getSettingsCenterCss(): string {
       }
 
       .nav-item.active {
-        background: var(--vscode-list-activeSelectionBackground);
-        color: var(--vscode-list-activeSelectionForeground);
-        border-color: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 75%, white 25%);
-      }
-
-      .nav-item-content {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        min-width: 0;
+        color: var(--fg);
+        border-bottom-color: var(--accent);
+        background: var(--panel-bg-strong);
       }
 
       .nav-item-icon {
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        height: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
         opacity: 0.8;
+        font-size: 14px;
       }
 
       .nav-item.active .nav-item-icon {
@@ -106,19 +145,13 @@ export function getSettingsCenterCss(): string {
 
       .nav-item-title {
         font-size: 13px;
-        font-weight: 700;
-      }
-
-      .nav-item-desc {
-        font-size: 11px;
-        line-height: 1.5;
-        color: inherit;
-        opacity: 0.8;
+        font-weight: 600;
       }
 
       .settings-content {
         min-width: 0;
         padding: 16px;
+        overflow: auto;
       }
 
       .settings-pane {
@@ -304,6 +337,16 @@ export function getSettingsCenterCss(): string {
         background: color-mix(in srgb, var(--bg) 96%, white 4%);
       }
 
+      .provider-workspace.stacked {
+        grid-template-columns: 1fr;
+      }
+
+      .provider-workspace.stacked .provider-nav {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        max-height: 280px;
+      }
+
       .provider-nav {
         border-right: 1px solid var(--border);
         padding: 12px;
@@ -406,8 +449,45 @@ export function getSettingsCenterCss(): string {
       .editor {
         min-width: 0;
         padding: 16px;
-        display: grid;
-        gap: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+
+      .editor-tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 14px;
+      }
+
+      .editor-tab {
+        padding: 6px 14px;
+        border: none;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .editor-tab:hover {
+        color: var(--fg);
+      }
+
+      .editor-tab.active {
+        color: var(--fg);
+        border-bottom-color: var(--accent);
+      }
+
+      .editor-pane {
+        display: none;
+      }
+
+      .editor-pane.active {
+        display: block;
       }
 
       .panel-header {
@@ -738,24 +818,6 @@ export function getSettingsCenterCss(): string {
 ${SHARED_TOAST_STYLE}
 
       @media (max-width: 1120px) {
-        .frame {
-          grid-template-columns: 1fr;
-        }
-
-        .settings-nav {
-          border-right: 0;
-          border-bottom: 1px solid var(--border);
-        }
-
-        .provider-workspace {
-          grid-template-columns: 1fr;
-        }
-
-        .provider-nav {
-          border-right: 0;
-          border-bottom: 1px solid var(--border);
-          max-height: 280px;
-        }
       }
 
       @media (max-width: 760px) {

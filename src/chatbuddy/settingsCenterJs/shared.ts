@@ -11,13 +11,10 @@ export function getSharedJs(): string {
         navHeading: document.getElementById('navHeading'),
         navModelConfig: document.getElementById('navModelConfig'),
         navModelConfigTitle: document.getElementById('navModelConfigTitle'),
-        navModelConfigDescription: document.getElementById('navModelConfigDescription'),
         navDefaultModels: document.getElementById('navDefaultModels'),
         navDefaultModelsTitle: document.getElementById('navDefaultModelsTitle'),
-        navDefaultModelsDescription: document.getElementById('navDefaultModelsDescription'),
         navGeneral: document.getElementById('navGeneral'),
         navGeneralTitle: document.getElementById('navGeneralTitle'),
-        navGeneralDescription: document.getElementById('navGeneralDescription'),
         paneModelConfig: document.getElementById('paneModelConfig'),
         paneDefaultModels: document.getElementById('paneDefaultModels'),
         paneGeneral: document.getElementById('paneGeneral'),
@@ -74,6 +71,8 @@ export function getSharedJs(): string {
         baseUrl: document.getElementById('baseUrl'),
         modelsPanelTitle: document.getElementById('modelsPanelTitle'),
         modelsHelp: document.getElementById('modelsHelp'),
+        editorTabConfig: document.getElementById('editorTabConfig'),
+        editorTabModels: document.getElementById('editorTabModels'),
         addManualModelBtn: document.getElementById('addManualModelBtn'),
         manualModelsTitle: document.getElementById('manualModelsTitle'),
         manualModelsHelp: document.getElementById('manualModelsHelp'),
@@ -111,7 +110,6 @@ export function getSharedJs(): string {
         discardChangesConfirmBtn: document.getElementById('discardChangesConfirmBtn'),
         navMcp: document.getElementById('navMcp'),
         navMcpTitle: document.getElementById('navMcpTitle'),
-        navMcpDescription: document.getElementById('navMcpDescription'),
         paneMcp: document.getElementById('paneMcp'),
         mcpMaxToolRoundsTitle: document.getElementById('mcpMaxToolRoundsTitle'),
 
@@ -194,13 +192,9 @@ ${getHtmlEscaperScript()}
         const strings = runtimeState.strings || {};
         dom.navHeading.textContent = strings.settingsViewTitle || '';
         dom.navModelConfigTitle.textContent = strings.modelConfigTitle || '';
-        dom.navModelConfigDescription.textContent = strings.modelConfigDescription || '';
         dom.navDefaultModelsTitle.textContent = strings.defaultModelsTitle || '';
-        dom.navDefaultModelsDescription.textContent = strings.defaultModelsDescription || '';
         dom.navGeneralTitle.textContent = strings.settingsTitle || '';
-        dom.navGeneralDescription.textContent = strings.settingsDescription || '';
         dom.navMcpTitle.textContent = strings.mcpTitle || 'MCP';
-        dom.navMcpDescription.textContent = strings.mcpDescription || '';
 
         const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navGeneral];
         for (const item of items) {
@@ -208,6 +202,7 @@ ${getHtmlEscaperScript()}
           item.classList.toggle('active', isActive);
           item.setAttribute('aria-current', isActive ? 'page' : 'false');
         }
+
       }
 
       function renderSectionVisibility() {

@@ -28,11 +28,14 @@ export function getStateSyncJs(): string {
         renderGeneralValues();
         renderDefaultModels();
         renderModelConfigText();
+        renderEditorTabs();
+        renderEditorTabVisibility();
         ensureProviderEditorId();
         renderProviderList();
         renderProviderFields();
         renderModels();
         renderMcp();
+        if (typeof refreshWorkspaceLayout === 'function') refreshWorkspaceLayout();
       }
 `;
 }

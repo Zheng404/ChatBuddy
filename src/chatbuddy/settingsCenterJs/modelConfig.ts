@@ -4,6 +4,33 @@
  */
 export function getModelConfigJs(): string {
   return `
+      let editorTab = 'config';
+
+      function switchEditorTab(tab) {
+        editorTab = tab;
+        renderEditorTabs();
+        renderEditorTabVisibility();
+      }
+
+      function resetEditorTab() {
+        editorTab = 'config';
+      }
+
+      function renderEditorTabs() {
+        const strings = runtimeState.strings || {};
+        dom.editorTabConfig.textContent = strings.providerConfigSectionTitle || 'Config';
+        dom.editorTabModels.textContent = strings.providerModelsSectionTitle || 'Models';
+        dom.editorTabConfig.classList.toggle('active', editorTab === 'config');
+        dom.editorTabModels.classList.toggle('active', editorTab === 'models');
+      }
+
+      function renderEditorTabVisibility() {
+        const panes = document.querySelectorAll('.editor-pane');
+        for (const pane of panes) {
+          pane.classList.toggle('active', pane.getAttribute('data-tab') === editorTab);
+        }
+      }
+
       function normalizeModelSource(source, fallback) {
         return source === 'fetched' ? 'fetched' : fallback || 'manual';
       }
@@ -171,26 +198,30 @@ export function getModelConfigJs(): string {
         providerAutosaveTargetId = '';
       }
 
-      function persistProviderDraft(providerId, silent) {
+      function persistProviderDraft(providerId, silent, skipStatus) {
         const provider = getProviderById(providerId || providerEditorId);
         if (!provider) {
           return false;
         }
         const validationMessage = validateProvider(provider);
         if (validationMessage) {
-          setProviderSaveStatus(
-            provider.id,
-            'invalid',
-            (runtimeState.strings && runtimeState.strings.providerAutosaveInvalid) || validationMessage
-          );
+          if (!skipStatus) {
+            setProviderSaveStatus(
+              provider.id,
+              'invalid',
+              (runtimeState.strings && runtimeState.strings.providerAutosaveInvalid) || validationMessage
+            );
+          }
           return false;
         }
         const snapshot = cloneProvider(provider);
-        setProviderSaveStatus(
-          snapshot.id,
-          'saved',
-          (runtimeState.strings && runtimeState.strings.providerAutosaveSaved) || ''
-        );
+        if (!skipStatus) {
+          setProviderSaveStatus(
+            snapshot.id,
+            'saved',
+            (runtimeState.strings && runtimeState.strings.providerAutosaveSaved) || ''
+          );
+        }
         persistedProvidersById[snapshot.id] = cloneProvider(snapshot);
         dirtyProviderIds.delete(snapshot.id);
         vscode.postMessage({
@@ -203,7 +234,7 @@ export function getModelConfigJs(): string {
         return true;
       }
 
-      function scheduleProviderAutosave(providerId, delay) {
+      function scheduleProviderAutosave(providerId, delay, skipStatus) {
         const targetId = String(providerId || providerEditorId || '');
         if (!targetId) {
           return;
@@ -216,26 +247,28 @@ export function getModelConfigJs(): string {
         if (!provider) {
           return;
         }
-        const validationMessage = validateProvider(provider);
-        if (validationMessage) {
+        if (!skipStatus) {
+          const validationMessage = validateProvider(provider);
+          if (validationMessage) {
+            setProviderSaveStatus(
+              targetId,
+              'invalid',
+              (runtimeState.strings && runtimeState.strings.providerAutosaveInvalid) || validationMessage
+            );
+            return;
+          }
           setProviderSaveStatus(
             targetId,
-            'invalid',
-            (runtimeState.strings && runtimeState.strings.providerAutosaveInvalid) || validationMessage
+            'saving',
+            (runtimeState.strings && runtimeState.strings.providerAutosaveSaving) || ''
           );
-          return;
         }
-        setProviderSaveStatus(
-          targetId,
-          'saving',
-          (runtimeState.strings && runtimeState.strings.providerAutosaveSaving) || ''
-        );
         providerAutosaveTargetId = targetId;
         providerAutosaveTimer = setTimeout(() => {
           const autosaveProviderId = providerAutosaveTargetId;
           providerAutosaveTimer = 0;
           providerAutosaveTargetId = '';
-          persistProviderDraft(autosaveProviderId, true);
+          persistProviderDraft(autosaveProviderId, true, skipStatus);
           renderAll();
         }, Math.max(0, typeof delay === 'number' ? delay : 400));
       }
@@ -869,6 +902,7 @@ export function getModelConfigJs(): string {
           modelLastSyncedAt: undefined
         });
         providerEditorId = nextId;
+        resetEditorTab();
         fetchedModelsByProvider[nextId] = [];
         testModelByProviderId[nextId] = '';
         dirtyProviderIds.add(nextId);
@@ -902,6 +936,7 @@ export function getModelConfigJs(): string {
         delete testModelByProviderId[providerId];
         dirtyProviderIds.delete(providerId);
         providerEditorId = providers[0] ? providers[0].id : '';
+        resetEditorTab();
         if (fetchModelsModalProviderId === providerId) {
           closeFetchModelsModal();
         }
@@ -1012,7 +1047,7 @@ export function getModelConfigJs(): string {
           closeManualModelModal();
         }
         reconcileProviderDirty(provider.id);
-        scheduleProviderAutosave(provider.id, 0);
+        scheduleProviderAutosave(provider.id, 0, true);
       }
 
       function addFetchedModelToProvider(providerId, modelId) {
@@ -1032,7 +1067,7 @@ export function getModelConfigJs(): string {
         provider.models = mergeModels([...(provider.models || []), candidate], 'manual');
         normalizeTestModelForProvider(provider);
         reconcileProviderDirty(provider.id);
-        scheduleProviderAutosave(provider.id, 0);
+        scheduleProviderAutosave(provider.id, 0, true);
       }
 
       function openManualModelModal(mode, modelId) {
@@ -1124,7 +1159,7 @@ export function getModelConfigJs(): string {
         }
         normalizeTestModelForProvider(provider);
         reconcileProviderDirty(provider.id);
-        scheduleProviderAutosave(provider.id, 0);
+        scheduleProviderAutosave(provider.id, 0, true);
         closeManualModelModal();
         renderAll();
       }
