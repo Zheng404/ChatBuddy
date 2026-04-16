@@ -720,9 +720,8 @@ export function getSettingsCenterCss(): string {
 
       .cap-pill.active.cap-vision { border-color: var(--color-info); color: var(--color-info); }
       .cap-pill.active.cap-reasoning { border-color: var(--color-purple); color: var(--color-purple); }
-      .cap-pill.active.cap-audio { border-color: var(--color-warning); color: var(--color-warning); }
-      .cap-pill.active.cap-video { border-color: var(--color-success); color: var(--color-success); }
-      .cap-pill.active.cap-tools { border-color: var(--color-muted); color: var(--color-muted); }
+      .cap-pill.active.cap-websearch { border-color: var(--color-info); color: var(--color-info); }
+      .cap-pill.active.cap-tools { border-color: #f59e0b; color: #f59e0b; }
 
       .selected-model-row {
         display: grid;
@@ -759,18 +758,44 @@ export function getSettingsCenterCss(): string {
         font-size: 11px;
       }
 
-      .source-pill {
+      .kind-pill {
         border: 1px solid var(--border);
         border-radius: var(--radius-pill);
-        padding: 0 8px;
+        padding: 0 6px;
         font-size: 10px;
         line-height: 18px;
         color: var(--muted);
+        margin-left: 6px;
       }
 
-      .source-pill.fetched {
+      .kind-pill.kind-chat {
         border-color: color-mix(in srgb, var(--color-success) 50%, var(--border) 50%);
         color: var(--color-success);
+      }
+
+      .kind-pill.kind-image {
+        border-color: color-mix(in srgb, var(--color-info) 50%, var(--border) 50%);
+        color: var(--color-info);
+      }
+
+      .kind-pill.kind-video {
+        border-color: color-mix(in srgb, #a855f7 50%, var(--border) 50%);
+        color: #a855f7;
+      }
+
+      .kind-pill.kind-audio {
+        border-color: color-mix(in srgb, var(--color-warning) 50%, var(--border) 50%);
+        color: var(--color-warning);
+      }
+
+      .kind-pill.kind-embedding {
+        border-color: color-mix(in srgb, #06b6d4 50%, var(--border) 50%);
+        color: #06b6d4;
+      }
+
+      .kind-pill.kind-rerank {
+        border-color: color-mix(in srgb, #ec4899 50%, var(--border) 50%);
+        color: #ec4899;
       }
 
       .model-empty {

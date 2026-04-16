@@ -41,17 +41,19 @@ export interface McpSettings {
   maxToolRounds: number;
 }
 
+export type ModelKind = 'chat' | 'image' | 'video' | 'audio' | 'embedding' | 'rerank';
+
 export interface ModelCapabilities {
   vision?: boolean;
   reasoning?: boolean;
-  audio?: boolean;
-  video?: boolean;
   tools?: boolean;
+  webSearch?: boolean;
 }
 
 export interface ProviderModelProfile {
   id: string;
   name: string;
+  kind?: ModelKind;
   capabilities?: ModelCapabilities;
   source?: ProviderModelSource;
 }
@@ -85,6 +87,7 @@ export interface ProviderModelOption {
   providerName: string;
   modelId: string;
   label: string;
+  kind?: ModelKind;
   capabilities?: ModelCapabilities;
 }
 

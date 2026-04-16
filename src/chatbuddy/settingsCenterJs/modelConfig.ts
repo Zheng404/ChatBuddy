@@ -46,14 +46,11 @@ export function getModelConfigJs(): string {
         if (capabilities.reasoning) {
           next.reasoning = true;
         }
-        if (capabilities.audio) {
-          next.audio = true;
-        }
-        if (capabilities.video) {
-          next.video = true;
-        }
         if (capabilities.tools) {
           next.tools = true;
+        }
+        if (capabilities.webSearch) {
+          next.webSearch = true;
         }
         return Object.keys(next).length ? next : undefined;
       }
@@ -70,6 +67,7 @@ export function getModelConfigJs(): string {
         return {
           id: id,
           name: name,
+          kind: model.kind || 'chat',
           capabilities: cloneCapabilities(model.capabilities),
           source: normalizeModelSource(model.source, fallbackSource || 'manual')
         };
@@ -129,6 +127,8 @@ export function getModelConfigJs(): string {
               model.id +
               '|' +
               model.name +
+              '|' +
+              (model.kind || 'chat') +
               '|' +
               model.source +
               '|' +
@@ -394,10 +394,31 @@ export function getModelConfigJs(): string {
         return [
           { key: 'vision', cls: 'cap-vision', label: runtimeState.strings.capabilityVision || '' },
           { key: 'reasoning', cls: 'cap-reasoning', label: runtimeState.strings.capabilityReasoning || '' },
-          { key: 'audio', cls: 'cap-audio', label: runtimeState.strings.capabilityAudio || '' },
-          { key: 'video', cls: 'cap-video', label: runtimeState.strings.capabilityVideo || '' },
-          { key: 'tools', cls: 'cap-tools', label: runtimeState.strings.capabilityTools || '' }
+          { key: 'tools', cls: 'cap-tools', label: runtimeState.strings.capabilityTools || '' },
+          { key: 'webSearch', cls: 'cap-websearch', label: runtimeState.strings.capabilityWebSearch || '' }
         ];
+      }
+
+      function getKindLabel(kind) {
+        var strings = runtimeState.strings || {};
+        switch (kind) {
+          case 'chat': return strings.modelKindChat || 'Text';
+          case 'image': return strings.modelKindImage || 'Image';
+          case 'video': return strings.modelKindVideo || 'Video';
+          case 'audio': return strings.modelKindAudio || 'Audio';
+          case 'embedding': return strings.modelKindEmbedding || 'Embedding';
+          case 'rerank': return strings.modelKindRerank || 'Rerank';
+          default: return '';
+        }
+      }
+
+      function renderKindPill(kind) {
+        var effectiveKind = kind || 'chat';
+        var label = getKindLabel(effectiveKind);
+        if (!label) {
+          return '';
+        }
+        return '<span class="kind-pill kind-' + effectiveKind + '">' + escapeHtml(label) + '</span>';
       }
 
       function renderCapabilityPills(capabilities, interactivePrefix) {
@@ -640,7 +661,8 @@ export function getModelConfigJs(): string {
         dom.providerEnabledCheckbox.checked = provider ? provider.enabled : false;
       }
 
-      function renderSelectedModelRow(model, sourceClass, sourceLabel, actionsHtml) {
+      function renderSelectedModelRow(model, actionsHtml) {
+        var kindPill = renderKindPill(model.kind);
         return (
           '<div class="selected-model-row">' +
           '<div class="selected-model-main">' +
@@ -648,6 +670,7 @@ export function getModelConfigJs(): string {
           '<span class="model-name">' +
           escapeHtml(model.name || model.id) +
           '</span>' +
+          kindPill +
           '</div>' +
           '<div class="model-desc">' +
           escapeHtml(model.id) +
@@ -688,8 +711,6 @@ export function getModelConfigJs(): string {
               '</button>';
             return renderSelectedModelRow(
               model,
-              'manual',
-              runtimeState.strings.modelSourceManual || '',
               actions
             );
           })
@@ -716,8 +737,6 @@ export function getModelConfigJs(): string {
               '</button>';
             return renderSelectedModelRow(
               model,
-              'fetched',
-              runtimeState.strings.modelSourceFetched || '',
               actions
             );
           })
@@ -786,6 +805,7 @@ export function getModelConfigJs(): string {
             const buttonLabel = added
               ? strings.providerFetchModelAddedAction || ''
               : strings.providerFetchModelAddAction || '';
+            var fetchKindPill = renderKindPill(model.kind);
             return (
               '<div class="fetch-model-row' +
               (added ? ' is-added' : '') +
@@ -795,9 +815,7 @@ export function getModelConfigJs(): string {
               '<span class="model-name">' +
               escapeHtml(model.name || model.id) +
               '</span>' +
-              '<span class="source-pill fetched">' +
-              escapeHtml(strings.modelSourceFetched || '') +
-              '</span>' +
+              fetchKindPill +
               '</div>' +
               '<div class="model-desc">' +
               escapeHtml(model.id) +

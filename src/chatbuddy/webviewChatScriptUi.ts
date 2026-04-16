@@ -409,13 +409,12 @@ export function getChatUiScript(): string {
             return;
           }
           const caps = option.capabilities;
-          const capSuffix = caps && (caps.vision || caps.reasoning || caps.audio || caps.video || caps.tools)
+          const capSuffix = caps && (caps.vision || caps.reasoning || caps.tools || caps.webSearch)
             ? ' [' + [
                 caps.vision ? state.strings.capabilityVision : '',
                 caps.reasoning ? state.strings.capabilityReasoning : '',
-                caps.audio ? state.strings.capabilityAudio : '',
-                caps.video ? state.strings.capabilityVideo : '',
-                caps.tools ? state.strings.capabilityTools : ''
+                caps.tools ? state.strings.capabilityTools : '',
+                caps.webSearch ? state.strings.capabilityWebSearch : ''
               ].filter(Boolean).join(', ') + ']'
             : '';
           modelMap.set(option.ref, (option.label || option.ref) + capSuffix);

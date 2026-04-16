@@ -18,14 +18,13 @@ export function getDefaultModelsJs(defaultTitleSummaryPrompt: string): string {
           .concat((runtimeState.modelOptions || []).map((option) => {
             const caps = option.capabilities;
             const capSuffix =
-              caps && (caps.vision || caps.reasoning || caps.audio || caps.video || caps.tools)
+              caps && (caps.vision || caps.reasoning || caps.tools || caps.webSearch)
                 ? ' [' +
                   [
                     caps.vision ? strings.capabilityVision : '',
                     caps.reasoning ? strings.capabilityReasoning : '',
-                    caps.audio ? strings.capabilityAudio : '',
-                    caps.video ? strings.capabilityVideo : '',
-                    caps.tools ? strings.capabilityTools : ''
+                    caps.tools ? strings.capabilityTools : '',
+                    caps.webSearch ? strings.capabilityWebSearch : ''
                   ]
                     .filter(Boolean)
                     .join(', ') +

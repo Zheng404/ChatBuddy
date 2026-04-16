@@ -1,5 +1,5 @@
-import { hasAnyCapability } from './modelCapabilities';
-import { ModelCapabilities, ProviderModelProfile, ProviderToolCall } from './types';
+import { hasAnyCapability, resolveCapabilities, resolveKind } from './modelCapabilities';
+import { ModelCapabilities, ModelKind, ProviderModelProfile, ProviderToolCall } from './types';
 import {
   ProviderChatResult,
   ResponsesStreamEvent,
@@ -382,12 +382,6 @@ function extractCapabilitiesFromStandardModel(raw: Record<string, unknown>): Mod
   if (inputModalities.some((m) => m === 'image')) {
     caps.vision = true;
   }
-  if (inputModalities.some((m) => m === 'audio')) {
-    caps.audio = true;
-  }
-  if (inputModalities.some((m) => m === 'video')) {
-    caps.video = true;
-  }
   if (supportedParams.some((p) => p === 'tools' || p === 'tool_choice' || p === 'function_calling')) {
     caps.tools = true;
   }
@@ -415,9 +409,6 @@ function extractCapabilitiesFromOllamaModel(raw: Record<string, unknown>): Model
   if (capabilities?.vision === true || families.some((f) => f.toLowerCase() === 'vision' || f.toLowerCase() === 'clip')) {
     caps.vision = true;
   }
-  if (capabilities?.audio === true || families.some((f) => f.toLowerCase() === 'audio')) {
-    caps.audio = true;
-  }
   if (capabilities?.tools === true || families.some((f) => f.toLowerCase() === 'tool' || f.toLowerCase() === 'tools')) {
     caps.tools = true;
   }
@@ -442,7 +433,8 @@ export function parseStandardModelList(data: unknown): ProviderModelProfile[] {
     result.push({
       id,
       name,
-      capabilities: extractCapabilitiesFromStandardModel(model)
+      capabilities: resolveCapabilities(id, extractCapabilitiesFromStandardModel(model)),
+      kind: resolveKind(id)
     });
   }
   for (const model of payload.models ?? []) {
@@ -454,7 +446,8 @@ export function parseStandardModelList(data: unknown): ProviderModelProfile[] {
     result.push({
       id,
       name,
-      capabilities: extractCapabilitiesFromStandardModel(model)
+      capabilities: resolveCapabilities(id, extractCapabilitiesFromStandardModel(model)),
+      kind: resolveKind(id)
     });
   }
   return result;
@@ -482,7 +475,8 @@ export function parseGeminiModels(data: unknown): ProviderModelProfile[] {
     result.push({
       id,
       name: displayName,
-      capabilities: extractCapabilitiesFromGeminiModel(model)
+      capabilities: resolveCapabilities(id, extractCapabilitiesFromGeminiModel(model)),
+      kind: resolveKind(id)
     });
   }
   return result;
@@ -510,7 +504,8 @@ export function parseOllamaModels(data: unknown): ProviderModelProfile[] {
     result.push({
       id,
       name: id,
-      capabilities: extractCapabilitiesFromOllamaModel(model)
+      capabilities: resolveCapabilities(id, extractCapabilitiesFromOllamaModel(model)),
+      kind: resolveKind(id)
     });
   }
   return result;

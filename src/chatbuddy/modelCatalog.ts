@@ -1,7 +1,9 @@
+import { resolveCapabilities, resolveKind } from './modelCapabilities';
 import {
   DefaultModelSettings,
   ModelBinding,
   ModelCapabilities,
+  ModelKind,
   ProviderApiType,
   ProviderModelOption,
   ProviderModelProfile,
@@ -57,6 +59,8 @@ function normalizeModelProfile(raw: Partial<ProviderModelProfile> | string): Pro
     return {
       id: normalized,
       name: normalized,
+      kind: resolveKind(normalized),
+      capabilities: resolveCapabilities(normalized),
       source: 'manual'
     };
   }
@@ -65,13 +69,28 @@ function normalizeModelProfile(raw: Partial<ProviderModelProfile> | string): Pro
     return undefined;
   }
   const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : id;
+  const existingKind = typeof raw.kind === 'string' ? (raw.kind as ModelKind) : undefined;
   const rawCaps = typeof raw === 'object' ? (raw as Partial<ProviderModelProfile>).capabilities : undefined;
+  const migratedCaps = stripLegacyCapabilityFields(rawCaps);
   return {
     id,
     name,
-    capabilities: rawCaps,
+    kind: existingKind || resolveKind(id),
+    capabilities: resolveCapabilities(id, migratedCaps),
     source: normalizeModelSource((raw as Partial<ProviderModelProfile>).source)
   };
+}
+
+function stripLegacyCapabilityFields(caps: ModelCapabilities | undefined): ModelCapabilities | undefined {
+  if (!caps || typeof caps !== 'object') {
+    return caps;
+  }
+  const cleaned: ModelCapabilities = {};
+  if (caps.vision) { cleaned.vision = true; }
+  if (caps.reasoning) { cleaned.reasoning = true; }
+  if (caps.tools) { cleaned.tools = true; }
+  if (caps.webSearch) { cleaned.webSearch = true; }
+  return Object.keys(cleaned).length ? cleaned : undefined;
 }
 
 export function dedupeModels(models: Array<Partial<ProviderModelProfile> | string>): ProviderModelProfile[] {
@@ -93,12 +112,17 @@ export function getProviderModelOptions(providers: ProviderProfile[], includeDis
       continue;
     }
     for (const model of provider.models) {
+      // Skip non-chat models (embedding, rerank, image, video, audio) from chat model selectors
+      if (model.kind && model.kind !== 'chat') {
+        continue;
+      }
       options.push({
         ref: createModelRef(provider.id, model.id),
         providerId: provider.id,
         providerName: provider.name,
         modelId: model.id,
         label: getModelDisplayLabel(model.id, provider.name),
+        kind: model.kind,
         capabilities: model.capabilities
       });
     }
@@ -135,6 +159,7 @@ export function resolveModelOption(
     providerName: provider.name,
     modelId: model.id,
     label: getModelDisplayLabel(model.id, provider.name),
+    kind: model.kind,
     capabilities: model.capabilities
   };
 }
@@ -166,14 +191,11 @@ export function capabilityLabelSuffix(caps: ModelCapabilities | undefined, strin
   if (caps.reasoning) {
     tags.push(strings.capabilityReasoning);
   }
-  if (caps.audio) {
-    tags.push(strings.capabilityAudio);
-  }
-  if (caps.video) {
-    tags.push(strings.capabilityVideo);
-  }
   if (caps.tools) {
     tags.push(strings.capabilityTools);
+  }
+  if (caps.webSearch) {
+    tags.push(strings.capabilityWebSearch);
   }
   return tags.length ? ' [' + tags.join(', ') + ']' : '';
 }
