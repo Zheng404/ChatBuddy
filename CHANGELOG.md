@@ -4,15 +4,61 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
-## [Unreleased]
+## [0.2.3] - 2026-04-16
 
 ### English
 
-- Pending release notes.
+#### Added
+
+- Added horizontal top tab bar navigation for settings, replacing the left sidebar layout.
+- Added config/models sub-tabs in provider editor for clearer separation.
+- Added provider name as editable title in config page.
+- Added API key visibility toggle button.
+- Added provider empty state placeholder when no providers exist.
+
+#### Changed
+
+- Moved provider enable toggle from list card to config sub-page header.
+- Renamed "供应商" to "提供商" across all Chinese strings.
+- Redesigned model section names: Custom Models / Remote Models.
+- Replaced hardcoded CSS values with design tokens (--radius-*, --color-*) for consistent theming.
+- Removed all inline styles from settings HTML; added utility classes (.input-row, .header-row).
+- Removed unused CSS rules and empty media queries.
+- Switched provider workspace responsive layout to ResizeObserver-based detection.
+- Unified heading levels and field wrapper patterns across all settings sections.
+- MCP transport labels now use i18n strings instead of hardcoded text.
+
+#### Fixed
+
+- Fixed provider list items not responding to clicks (button did not fill container width).
+- Fixed provider workspace content clipping in narrow panels.
 
 ### 中文
 
-- 待补充发布说明。
+#### 新增
+
+- 设置页面导航由左侧栏改为顶部水平标签栏。
+- 提供商编辑器拆分为「配置」和「模型管理」子标签页。
+- 提供商名称作为可编辑标题显示在配置页。
+- API Key 支持显示/隐藏切换。
+- 无提供商时显示空状态占位提示。
+
+#### 变更
+
+- 提供商启用开关从列表卡片移至配置子页面。
+- 全部中文文案中"供应商"统一为"提供商"。
+- 模型分区重命名为「自定义模型」/「在线模型」。
+- CSS 硬编码值统一替换为 design tokens（--radius-*、--color-*），明暗主题一致。
+- 移除所有内联样式，新增工具类（.input-row、.header-row）。
+- 清理未使用的 CSS 规则和空媒体查询。
+- 提供商工作区响应式布局改为 ResizeObserver 容器宽度检测。
+- 统一各设置区域的标题层级和字段包裹模式。
+- MCP 传输方式标签改用 i18n 字符串。
+
+#### 修复
+
+- 修复提供商列表点击无响应（按钮未填满容器宽度）。
+- 修复窄面板下提供商工作区内容被裁剪的问题。
 
 ## [0.2.2] - 2026-04-13
 
