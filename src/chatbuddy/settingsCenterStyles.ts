@@ -14,6 +14,19 @@ export function getSettingsCenterCss(): string {
         --panel-bg: color-mix(in srgb, var(--bg) 92%, white 8%);
         --panel-bg-strong: color-mix(in srgb, var(--bg) 86%, white 14%);
         --accent: var(--vscode-focusBorder, var(--vscode-button-background));
+
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --radius-lg: 10px;
+        --radius-xl: 12px;
+        --radius-pill: 999px;
+
+        --color-success: #10b981;
+        --color-info: #3b82f6;
+        --color-warning: #f59e0b;
+        --color-error: #be1100;
+        --color-muted: #6b7280;
+        --color-purple: #a855f7;
       }
 
       body {
@@ -106,7 +119,7 @@ export function getSettingsCenterCss(): string {
         flex-shrink: 0;
         border: 1px solid transparent;
         border-bottom: 2px solid transparent;
-        border-radius: 8px 8px 0 0;
+        border-radius: var(--radius-md) var(--radius-md) 0 0;
         background: transparent;
         color: inherit;
         text-align: left;
@@ -162,16 +175,9 @@ export function getSettingsCenterCss(): string {
         display: block;
       }
 
-      .pane-toolbar {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        margin-bottom: 12px;
-      }
-
       .btn-primary {
         border: 1px solid transparent;
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         padding: 8px 14px;
         background: var(--button-bg);
         color: var(--button-fg);
@@ -185,7 +191,7 @@ export function getSettingsCenterCss(): string {
 
       .btn-secondary {
         border: 1px solid var(--input-border);
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         padding: 8px 14px;
         background: transparent;
         color: var(--fg);
@@ -199,7 +205,7 @@ export function getSettingsCenterCss(): string {
 
       .btn-danger {
         border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         padding: 8px 14px;
         background: transparent;
         color: var(--vscode-inputValidation-errorForeground, var(--fg));
@@ -223,7 +229,7 @@ export function getSettingsCenterCss(): string {
       .section-card,
       .panel {
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: var(--radius-xl);
         padding: 16px;
         background: color-mix(in srgb, var(--bg) 96%, white 4%);
       }
@@ -270,7 +276,7 @@ export function getSettingsCenterCss(): string {
         align-items: center;
         justify-content: center;
         border: 1px solid var(--input-border);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         background: var(--input-bg);
         color: var(--muted);
         cursor: pointer;
@@ -291,7 +297,7 @@ export function getSettingsCenterCss(): string {
       textarea {
         width: 100%;
         border: 1px solid var(--input-border);
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         padding: 9px 10px;
         background: var(--input-bg);
         color: var(--input-fg);
@@ -313,33 +319,31 @@ export function getSettingsCenterCss(): string {
         color: var(--vscode-inputValidation-errorForeground, #be1100);
       }
 
-      .collapsible-header {
+      .input-row {
         display: flex;
         align-items: center;
-        gap: 6px;
-        cursor: pointer;
-        user-select: none;
+        gap: 8px;
       }
 
-      .collapsible-header:hover {
-        opacity: 0.85;
+      .input-row > select,
+      .input-row > input {
+        flex: 1;
       }
 
-      .collapsible-arrow {
-        font-size: 10px;
-        transition: transform 0.15s ease;
+      .header-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
       }
 
-      .collapsible-arrow.open {
-        transform: rotate(90deg);
+      .header-row > .section-title {
+        margin: 0;
+        flex: 1;
       }
 
-      .collapsible-body {
-        display: none;
-      }
-
-      .collapsible-body.open {
-        display: block;
+      .section-card + .section-card {
+        margin-top: 12px;
       }
 
       .data-actions,
@@ -349,6 +353,7 @@ export function getSettingsCenterCss(): string {
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
+        margin-top: 12px;
       }
 
       .danger-copy {
@@ -359,7 +364,7 @@ export function getSettingsCenterCss(): string {
 
       .provider-workspace {
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: var(--radius-xl);
         overflow: hidden;
         min-height: 620px;
         display: grid;
@@ -394,7 +399,7 @@ export function getSettingsCenterCss(): string {
       .provider-search {
         width: 100%;
         border: 1px solid var(--input-border);
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         padding: 8px 10px;
         background: var(--input-bg);
         color: var(--input-fg);
@@ -409,7 +414,7 @@ export function getSettingsCenterCss(): string {
 
       .provider-item {
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: transparent;
         color: inherit;
         align-items: center;
@@ -433,6 +438,8 @@ export function getSettingsCenterCss(): string {
         padding: 0;
         cursor: pointer;
         min-width: 0;
+        display: block;
+        width: 100%;
       }
 
       .provider-item-name {
@@ -447,17 +454,17 @@ export function getSettingsCenterCss(): string {
         font-size: 10px;
         font-weight: 600;
         padding: 1px 6px;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
       }
 
       .provider-item-name .pill.enabled {
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
+        background: color-mix(in srgb, var(--color-success) 15%, transparent);
+        color: var(--color-success);
       }
 
       .provider-item-name .pill.disabled {
-        background: rgba(107, 114, 128, 0.15);
-        color: #6b7280;
+        background: color-mix(in srgb, var(--color-muted) 15%, transparent);
+        color: var(--color-muted);
       }
 
       .provider-item-meta {
@@ -469,28 +476,37 @@ export function getSettingsCenterCss(): string {
         font-size: 11px;
       }
 
-      .provider-item-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 11px;
-        color: var(--muted);
-      }
-
-      .provider-item-toggle input {
-        width: 14px;
-        height: 14px;
-        margin: 0;
-      }
-
       .pill {
         border: 1px solid var(--border);
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         padding: 1px 8px;
       }
 
-      .pill.off {
+      .provider-empty {
+        display: none;
+        min-width: 0;
+        padding: 16px;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        gap: 10px;
         color: var(--muted);
+        text-align: center;
+      }
+
+      .provider-empty.visible {
+        display: flex;
+      }
+
+      .provider-empty .codicon {
+        font-size: 32px;
+        opacity: 0.4;
+      }
+
+      .provider-empty p {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.5;
       }
 
       .editor {
@@ -574,7 +590,7 @@ export function getSettingsCenterCss(): string {
       .provider-save-status {
         min-height: 24px;
         border: 1px solid transparent;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         padding: 0 10px;
         display: none;
         align-items: center;
@@ -594,15 +610,15 @@ export function getSettingsCenterCss(): string {
       }
 
       .provider-save-status.saved {
-        border-color: color-mix(in srgb, #10b981 42%, var(--border) 58%);
-        color: #10b981;
-        background: color-mix(in srgb, #10b981 10%, transparent 90%);
+        border-color: color-mix(in srgb, var(--color-success) 42%, var(--border) 58%);
+        color: var(--color-success);
+        background: color-mix(in srgb, var(--color-success) 10%, transparent 90%);
       }
 
       .provider-save-status.invalid {
-        border-color: color-mix(in srgb, #f59e0b 42%, var(--border) 58%);
-        color: #f59e0b;
-        background: color-mix(in srgb, #f59e0b 10%, transparent 90%);
+        border-color: color-mix(in srgb, var(--color-warning) 42%, var(--border) 58%);
+        color: var(--color-warning);
+        background: color-mix(in srgb, var(--color-warning) 10%, transparent 90%);
       }
 
       .models-grid {
@@ -620,7 +636,7 @@ export function getSettingsCenterCss(): string {
 
       .model-section-card {
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 12px;
         background: color-mix(in srgb, var(--bg) 97%, white 3%);
       }
@@ -649,7 +665,7 @@ export function getSettingsCenterCss(): string {
         align-items: flex-start;
         gap: 10px;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 8px 10px;
       }
 
@@ -684,7 +700,7 @@ export function getSettingsCenterCss(): string {
 
       .cap-pill {
         border: 1px solid var(--border);
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         padding: 0 6px;
         font-size: 10px;
         line-height: 16px;
@@ -702,11 +718,11 @@ export function getSettingsCenterCss(): string {
         opacity: 1;
       }
 
-      .cap-pill.active.cap-vision { border-color: #3b82f6; color: #3b82f6; }
-      .cap-pill.active.cap-reasoning { border-color: #a855f7; color: #a855f7; }
-      .cap-pill.active.cap-audio { border-color: #f59e0b; color: #f59e0b; }
-      .cap-pill.active.cap-video { border-color: #10b981; color: #10b981; }
-      .cap-pill.active.cap-tools { border-color: #6b7280; color: #6b7280; }
+      .cap-pill.active.cap-vision { border-color: var(--color-info); color: var(--color-info); }
+      .cap-pill.active.cap-reasoning { border-color: var(--color-purple); color: var(--color-purple); }
+      .cap-pill.active.cap-audio { border-color: var(--color-warning); color: var(--color-warning); }
+      .cap-pill.active.cap-video { border-color: var(--color-success); color: var(--color-success); }
+      .cap-pill.active.cap-tools { border-color: var(--color-muted); color: var(--color-muted); }
 
       .selected-model-row {
         display: grid;
@@ -714,7 +730,7 @@ export function getSettingsCenterCss(): string {
         gap: 12px;
         align-items: start;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 10px 12px;
         background: transparent;
       }
@@ -745,26 +761,21 @@ export function getSettingsCenterCss(): string {
 
       .source-pill {
         border: 1px solid var(--border);
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         padding: 0 8px;
         font-size: 10px;
         line-height: 18px;
         color: var(--muted);
       }
 
-      .source-pill.manual {
-        border-color: color-mix(in srgb, var(--accent) 52%, var(--border) 48%);
-        color: var(--accent);
-      }
-
       .source-pill.fetched {
-        border-color: color-mix(in srgb, #10b981 50%, var(--border) 50%);
-        color: #10b981;
+        border-color: color-mix(in srgb, var(--color-success) 50%, var(--border) 50%);
+        color: var(--color-success);
       }
 
       .model-empty {
         border: 1px dashed var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 14px;
         color: var(--muted);
         font-size: 12px;
@@ -801,7 +812,7 @@ export function getSettingsCenterCss(): string {
       .modal-card {
         width: min(520px, 100%);
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: var(--radius-xl);
         background: var(--bg);
         padding: 16px;
         display: grid;
@@ -830,7 +841,7 @@ export function getSettingsCenterCss(): string {
       .fetch-models-loading {
         min-height: 220px;
         border: 1px dashed var(--border);
-        border-radius: 12px;
+        border-radius: var(--radius-xl);
         display: grid;
         place-items: center;
         gap: 12px;
@@ -843,7 +854,7 @@ export function getSettingsCenterCss(): string {
       .fetch-models-spinner {
         width: 26px;
         height: 26px;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         border: 2px solid color-mix(in srgb, var(--accent) 22%, var(--border) 78%);
         border-top-color: var(--accent);
         animation: settings-modal-spin 0.85s linear infinite;
@@ -861,13 +872,13 @@ export function getSettingsCenterCss(): string {
         gap: 12px;
         align-items: start;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 10px 12px;
         background: transparent;
       }
 
       .fetch-model-row.is-added {
-        background: color-mix(in srgb, #10b981 10%, var(--bg) 90%);
+        background: color-mix(in srgb, var(--color-success) 10%, var(--bg) 90%);
       }
 
       .fetch-model-row .btn-secondary {
@@ -895,9 +906,6 @@ export function getSettingsCenterCss(): string {
 
 ${SHARED_TOAST_STYLE}
 
-      @media (max-width: 1120px) {
-      }
-
       @media (max-width: 760px) {
         body {
           padding: 14px;
@@ -913,7 +921,7 @@ ${SHARED_TOAST_STYLE}
       }
       .mcp-server-card {
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 12px;
         margin-bottom: 8px;
         background: transparent;
@@ -946,13 +954,13 @@ ${SHARED_TOAST_STYLE}
       .mcp-server-actions .btn-secondary {
         padding: 3px 8px;
         font-size: 11px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
       }
 
       .mcp-server-actions .btn-danger {
         padding: 3px 8px;
         font-size: 11px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
       }
 
       .mcp-status-dot {
@@ -966,7 +974,7 @@ ${SHARED_TOAST_STYLE}
       }
 
       .mcp-status-dot.mcp-status-ok {
-        background: #22c55e;
+        background: var(--color-success);
       }
 
       .mcp-status-dot.mcp-status-fail {
@@ -1025,11 +1033,6 @@ ${SHARED_TOAST_STYLE}
         color: var(--fg);
       }
 
-      .mcp-modal-field-grid {
-        display: grid;
-        gap: 10px;
-      }
-
       .mcp-kv-row {
         display: flex;
         gap: 6px;
@@ -1043,7 +1046,7 @@ ${SHARED_TOAST_STYLE}
 
       .mcp-kv-remove {
         border: 1px solid var(--input-border);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         padding: 3px 8px;
         background: transparent;
         color: var(--fg);
@@ -1058,7 +1061,7 @@ ${SHARED_TOAST_STYLE}
 
       .mcp-add-row-btn {
         border: 1px dashed var(--input-border);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         padding: 4px 10px;
         background: transparent;
         color: var(--muted);

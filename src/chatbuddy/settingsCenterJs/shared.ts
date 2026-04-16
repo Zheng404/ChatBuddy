@@ -56,6 +56,8 @@ export function getSharedJs(): string {
         providerList: document.getElementById('providerList'),
         providerSaveStatus: document.getElementById('providerSaveStatus'),
         providerPanelTitle: document.getElementById('providerPanelTitle'),
+        providerEmptyState: document.getElementById('providerEmptyState'),
+        providerEmptyText: document.getElementById('providerEmptyText'),
         providerEnabledCheckbox: document.getElementById('providerEnabledCheckbox'),
         providerEnabledSwitchLabel: document.getElementById('providerEnabledSwitchLabel'),
         saveProviderBtn: document.getElementById('saveProviderBtn'),

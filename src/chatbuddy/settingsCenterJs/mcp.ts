@@ -65,7 +65,7 @@ export function getMcpJs(): string {
             toolCountHtml = '<span class="mcp-tool-count" data-mcp-action="toggle-tools" data-idx="' + idx + '">' + escapeHtml(toolCountText) + '</span>';
           }
           var enabledLabel = strings.mcpServerEnabledLabel || '';
-          var transportLabel = server.transport === 'streamableHttp' ? 'HTTP' : server.transport === 'sse' ? 'SSE' : 'stdio';
+          var transportLabel = server.transport === 'streamableHttp' ? (strings.mcpTransportHttp || 'HTTP') : server.transport === 'sse' ? (strings.mcpTransportSse || 'SSE') : (strings.mcpTransportStdio || 'stdio');
           var toolsHtml = renderMcpToolsSection(idx);
           return (
             '<div class="mcp-server-card" data-idx="' + idx + '">' +

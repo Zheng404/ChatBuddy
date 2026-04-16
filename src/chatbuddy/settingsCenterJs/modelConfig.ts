@@ -603,15 +603,28 @@ export function getModelConfigJs(): string {
         const provider = getEditingProvider();
         const strings = runtimeState.strings || {};
         const disabled = !provider;
+        const editorEl = document.querySelector('.editor');
+        const isEmpty = !providers.length;
+        if (editorEl) editorEl.style.display = isEmpty ? 'none' : '';
+        dom.providerEmptyState.classList.toggle('visible', isEmpty);
+        dom.providerEmptyText.textContent = isEmpty ? (strings.providerEmptyState || '') : '';
+        if (disabled) {
+          const saveStatus = getProviderSaveStatus(provider);
+          dom.providerSaveStatus.textContent = saveStatus.message || '';
+          dom.providerSaveStatus.className = 'provider-save-status' + (saveStatus.message ? ' visible ' + saveStatus.tone : '');
+          dom.providerPanelTitle.textContent = '';
+          dom.providerEnabledCheckbox.checked = false;
+          return;
+        }
         const saveStatus = getProviderSaveStatus(provider);
+        dom.providerSaveStatus.textContent = saveStatus.message || '';
+        dom.providerSaveStatus.className = 'provider-save-status' + (saveStatus.message ? ' visible ' + saveStatus.tone : '');
         dom.providerName.disabled = disabled;
         dom.apiType.disabled = disabled;
         dom.apiKey.disabled = disabled;
         dom.baseUrl.disabled = disabled;
         dom.saveProviderBtn.hidden = true;
         dom.saveProviderBtn.disabled = true;
-        dom.providerSaveStatus.textContent = saveStatus.message || '';
-        dom.providerSaveStatus.className = 'provider-save-status' + (saveStatus.message ? ' visible ' + saveStatus.tone : '');
         dom.addManualModelBtn.disabled = disabled;
         dom.fetchModelsBtn.disabled = disabled || isFetchingProviderModels;
         dom.fetchModelsBtn.textContent = isFetchingProviderModels

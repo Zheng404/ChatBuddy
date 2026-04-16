@@ -719,6 +719,11 @@ export class SettingsCenterPanelController {
                 <div class="provider-list" id="providerList"></div>
               </aside>
 
+              <div class="provider-empty" id="providerEmptyState">
+                <span class="codicon codicon-server"></span>
+                <p id="providerEmptyText"></p>
+              </div>
+
               <section class="editor">
                 <div class="editor-tabs">
                   <button class="editor-tab active" id="editorTabConfig" type="button" data-tab="config"></button>
@@ -797,17 +802,17 @@ export class SettingsCenterPanelController {
 
           <section class="settings-pane" id="paneDefaultModels" data-section="defaultModels">
             <section class="section-card">
-              <h3 class="section-title" id="defaultAssistantModelLabel"></h3>
+              <h2 class="section-title" id="defaultAssistantModelLabel"></h2>
               <div class="field">
                 <select id="defaultAssistantModel"></select>
                 <div class="help" id="defaultAssistantModelHelp"></div>
               </div>
             </section>
-            <section class="section-card" style="margin-top: 12px;">
-              <h3 class="section-title" id="defaultTitleSummaryModelLabel"></h3>
+            <section class="section-card">
+              <h2 class="section-title" id="defaultTitleSummaryModelLabel"></h2>
               <div class="field">
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <select id="defaultTitleSummaryModel" style="flex:1;"></select>
+                <div class="input-row">
+                  <select id="defaultTitleSummaryModel"></select>
                   <button class="btn-secondary" id="editTitleSummaryPromptBtn" type="button"></button>
                 </div>
                 <div class="help" id="defaultTitleSummaryModelHelp"></div>
@@ -819,16 +824,18 @@ export class SettingsCenterPanelController {
             <div class="section-grid">
               <section class="section-card">
                 <h2 class="section-title" id="mcpMaxToolRoundsTitle"></h2>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <input id="mcpMaxToolRounds" type="number" min="1" max="20" />
-                  <button class="btn-primary" id="mcpSaveToolRoundsBtn" type="button"></button>
+                <div class="field">
+                  <div class="input-row">
+                    <input id="mcpMaxToolRounds" type="number" min="1" max="20" />
+                    <button class="btn-primary" id="mcpSaveToolRoundsBtn" type="button"></button>
+                  </div>
+                  <div class="help" id="mcpMaxToolRoundsHelp"></div>
                 </div>
-                <div class="help" id="mcpMaxToolRoundsHelp"></div>
               </section>
 
               <section class="section-card">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-                  <h2 class="section-title" id="mcpServersTitle" style="margin:0;flex:1"></h2>
+                <div class="header-row">
+                  <h2 class="section-title" id="mcpServersTitle"></h2>
                   <button class="btn-primary" id="mcpAddServerBtn" type="button"></button>
                 </div>
                 <div id="mcpServerList"></div>
@@ -865,7 +872,7 @@ export class SettingsCenterPanelController {
               <section class="section-card">
                 <h2 class="section-title" id="dataTransferSectionTitle"></h2>
                 <div class="help" id="dataTransferDescription"></div>
-                <div class="data-actions" style="margin-top: 12px;">
+                <div class="data-actions">
                   <button class="btn-secondary" id="exportBtn" type="button"></button>
                   <button class="btn-secondary" id="importBtn" type="button"></button>
                 </div>
@@ -874,7 +881,7 @@ export class SettingsCenterPanelController {
               <section class="section-card">
                 <h2 class="section-title" id="dangerSectionTitle"></h2>
                 <div class="danger-copy" id="resetDataDescription"></div>
-                <div class="danger-actions" style="margin-top: 12px;">
+                <div class="danger-actions">
                   <button class="btn-danger" id="resetBtn" type="button"></button>
                 </div>
               </section>
