@@ -727,19 +727,26 @@ export class SettingsCenterPanelController {
                 <div class="editor-pane active" data-tab="config">
                   <section class="panel">
                     <div class="panel-header">
-                      <h2 class="panel-title" id="providerPanelTitle"></h2>
-                      <div class="panel-actions">
+                      <div class="panel-header-left">
+                        <h2 class="panel-title" id="providerPanelTitle"></h2>
                         <div class="provider-save-status" id="providerSaveStatus" aria-live="polite"></div>
+                      </div>
+                      <div class="panel-actions">
+                        <label class="provider-enabled-toggle" id="providerEnabledToggle">
+                          <input type="checkbox" id="providerEnabledCheckbox" />
+                          <span id="providerEnabledSwitchLabel"></span>
+                        </label>
+                        <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
                         <button class="btn-primary" id="saveProviderBtn" type="button" hidden></button>
                         <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
                       </div>
                     </div>
                     <div class="field-grid">
-                      <div class="field">
+                      <div class="field full">
                         <label for="providerName" id="providerNameLabel"></label>
                         <input id="providerName" type="text" />
                       </div>
-                      <div class="field">
+                      <div class="field full">
                         <label for="apiType" id="apiTypeLabel"></label>
                         <select id="apiType">
                           <option value="chat_completions">chat/completions</option>
@@ -748,44 +755,41 @@ export class SettingsCenterPanelController {
                       </div>
                       <div class="field full">
                         <label for="apiKey" id="apiKeyLabel"></label>
-                        <input id="apiKey" type="password" />
+                        <div class="field-input-with-action">
+                          <input id="apiKey" type="password" />
+                          <button class="field-action" id="toggleApiKeyVisibility" type="button" title="Toggle visibility">
+                            <span class="codicon codicon-eye"></span>
+                          </button>
+                        </div>
                       </div>
                       <div class="field full">
                         <label for="baseUrl" id="baseUrlLabel"></label>
                         <input id="baseUrl" type="text" />
-                        <div class="help" id="baseUrlHelp"></div>
                       </div>
                     </div>
                   </section>
                 </div>
                 <div class="editor-pane" data-tab="models">
-                  <section class="panel">
-                    <div class="panel-header">
-                      <h2 class="panel-title" id="modelsPanelTitle"></h2>
-                      <div class="panel-actions">
-                        <button class="btn-secondary" id="addManualModelBtn" type="button"></button>
-                        <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
-                        <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
+                  <div class="model-sections">
+                    <section class="model-section-card">
+                      <div class="model-section-header">
+                        <h3 class="model-section-title" id="manualModelsTitle"></h3>
+                        <div class="model-section-actions">
+                          <button class="btn-secondary" id="addManualModelBtn" type="button"></button>
+                        </div>
                       </div>
-                    </div>
-                    <div class="help" id="modelsHelp"></div>
-                    <div class="model-sections">
-                      <section class="model-section-card">
-                        <div class="model-section-header">
-                          <h3 class="model-section-title" id="manualModelsTitle"></h3>
+                      <div class="models-grid" id="manualModelsList"></div>
+                    </section>
+                    <section class="model-section-card">
+                      <div class="model-section-header">
+                        <h3 class="model-section-title" id="fetchedModelsTitle"></h3>
+                        <div class="model-section-actions">
+                          <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
                         </div>
-                        <div class="help" id="manualModelsHelp"></div>
-                        <div class="models-grid" id="manualModelsList"></div>
-                      </section>
-                      <section class="model-section-card">
-                        <div class="model-section-header">
-                          <h3 class="model-section-title" id="fetchedModelsTitle"></h3>
-                        </div>
-                        <div class="help" id="fetchedModelsHelp"></div>
-                        <div class="models-grid" id="fetchedModelsList"></div>
-                      </section>
-                    </div>
-                  </section>
+                      </div>
+                      <div class="models-grid" id="fetchedModelsList"></div>
+                    </section>
+                  </div>
                 </div>
               </section>
             </div>
@@ -793,15 +797,15 @@ export class SettingsCenterPanelController {
 
           <section class="settings-pane" id="paneDefaultModels" data-section="defaultModels">
             <section class="section-card">
+              <h3 class="section-title" id="defaultAssistantModelLabel"></h3>
               <div class="field">
-                <label for="defaultAssistantModel" id="defaultAssistantModelLabel"></label>
                 <select id="defaultAssistantModel"></select>
                 <div class="help" id="defaultAssistantModelHelp"></div>
               </div>
             </section>
             <section class="section-card" style="margin-top: 12px;">
+              <h3 class="section-title" id="defaultTitleSummaryModelLabel"></h3>
               <div class="field">
-                <label for="defaultTitleSummaryModel" id="defaultTitleSummaryModelLabel"></label>
                 <div style="display:flex;align-items:center;gap:8px;">
                   <select id="defaultTitleSummaryModel" style="flex:1;"></select>
                   <button class="btn-secondary" id="editTitleSummaryPromptBtn" type="button"></button>

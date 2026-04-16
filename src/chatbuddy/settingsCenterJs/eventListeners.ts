@@ -278,12 +278,43 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         void deleteProvider();
       });
 
+      dom.providerEnabledCheckbox.addEventListener('change', () => {
+        const provider = getEditingProvider();
+        if (!provider) return;
+        provider.enabled = dom.providerEnabledCheckbox.checked;
+        if (persistedProvidersById[provider.id]) {
+          persistedProvidersById[provider.id].enabled = provider.enabled;
+          reconcileProviderDirty(provider.id);
+          vscode.postMessage({
+            type: 'toggleProviderEnabled',
+            payload: { providerId: provider.id, enabled: provider.enabled }
+          });
+        } else {
+          reconcileProviderDirty(provider.id);
+          scheduleProviderAutosave(provider.id, 0);
+        }
+        renderAll();
+      });
+
       dom.providerName.addEventListener('input', () => {
         updateEditingProvider((provider) => {
           provider.name = dom.providerName.value;
         });
+        dom.providerPanelTitle.textContent = dom.providerName.value || runtimeState.strings.providerDraftName || '';
         scheduleProviderAutosave(providerEditorId, 450);
         renderAll();
+      });
+
+      document.getElementById('toggleApiKeyVisibility').addEventListener('click', function() {
+        var input = document.getElementById('apiKey');
+        var icon = this.querySelector('.codicon');
+        if (input.type === 'password') {
+          input.type = 'text';
+          icon.className = 'codicon codicon-eye-closed';
+        } else {
+          input.type = 'password';
+          icon.className = 'codicon codicon-eye';
+        }
       });
 
       dom.apiType.addEventListener('change', () => {

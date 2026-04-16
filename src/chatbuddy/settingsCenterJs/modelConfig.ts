@@ -518,7 +518,6 @@ export function getModelConfigJs(): string {
         const strings = runtimeState.strings || {};
         dom.addProviderBtn.textContent = strings.addProviderAction || '';
         dom.providerSearch.placeholder = strings.providerSearchPlaceholder || '';
-        dom.providerPanelTitle.textContent = strings.providerConfigSectionTitle || '';
         dom.saveProviderBtn.textContent = strings.saveProviderAction || '';
         dom.testConnectionBtn.textContent = strings.testConnectionAction || '';
         dom.fetchModelsBtn.textContent = strings.fetchModelsAction || '';
@@ -527,14 +526,10 @@ export function getModelConfigJs(): string {
         dom.apiTypeLabel.textContent = strings.providerApiTypeLabel || '';
         dom.apiKeyLabel.textContent = strings.apiKeyLabel || '';
         dom.baseUrlLabel.textContent = strings.baseUrlLabel || '';
-        dom.baseUrlHelp.textContent = strings.providerBaseUrlHelp || '';
-        dom.modelsPanelTitle.textContent = strings.providerModelsSectionTitle || '';
-        dom.modelsHelp.textContent = strings.providerModelsHelp || '';
+        dom.providerEnabledSwitchLabel.textContent = strings.providerEnabledSwitchLabel || '';
         dom.addManualModelBtn.textContent = strings.addManualModelAction || '';
         dom.manualModelsTitle.textContent = strings.providerManualModelsSectionTitle || '';
-        dom.manualModelsHelp.textContent = strings.providerManualModelsHelp || '';
         dom.fetchedModelsTitle.textContent = strings.providerFetchedModelsSectionTitle || '';
-        dom.fetchedModelsHelp.textContent = strings.providerFetchedModelsHelp || '';
         dom.fetchModelsModalTitle.textContent = strings.providerFetchModalTitle || '';
         dom.fetchModelsModalDescription.textContent = strings.providerFetchModalDescription || '';
         dom.fetchModelsModalSearch.placeholder = strings.providerFetchModalSearchPlaceholder || '';
@@ -574,10 +569,9 @@ export function getModelConfigJs(): string {
         dom.providerList.innerHTML = visibleProviders
           .map((provider) => {
             const active = provider.id === providerEditorId ? 'active' : '';
-            const statusClass = provider.enabled ? '' : 'off';
+            const statusClass = provider.enabled ? 'enabled' : 'disabled';
             const providerName = provider.name || runtimeState.strings.providerDraftName || '';
             const selectProviderTitle = (runtimeState.strings.selectProviderToEdit || '') + ': ' + providerName;
-            const providerEnabledTitle = (runtimeState.strings.providerEnabledSwitchLabel || '') + ': ' + providerName;
             return (
               '<div class="provider-item ' +
               active +
@@ -589,32 +583,16 @@ export function getModelConfigJs(): string {
               '">' +
               '<div class="provider-item-name">' +
               escapeHtml(providerName) +
+              '<span class="pill ' + statusClass + '">' +
+              escapeHtml(provider.enabled ? runtimeState.strings.providerEnabledStatus || '' : runtimeState.strings.providerDisabledStatus || '') +
+              '</span>' +
               '</div>' +
               '<div class="provider-item-meta">' +
               '<span class="pill">' +
               escapeHtml(provider.apiType) +
               '</span>' +
-              '<span class="pill ' +
-              statusClass +
-              '">' +
-              escapeHtml(provider.enabled ? runtimeState.strings.providerEnabledStatus || '' : runtimeState.strings.providerDisabledStatus || '') +
-              '</span>' +
               '</div>' +
               '</button>' +
-              '<label class="provider-item-toggle" title="' +
-              escapeHtml(providerEnabledTitle) +
-              '">' +
-              '<input type="checkbox" data-toggle-id="' +
-              escapeHtml(provider.id) +
-              '" title="' +
-              escapeHtml(providerEnabledTitle) +
-              '" ' +
-              (provider.enabled ? 'checked' : '') +
-              ' />' +
-              '<span>' +
-              escapeHtml(runtimeState.strings.providerEnabledSwitchLabel || '') +
-              '</span>' +
-              '</label>' +
               '</div>'
             );
           })
@@ -645,6 +623,8 @@ export function getModelConfigJs(): string {
         dom.apiType.value = provider ? provider.apiType : 'chat_completions';
         dom.apiKey.value = provider ? provider.apiKey : '';
         dom.baseUrl.value = provider ? provider.baseUrl : '';
+        dom.providerPanelTitle.textContent = provider ? (provider.name || strings.providerDraftName || '') : '';
+        dom.providerEnabledCheckbox.checked = provider ? provider.enabled : false;
       }
 
       function renderSelectedModelRow(model, sourceClass, sourceLabel, actionsHtml) {
@@ -654,11 +634,6 @@ export function getModelConfigJs(): string {
           '<div class="selected-model-title">' +
           '<span class="model-name">' +
           escapeHtml(model.name || model.id) +
-          '</span>' +
-          '<span class="source-pill ' +
-          sourceClass +
-          '">' +
-          escapeHtml(sourceLabel) +
           '</span>' +
           '</div>' +
           '<div class="model-desc">' +

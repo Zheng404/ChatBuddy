@@ -251,6 +251,36 @@ export function getSettingsCenterCss(): string {
         grid-column: 1 / -1;
       }
 
+      .field-input-with-action {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+
+      .field-input-with-action input {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .field-action {
+        flex-shrink: 0;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        background: var(--input-bg);
+        color: var(--muted);
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .field-action:hover {
+        color: var(--fg);
+      }
+
       label {
         font-size: 12px;
         color: var(--muted);
@@ -374,7 +404,7 @@ export function getSettingsCenterCss(): string {
         min-height: 0;
         overflow-y: auto;
         display: grid;
-        gap: 6px;
+        gap: 8px;
       }
 
       .provider-item {
@@ -382,11 +412,8 @@ export function getSettingsCenterCss(): string {
         border-radius: 10px;
         background: transparent;
         color: inherit;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 8px;
         align-items: center;
-        padding: 8px 10px;
+        padding: 12px 14px;
       }
 
       .provider-item:hover {
@@ -409,12 +436,32 @@ export function getSettingsCenterCss(): string {
       }
 
       .provider-item-name {
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .provider-item-name .pill {
+        font-size: 10px;
+        font-weight: 600;
+        padding: 1px 6px;
+        border-radius: 999px;
+      }
+
+      .provider-item-name .pill.enabled {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+      }
+
+      .provider-item-name .pill.disabled {
+        background: rgba(107, 114, 128, 0.15);
+        color: #6b7280;
       }
 
       .provider-item-meta {
-        margin-top: 4px;
+        margin-top: 8px;
         display: flex;
         align-items: center;
         gap: 8px;
@@ -498,6 +545,32 @@ export function getSettingsCenterCss(): string {
         margin-bottom: 12px;
       }
 
+      .panel-header-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .panel-header-left .panel-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .provider-enabled-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
       .provider-save-status {
         min-height: 24px;
         border: 1px solid transparent;
@@ -558,6 +631,11 @@ export function getSettingsCenterCss(): string {
         justify-content: space-between;
         gap: 8px;
         margin-bottom: 8px;
+      }
+
+      .model-section-actions {
+        display: flex;
+        gap: 6px;
       }
 
       .model-section-title {
