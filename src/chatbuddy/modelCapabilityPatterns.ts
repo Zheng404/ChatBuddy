@@ -8,17 +8,17 @@ type PatternResult = {
 // ── Kind patterns (output type) ──────────────────────────────
 
 const EMBEDDING_PATTERN = /(?:^text-|embed|bge-|e5-|retrieval|uae-|gte-|jina-clip|jina-embeddings|voyage-)/i;
-const RERANK_PATTERN = /(?:rerank|re-rank|re-ranker|re-ranking)/i;
-const IMAGE_GEN_PATTERN = /(?:dall-e|stable-diffusion|midjourney|flux|cogview|imagen|sd3|sdxl|playground|ideogram|image-generation)/i;
-const AUDIO_PATTERN = /(?:whisper|tts[-_]?1|speech|bark|elevenlabs)/i;
-const VIDEO_PATTERN = /(?:runway|kling|pika|sora|cogvideo|stable-video|animate|video-generation)/i;
+const RERANK_PATTERN = /(?:^rerank|re-rank|re-ranker|re-ranking)/i;
+const IMAGE_GEN_PATTERN = /(?:dall-e|stable-diffusion|midjourney|flux|cogview|imagen|sd3|sdxl|playground|ideogram|image-generation|gpt-image|grok-imagine-image|nova-canvas)/i;
+const AUDIO_PATTERN = /(?:whisper|tts[-_]?1|speech|bark|elevenlabs|gpt-realtime|gpt-audio|gpt-4o-transcribe|gpt-4o-mini-tts|voxtral)/i;
+const VIDEO_PATTERN = /(?:runway|kling|pika|sora|cogvideo|stable-video|animate|video-generation|grok-imagine-video|nova-reel|veo)/i;
 
 // ── Ability patterns (functional capabilities) ──────────────
 
-const VISION_PATTERN = /\b(vision|vl|4o|4-turbo|claude-3|claude-4|gemini-1\.5|gemini-2|gemini-3|glm-4v|llava|minicpm|pixtral|qwq-vl)\b/i;
-const REASONING_PATTERN = /^(?!.*-non-reasoning\b)(?:.*\b(?:o1|o3|o4|r1|reasoning|reasoner|think|qwq|zero-preview|deepthink|hunyuan-t1|z1)\b.*)$/i;
-const TOOLS_PATTERN = /\b(gpt-4|claude|gemini-1\.5|gemini-2|gemini-3|qwen|doubao|grok|llama-3|llama-4|mixtral|mistral|command-r|kimi)\b/i;
-const WEBSEARCH_PATTERN = /\b(sonar|perplexity)\b/i;
+const VISION_PATTERN = /\b(vision|vl[-_]?|4o(?!-mini-tts|-transcribe)|claude-3|claude-4|claude-opus|claude-sonnet|claude-haiku|gemini-1\.5|gemini-2|gemini-3|glm-4v|glm-5v|llava|minicpm|pixtral|qwq-vl|kimi-k2\.5|nova-premier|nova-pro|nova-lite|llama-4|grok-4|step-r1-v)\b/i;
+const REASONING_PATTERN = /^(?!.*(?:-non-reasoning|mini-tts|transcribe)\b)(?:.*\b(?:o1|o3|o4|r1|reasoning|reasoner|think(?!ing-turbo)|qwq|zero-preview|deepthink|hunyuan-t1|z1|magistral|spark-x2|glm-5|step-3)\b.*)$/i;
+const TOOLS_PATTERN = /\b(gpt-4|gpt-5|claude|gemini|qwen|doubao|grok[-_]?[34]|llama-[34]|mixtral|mistral|command-[-ra]|kimi[-_]k|minimax|deepseek|hunyuan|step-|spark-|nova-premier|nova-pro|nova-lite|nova-micro|devstral|codestral)\b/i;
+const WEBSEARCH_PATTERN = /\b(sonar|perplexity|web[-_]?search)\b/i;
 
 /**
  * Infer model kind and capabilities from model ID via regex patterns.
