@@ -408,16 +408,7 @@ export function getChatUiScript(): string {
           if (!option || !option.ref || modelMap.has(option.ref)) {
             return;
           }
-          const caps = option.capabilities;
-          const capSuffix = caps && (caps.vision || caps.reasoning || caps.tools || caps.webSearch)
-            ? ' [' + [
-                caps.vision ? state.strings.capabilityVision : '',
-                caps.reasoning ? state.strings.capabilityReasoning : '',
-                caps.tools ? state.strings.capabilityTools : '',
-                caps.webSearch ? state.strings.capabilityWebSearch : ''
-              ].filter(Boolean).join(', ') + ']'
-            : '';
-          modelMap.set(option.ref, (option.label || option.ref) + capSuffix);
+          modelMap.set(option.ref, (option.label || option.ref) + (option.metaLabel || ''));
         });
         if (activeModelRef && !modelMap.has(activeModelRef)) {
           modelMap.set(activeModelRef, assistantModelLabel);

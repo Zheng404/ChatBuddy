@@ -331,6 +331,7 @@ export const EN_RUNTIME_STRINGS: RuntimeStrings = {
     capabilityReasoning: 'Reasoning',
     capabilityTools: 'Tools',
     capabilityWebSearch: 'Web Search',
+    modelKindLabel: 'Model Type',
     modelKindChat: 'Text',
     modelKindImage: 'Image',
     modelKindVideo: 'Video',

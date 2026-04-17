@@ -16,23 +16,9 @@ export function getDefaultModelsJs(defaultTitleSummaryPrompt: string): string {
         const invalidRef = runtimeState.invalidDefaultSelection || '';
         const options = [{ ref: '', label: strings.noneOption || '' }]
           .concat((runtimeState.modelOptions || []).map((option) => {
-            const caps = option.capabilities;
-            const capSuffix =
-              caps && (caps.vision || caps.reasoning || caps.tools || caps.webSearch)
-                ? ' [' +
-                  [
-                    caps.vision ? strings.capabilityVision : '',
-                    caps.reasoning ? strings.capabilityReasoning : '',
-                    caps.tools ? strings.capabilityTools : '',
-                    caps.webSearch ? strings.capabilityWebSearch : ''
-                  ]
-                    .filter(Boolean)
-                    .join(', ') +
-                  ']'
-                : '';
             return {
               ref: option.ref,
-              label: option.label + capSuffix
+              label: option.label + (option.metaLabel || '')
             };
           }))
           .concat(invalidRef ? [{ ref: invalidRef, label: invalidRef + ' (' + strings.modelUnavailableShort + ')' }] : []);

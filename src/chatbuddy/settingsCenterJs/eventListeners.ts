@@ -400,10 +400,16 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         const action = actionTarget.getAttribute('data-model-action');
         const modelId = actionTarget.getAttribute('data-model-id');
         const provider = getEditingProvider();
-        if (!provider || action !== 'delete' || !modelId) {
+        if (!provider || !action || !modelId) {
           return;
         }
-        removeProviderModel(provider.id, modelId);
+        if (action === 'edit') {
+          openManualModelModal('edit', modelId);
+          return;
+        }
+        if (action === 'delete') {
+          removeProviderModel(provider.id, modelId);
+        }
         renderAll();
       });
 
@@ -453,30 +459,33 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         manualModelModalState.draft.name = dom.manualModelName.value;
       });
 
-      dom.manualModelCapabilities.addEventListener('click', (event) => {
+      dom.manualModelKind.addEventListener('change', () => {
+        if (!manualModelModalState) {
+          return;
+        }
+        manualModelModalState.draft.kind = dom.manualModelKind.value || 'chat';
+      });
+
+      dom.manualModelCapabilities.addEventListener('change', (event) => {
         const target = event.target;
-        if (!(target instanceof HTMLElement) || !manualModelModalState) {
+        if (!(target instanceof HTMLInputElement) || !manualModelModalState) {
           return;
         }
-        const trigger = target.closest('[data-manual-model-cap]');
-        if (!(trigger instanceof HTMLElement)) {
-          return;
-        }
-        const capKey = trigger.getAttribute('data-manual-model-cap');
+        const capKey = target.getAttribute('data-cap');
         if (!capKey) {
           return;
         }
         if (!manualModelModalState.draft.capabilities) {
           manualModelModalState.draft.capabilities = {};
         }
-        manualModelModalState.draft.capabilities[capKey] = !manualModelModalState.draft.capabilities[capKey];
-        if (!manualModelModalState.draft.capabilities[capKey]) {
+        if (target.checked) {
+          manualModelModalState.draft.capabilities[capKey] = true;
+        } else {
           delete manualModelModalState.draft.capabilities[capKey];
         }
         if (Object.keys(manualModelModalState.draft.capabilities).length === 0) {
           manualModelModalState.draft.capabilities = undefined;
         }
-        renderManualModelModal();
       });
 
       dom.cancelManualModelBtn.addEventListener('click', () => {

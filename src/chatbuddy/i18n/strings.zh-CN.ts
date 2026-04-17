@@ -314,6 +314,7 @@ export const ZH_CN_RUNTIME_STRINGS: RuntimeStrings = {
     capabilityReasoning: '推理',
     capabilityTools: '工具',
     capabilityWebSearch: '联网',
+    modelKindLabel: '模型类型',
     modelKindChat: '文本',
     modelKindImage: '图像',
     modelKindVideo: '视频',

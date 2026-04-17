@@ -69,28 +69,28 @@ function normalizeModelProfile(raw: Partial<ProviderModelProfile> | string): Pro
     return undefined;
   }
   const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : id;
-  const existingKind = typeof raw.kind === 'string' ? (raw.kind as ModelKind) : undefined;
-  const rawCaps = typeof raw === 'object' ? (raw as Partial<ProviderModelProfile>).capabilities : undefined;
-  const migratedCaps = stripLegacyCapabilityFields(rawCaps);
-  return {
+  const rawObj = raw as Partial<ProviderModelProfile>;
+  // User overrides are the ONLY persisted kind/capabilities we trust.
+  // Everything else is resolved fresh from registry/patterns at load time.
+  const userKindOverride = rawObj.userKindOverride;
+  const userCapabilitiesOverride = rawObj.userCapabilitiesOverride;
+  const resolvedKind = userKindOverride || resolveKind(id);
+  const resolvedCapabilities = resolveCapabilities(id, userCapabilitiesOverride);
+  const result: ProviderModelProfile = {
     id,
     name,
-    kind: existingKind || resolveKind(id),
-    capabilities: resolveCapabilities(id, migratedCaps),
-    source: normalizeModelSource((raw as Partial<ProviderModelProfile>).source)
+    kind: resolvedKind,
+    capabilities: resolvedCapabilities,
+    source: normalizeModelSource(rawObj.source)
   };
-}
-
-function stripLegacyCapabilityFields(caps: ModelCapabilities | undefined): ModelCapabilities | undefined {
-  if (!caps || typeof caps !== 'object') {
-    return caps;
+  // Preserve user overrides for next save cycle
+  if (userKindOverride) {
+    result.userKindOverride = userKindOverride;
   }
-  const cleaned: ModelCapabilities = {};
-  if (caps.vision) { cleaned.vision = true; }
-  if (caps.reasoning) { cleaned.reasoning = true; }
-  if (caps.tools) { cleaned.tools = true; }
-  if (caps.webSearch) { cleaned.webSearch = true; }
-  return Object.keys(cleaned).length ? cleaned : undefined;
+  if (userCapabilitiesOverride) {
+    result.userCapabilitiesOverride = userCapabilitiesOverride;
+  }
+  return result;
 }
 
 export function dedupeModels(models: Array<Partial<ProviderModelProfile> | string>): ProviderModelProfile[] {
@@ -105,17 +105,17 @@ export function dedupeModels(models: Array<Partial<ProviderModelProfile> | strin
   return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id, 'en'));
 }
 
-export function getProviderModelOptions(providers: ProviderProfile[], includeDisabled = false): ProviderModelOption[] {
+export function getProviderModelOptions(
+  providers: ProviderProfile[],
+  includeDisabled = false,
+  strings?: Record<string, string>
+): ProviderModelOption[] {
   const options: ProviderModelOption[] = [];
   for (const provider of providers) {
     if (!includeDisabled && !provider.enabled) {
       continue;
     }
     for (const model of provider.models) {
-      // Skip non-chat models (embedding, rerank, image, video, audio) from chat model selectors
-      if (model.kind && model.kind !== 'chat') {
-        continue;
-      }
       options.push({
         ref: createModelRef(provider.id, model.id),
         providerId: provider.id,
@@ -123,7 +123,8 @@ export function getProviderModelOptions(providers: ProviderProfile[], includeDis
         modelId: model.id,
         label: getModelDisplayLabel(model.id, provider.name),
         kind: model.kind,
-        capabilities: model.capabilities
+        capabilities: model.capabilities,
+        metaLabel: buildMetaLabel(model.kind, model.capabilities, strings)
       });
     }
   }
@@ -198,4 +199,30 @@ export function capabilityLabelSuffix(caps: ModelCapabilities | undefined, strin
     tags.push(strings.capabilityWebSearch);
   }
   return tags.length ? ' [' + tags.join(', ') + ']' : '';
+}
+
+/**
+ * Build a display suffix like "[Text | Vision, Tools]" for model dropdowns.
+ * Format: [kind | cap1, cap2] — kind omitted when chat, caps omitted when none.
+ */
+function buildMetaLabel(
+  kind: ModelKind | undefined,
+  caps: ModelCapabilities | undefined,
+  strings?: Record<string, string>
+): string {
+  let kindLabel = '';
+  const effectiveKind = kind || 'chat';
+  if (strings) {
+    kindLabel = strings['modelKind' + effectiveKind.charAt(0).toUpperCase() + effectiveKind.slice(1)] || '';
+  }
+  const capParts: string[] = [];
+  if (caps && strings) {
+    if (caps.vision) { capParts.push(strings.capabilityVision || ''); }
+    if (caps.reasoning) { capParts.push(strings.capabilityReasoning || ''); }
+    if (caps.tools) { capParts.push(strings.capabilityTools || ''); }
+    if (caps.webSearch) { capParts.push(strings.capabilityWebSearch || ''); }
+  }
+  const capStr = capParts.filter(Boolean).join(', ');
+  const inner = [kindLabel, capStr].filter(Boolean).join(' | ');
+  return inner ? ' [' + inner + ']' : '';
 }

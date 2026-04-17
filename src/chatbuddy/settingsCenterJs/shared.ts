@@ -93,6 +93,8 @@ export function getSharedJs(): string {
         manualModelName: document.getElementById('manualModelName'),
         manualModelCapabilitiesLabel: document.getElementById('manualModelCapabilitiesLabel'),
         manualModelCapabilities: document.getElementById('manualModelCapabilities'),
+        manualModelKindLabel: document.getElementById('manualModelKindLabel'),
+        manualModelKind: document.getElementById('manualModelKind'),
         cancelManualModelBtn: document.getElementById('cancelManualModelBtn'),
         saveManualModelBtn: document.getElementById('saveManualModelBtn'),
         testModelModal: document.getElementById('testModelModal'),

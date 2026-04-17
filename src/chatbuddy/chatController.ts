@@ -81,7 +81,7 @@ export class ChatController {
   ) {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? this.repository.getSettings().streamingDefault;
-    this.modelOptions = this.repository.getModelOptions();
+    this.modelOptions = this.repository.getModelOptions(false, this.getRuntimeStrings());
     this.panelManager = new ChatPanelManager({
       repository: this.repository,
       extensionUri: this.extensionUri,
@@ -162,6 +162,10 @@ export class ChatController {
 
   private getLocale(): RuntimeLocale {
     return getLocaleFromSettings(this.repository.getSettings());
+  }
+
+  private getRuntimeStrings(): Record<string, string> {
+    return getStrings(this.getLocale()) as unknown as Record<string, string>;
   }
 
   private getPayloadBaseState(): PayloadBaseCache['state'] {
@@ -321,7 +325,7 @@ export class ChatController {
     this.repository.updateSettings(settings);
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? settings.streamingDefault;
-    this.modelOptions = this.repository.getModelOptions();
+    this.modelOptions = this.repository.getModelOptions(false, this.getRuntimeStrings());
     this.postState();
   }
 

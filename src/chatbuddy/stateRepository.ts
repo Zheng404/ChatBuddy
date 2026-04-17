@@ -181,8 +181,8 @@ export class ChatStateRepository {
     return this.state.settings.locale;
   }
 
-  public getModelOptions(includeDisabled = false): ProviderModelOption[] {
-    return getProviderModelOptions(this.state.settings.providers, includeDisabled);
+  public getModelOptions(includeDisabled = false, strings?: Record<string, string>): ProviderModelOption[] {
+    return getProviderModelOptions(this.state.settings.providers, includeDisabled, strings);
   }
 
   public resolveModelOption(modelRef: string | undefined): ProviderModelOption | undefined {

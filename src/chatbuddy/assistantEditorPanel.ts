@@ -321,7 +321,7 @@ export class AssistantEditorPanelController {
 
   private collectModelOptions(assistant: AssistantProfile): ProviderModelOption[] {
     const strings = this.getStrings();
-    const options = this.repository.getModelOptions();
+    const options = this.repository.getModelOptions(false, strings as unknown as Record<string, string>);
     const resolvedCurrent = this.repository.resolveModelOption(assistant.modelRef);
     if (resolvedCurrent) {
       return options;
@@ -830,16 +830,7 @@ ${getHtmlEscaperScript()}
           return '<option value="' + escapeHtml(group.id) + '">' + escapeHtml(group.name) + '</option>';
         }).join('');
         dom.modelRef.innerHTML = (state.models || []).map((model) => {
-          const caps = model.capabilities;
-          const capSuffix = caps && (caps.vision || caps.reasoning || caps.tools || caps.webSearch)
-            ? ' [' + [
-                caps.vision ? state.strings.capabilityVision : '',
-                caps.reasoning ? state.strings.capabilityReasoning : '',
-                caps.tools ? state.strings.capabilityTools : '',
-                caps.webSearch ? state.strings.capabilityWebSearch : ''
-              ].filter(Boolean).join(', ') + ']'
-            : '';
-          return '<option value="' + escapeHtml(model.ref) + '">' + escapeHtml(model.label + capSuffix) + '</option>';
+          return '<option value="' + escapeHtml(model.ref) + '">' + escapeHtml(model.label + (model.metaLabel || '')) + '</option>';
         }).join('');
         dom.mcpServerCheckList.innerHTML = (state.mcpServers || []).map((server) => {
           const transportLabel = server.transport === 'streamableHttp'

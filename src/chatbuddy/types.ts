@@ -53,9 +53,15 @@ export interface ModelCapabilities {
 export interface ProviderModelProfile {
   id: string;
   name: string;
+  /** Runtime-resolved model type (from API / registry / patterns). Not persisted unless user overrides. */
   kind?: ModelKind;
+  /** Runtime-resolved capabilities. Not persisted unless user overrides. */
   capabilities?: ModelCapabilities;
   source?: ProviderModelSource;
+  /** User manual override for kind — persisted across sessions. */
+  userKindOverride?: ModelKind;
+  /** User manual override for capabilities — persisted across sessions. */
+  userCapabilitiesOverride?: ModelCapabilities;
 }
 
 export interface ProviderProfile {
@@ -89,6 +95,8 @@ export interface ProviderModelOption {
   label: string;
   kind?: ModelKind;
   capabilities?: ModelCapabilities;
+  /** Pre-built "[Kind | Caps]" suffix for dropdown display */
+  metaLabel?: string;
 }
 
 export interface AssistantGroup {

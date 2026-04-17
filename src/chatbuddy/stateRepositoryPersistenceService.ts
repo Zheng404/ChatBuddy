@@ -5,7 +5,7 @@ import { ChatStorage } from './chatStorage';
 import { cloneMcpSettings } from './stateClone';
 import { parsePersistedStateLiteStore, parseProviderApiKeysStore } from './stateHelpers';
 import { mergePersistedState } from './stateRepositoryImportExport';
-import { PersistedStateLite } from './types';
+import { PersistedStateLite, ProviderModelProfile } from './types';
 import { error } from './utils';
 
 export const SQLITE_STATE_KEY = 'chatbuddy.sqlite.state.v1';
@@ -20,6 +20,23 @@ type PersistenceServiceContext = {
   setProviderApiKeys: (providerApiKeys: Record<string, string>) => void;
   bumpVersion: () => void;
 };
+
+/**
+ * Strip runtime-resolved kind/capabilities before persisting to DB.
+ * Only user overrides (userKindOverride / userCapabilitiesOverride) are kept.
+ * Returns a plain object for JSON serialization (not a ProviderModelProfile).
+ */
+function stripTransientModelFields(model: ProviderModelProfile): object {
+  const { kind: _kind, capabilities: _caps, userKindOverride, userCapabilitiesOverride, ...rest } = model;
+  const result: object = { ...rest };
+  if (userKindOverride) {
+    (result as Record<string, unknown>).userKindOverride = userKindOverride;
+  }
+  if (userCapabilitiesOverride) {
+    (result as Record<string, unknown>).userCapabilitiesOverride = userCapabilitiesOverride;
+  }
+  return result;
+}
 
 export class StatePersistenceService {
   private persistQueue: Promise<void> = Promise.resolve();
@@ -84,8 +101,8 @@ export class StatePersistenceService {
           providers: state.settings.providers.map((provider) => ({
             ...provider,
             apiKey: '',
-            models: provider.models.map((model) => ({ ...model }))
-          }))
+            models: provider.models.map(stripTransientModelFields)
+          })) as PersistedStateLite['settings']['providers']
         }
       };
       this.context.storage.setKv(SQLITE_STATE_KEY, JSON.stringify(persistedState), false);

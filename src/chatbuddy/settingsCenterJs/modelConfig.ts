@@ -64,13 +64,20 @@ export function getModelConfigJs(): string {
           return undefined;
         }
         const name = String(model.name || id).trim() || id;
-        return {
+        const result = {
           id: id,
           name: name,
           kind: model.kind || 'chat',
           capabilities: cloneCapabilities(model.capabilities),
           source: normalizeModelSource(model.source, fallbackSource || 'manual')
         };
+        if (model.userKindOverride) {
+          result.userKindOverride = model.userKindOverride;
+        }
+        if (model.userCapabilitiesOverride) {
+          result.userCapabilitiesOverride = model.userCapabilitiesOverride;
+        }
+        return result;
       }
 
       function mergeModels(models, fallbackSource) {
@@ -429,10 +436,12 @@ export function getModelConfigJs(): string {
             const attrs = interactivePrefix
               ? ' data-' + interactivePrefix + '-cap="' + escapeHtml(cap.key) + '"'
               : '';
+            const checkCls = interactivePrefix ? ' cap-check' : '';
             return (
               '<button class="cap-pill ' +
               cap.cls +
               active +
+              checkCls +
               '" type="button"' +
               attrs +
               ' title="' +
@@ -557,6 +566,7 @@ export function getModelConfigJs(): string {
         dom.closeFetchModelsModalBtn.textContent = strings.providerFetchModalCloseAction || strings.cancelAction || '';
         dom.manualModelIdLabel.textContent = strings.manualModelIdLabel || '';
         dom.manualModelNameLabel.textContent = strings.manualModelNameLabel || '';
+        dom.manualModelKindLabel.textContent = strings.modelKindLabel || '';
         dom.manualModelCapabilitiesLabel.textContent = strings.manualModelCapabilitiesLabel || '';
         dom.cancelManualModelBtn.textContent = strings.cancelAction || '';
         dom.saveManualModelBtn.textContent = strings.saveAction || '';
@@ -730,6 +740,11 @@ export function getModelConfigJs(): string {
         dom.fetchedModelsList.innerHTML = models
           .map((model) => {
             const actions =
+              '<button class="btn-secondary" type="button" data-model-action="edit" data-model-id="' +
+              escapeHtml(model.id) +
+              '">' +
+              escapeHtml(runtimeState.strings.editManualModelAction || '') +
+              '</button>' +
               '<button class="btn-danger" type="button" data-model-action="delete" data-model-id="' +
               escapeHtml(model.id) +
               '">' +
@@ -844,9 +859,14 @@ export function getModelConfigJs(): string {
         if (!manualModelModalState) {
           dom.manualModelModal.classList.remove('visible');
           dom.manualModelModal.setAttribute('aria-hidden', 'true');
-          dom.manualModelCapabilities.innerHTML = '';
           dom.manualModelId.value = '';
+          dom.manualModelId.readOnly = false;
+          dom.manualModelId.classList.remove('readonly');
           dom.manualModelName.value = '';
+          dom.manualModelKind.value = 'chat';
+          for (const cb of dom.manualModelCapabilities.querySelectorAll('input[type="checkbox"]')) {
+            cb.checked = false;
+          }
           return;
         }
 
@@ -856,10 +876,41 @@ export function getModelConfigJs(): string {
             : strings.manualModelDialogCreateTitle || '';
         dom.manualModelId.value = manualModelModalState.draft.id || '';
         dom.manualModelName.value = manualModelModalState.draft.name || '';
-        dom.manualModelCapabilities.innerHTML = renderCapabilityPills(
-          manualModelModalState.draft.capabilities,
-          'manual-model'
-        );
+        // Fetched models: lock ID field
+        const isFetched = manualModelModalState.originalSource === 'fetched';
+        dom.manualModelId.readOnly = isFetched;
+        dom.manualModelId.classList.toggle('readonly', isFetched);
+        // Kind selector
+        const currentKind = manualModelModalState.draft.kind || 'chat';
+        dom.manualModelKind.value = currentKind;
+        // Update kind option labels from i18n
+        for (const opt of dom.manualModelKind.options) {
+          const kindKey = opt.value;
+          switch (kindKey) {
+            case 'chat': opt.textContent = strings.modelKindChat || 'Text'; break;
+            case 'image': opt.textContent = strings.modelKindImage || 'Image'; break;
+            case 'video': opt.textContent = strings.modelKindVideo || 'Video'; break;
+            case 'audio': opt.textContent = strings.modelKindAudio || 'Audio'; break;
+            case 'embedding': opt.textContent = strings.modelKindEmbedding || 'Embedding'; break;
+            case 'rerank': opt.textContent = strings.modelKindRerank || 'Rerank'; break;
+          }
+        }
+        // Sync checkbox states from draft capabilities
+        const caps = manualModelModalState.draft.capabilities || {};
+        for (const cb of dom.manualModelCapabilities.querySelectorAll('input[type="checkbox"]')) {
+          const key = cb.getAttribute('data-cap');
+          cb.checked = !!caps[key];
+        }
+        // Update checkbox labels from i18n
+        for (const desc of getCapabilityDescriptors()) {
+          const cb = dom.manualModelCapabilities.querySelector('input[data-cap="' + desc.key + '"]');
+          if (cb) {
+            const span = cb.nextElementSibling;
+            if (span) {
+              span.textContent = desc.label;
+            }
+          }
+        }
         dom.manualModelModal.classList.add('visible');
         dom.manualModelModal.setAttribute('aria-hidden', 'false');
       }
@@ -1082,7 +1133,9 @@ export function getModelConfigJs(): string {
           return;
         }
         if (mode === 'edit') {
-          const model = getManualModels(provider).find((item) => item.id === modelId);
+          // Search across all models (both manual and fetched)
+          const allModels = mergeModels(provider && provider.models, 'manual');
+          const model = allModels.find((item) => item.id === modelId);
           if (!model) {
             return;
           }
@@ -1090,11 +1143,13 @@ export function getModelConfigJs(): string {
             mode: 'edit',
             providerId: provider.id,
             originalModelId: model.id,
+            originalSource: model.source,
             draft: {
               id: model.id,
               name: model.name || model.id,
+              kind: model.kind || model.userKindOverride || 'chat',
               capabilities: cloneCapabilities(model.capabilities),
-              source: 'manual'
+              source: model.source
             }
           };
         } else {
@@ -1105,6 +1160,7 @@ export function getModelConfigJs(): string {
             draft: {
               id: '',
               name: '',
+              kind: undefined,
               capabilities: undefined,
               source: 'manual'
             }
@@ -1118,6 +1174,8 @@ export function getModelConfigJs(): string {
         manualModelModalState = null;
         dom.manualModelModal.classList.remove('visible');
         dom.manualModelModal.setAttribute('aria-hidden', 'true');
+        dom.manualModelId.readOnly = false;
+        dom.manualModelId.classList.remove('readonly');
       }
 
       function saveManualModel() {
@@ -1129,30 +1187,43 @@ export function getModelConfigJs(): string {
           closeManualModelModal();
           return;
         }
-        const nextId = String(dom.manualModelId.value || '').trim();
+        const isFetched = manualModelModalState.originalSource === 'fetched';
+        // Fetched models keep their original ID
+        const nextId = isFetched
+          ? manualModelModalState.originalModelId
+          : String(dom.manualModelId.value || '').trim();
         const nextName = String(dom.manualModelName.value || '').trim();
         if (!nextId) {
           showToast(runtimeState.strings.manualModelIdRequired || '', 'error');
           dom.manualModelId.focus();
           return;
         }
-        const duplicated = (provider.models || []).some((model) => {
-          if (!model || model.id === manualModelModalState.originalModelId) {
-            return false;
+        if (!isFetched) {
+          const duplicated = (provider.models || []).some((model) => {
+            if (!model || model.id === manualModelModalState.originalModelId) {
+              return false;
+            }
+            return model.id === nextId;
+          });
+          if (duplicated) {
+            showToast(runtimeState.strings.manualModelIdDuplicated || '', 'error');
+            dom.manualModelId.focus();
+            return;
           }
-          return model.id === nextId;
-        });
-        if (duplicated) {
-          showToast(runtimeState.strings.manualModelIdDuplicated || '', 'error');
-          dom.manualModelId.focus();
-          return;
         }
 
+        const draftKind = manualModelModalState.draft.kind || undefined;
+        const draftCaps = cloneCapabilities(manualModelModalState.draft.capabilities);
+        const originalSource = manualModelModalState.originalSource || manualModelModalState.draft.source || 'manual';
         const nextModel = {
           id: nextId,
           name: nextName || nextId,
-          capabilities: cloneCapabilities(manualModelModalState.draft.capabilities),
-          source: 'manual'
+          kind: draftKind,
+          capabilities: draftCaps,
+          // Mark user-edited kind/capabilities as overrides for persistence
+          userKindOverride: draftKind,
+          userCapabilitiesOverride: draftCaps,
+          source: originalSource
         };
 
         const previousSelectedTestModel = testModelByProviderId[provider.id];

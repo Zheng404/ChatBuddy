@@ -309,6 +309,12 @@ export function getSettingsCenterCss(): string {
         font: inherit;
       }
 
+      input.readonly {
+        opacity: 0.6;
+        cursor: not-allowed;
+        background: var(--input-bg);
+      }
+
       .help {
         color: var(--muted);
         font-size: 12px;
@@ -704,8 +710,7 @@ export function getSettingsCenterCss(): string {
         padding: 0 6px;
         font-size: 10px;
         line-height: 16px;
-        color: var(--muted);
-        opacity: 0.42;
+        color: var(--fg);
         cursor: pointer;
         user-select: none;
       }
@@ -715,7 +720,6 @@ export function getSettingsCenterCss(): string {
       }
 
       .cap-pill.active {
-        opacity: 1;
       }
 
       .cap-pill.active.cap-vision { border-color: var(--color-info); color: var(--color-info); }
@@ -808,15 +812,28 @@ export function getSettingsCenterCss(): string {
         background: color-mix(in srgb, var(--bg) 98%, white 2%);
       }
 
-      .capability-editor {
+      .capability-checks {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px;
+        gap: 8px 16px;
       }
 
-      .capability-editor .cap-pill {
-        line-height: 24px;
-        padding: 0 10px;
+      .capability-checks .cap-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--fg);
+        cursor: pointer;
+        font-size: 12px;
+        user-select: none;
+      }
+
+      .capability-checks .cap-check input[type="checkbox"] {
+        width: 15px;
+        height: 15px;
+        margin: 0;
+        cursor: pointer;
+        accent-color: var(--accent);
       }
 
       .modal-backdrop {

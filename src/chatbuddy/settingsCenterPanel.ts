@@ -644,7 +644,9 @@ export class SettingsCenterPanelController {
     const strings = this.getStrings();
     const settings = this.repository.getSettings();
     const modelOptions = getProviderModelOptions(
-      mergeModelBindingsIntoProviders(settings.providers, [settings.defaultModels.assistant, settings.defaultModels.titleSummary])
+      mergeModelBindingsIntoProviders(settings.providers, [settings.defaultModels.assistant, settings.defaultModels.titleSummary]),
+      false,
+      strings as unknown as Record<string, string>
     );
     const currentDefaultRef = toModelRef(settings.defaultModels.assistant);
     const invalidDefaultSelection =
@@ -949,8 +951,24 @@ export class SettingsCenterPanelController {
             <input id="manualModelName" type="text" />
           </div>
           <div class="field full">
+            <label for="manualModelKind" id="manualModelKindLabel"></label>
+            <select id="manualModelKind">
+              <option value="chat">Text</option>
+              <option value="image">Image</option>
+              <option value="video">Video</option>
+              <option value="audio">Audio</option>
+              <option value="embedding">Embedding</option>
+              <option value="rerank">Rerank</option>
+            </select>
+          </div>
+          <div class="field full">
             <label id="manualModelCapabilitiesLabel"></label>
-            <div class="capability-editor" id="manualModelCapabilities"></div>
+            <div class="capability-checks" id="manualModelCapabilities">
+              <label class="cap-check"><input type="checkbox" data-cap="vision" /><span></span></label>
+              <label class="cap-check"><input type="checkbox" data-cap="reasoning" /><span></span></label>
+              <label class="cap-check"><input type="checkbox" data-cap="tools" /><span></span></label>
+              <label class="cap-check"><input type="checkbox" data-cap="webSearch" /><span></span></label>
+            </div>
           </div>
         </div>
         <div class="panel-actions">
