@@ -22,7 +22,7 @@ import {
   ProviderProfile,
   RuntimeStrings
 } from './types';
-import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp, toErrorMessage } from './utils';
+import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp, toErrorMessage, warn } from './utils';
 
 export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp';
 
@@ -196,7 +196,12 @@ export class SettingsCenterPanelController {
       });
       this.panel.webview.html = this.getHtml(this.panel.webview);
       const messageListener = this.panel.webview.onDidReceiveMessage((message: SettingsCenterMessage) => {
-        void this.handleMessage(message);
+        this.handleMessage(message).catch((err) => {
+          const name = err instanceof Error ? err.name : '';
+          if (name !== 'Canceled' && name !== 'AbortError') {
+            warn('Settings center message error:', err);
+          }
+        });
       });
       this.panel.onDidDispose(() => {
         messageListener.dispose();
@@ -204,7 +209,7 @@ export class SettingsCenterPanelController {
       });
       this.updatePanelPresentation();
       this.postState();
-      void this.probeAllMcpServers();
+      void this.probeAllMcpServers().catch(() => {});
       return;
     }
 
@@ -310,13 +315,13 @@ export class SettingsCenterPanelController {
     }
 
     if (message.type === 'probeMcpServers') {
-      void this.probeAllMcpServers();
+      void this.probeAllMcpServers().catch(() => {});
       return;
     }
 
     if (message.type === 'testMcpServer') {
       const server = message.payload.server;
-      void this.probeSingleMcpServer(server);
+      void this.probeSingleMcpServer(server).catch(() => {});
       return;
     }
 
@@ -592,7 +597,7 @@ export class SettingsCenterPanelController {
   }
 
   private postMessage(message: SettingsCenterOutbound): void {
-    void this.panel?.webview.postMessage(message);
+    void this.panel?.webview.postMessage(message).then(undefined, () => {});
   }
 
   private async probeAllMcpServers(): Promise<void> {

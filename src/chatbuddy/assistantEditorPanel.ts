@@ -213,7 +213,7 @@ export class AssistantEditorPanelController {
             payload: {
               icon: selected
             }
-          });
+          }).then(undefined, () => {});
           return;
         }
         if (message.type === 'save') {
@@ -380,7 +380,7 @@ export class AssistantEditorPanelController {
       })),
       notice
     };
-    void this.panel.webview.postMessage({ type: 'state', payload });
+    void this.panel.webview.postMessage({ type: 'state', payload }).then(undefined, () => {});
   }
 
   private getHtml(webview: vscode.Webview): string {

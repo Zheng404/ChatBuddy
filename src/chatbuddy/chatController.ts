@@ -31,7 +31,7 @@ import {
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
-import { getLocaleFromSettings, toErrorMessage } from './utils';
+import { getLocaleFromSettings, toErrorMessage, warn } from './utils';
 import { STREAM_STATE_POST_INTERVAL_MS } from './streamAccumulator';
 
 export type PanelMessageContext = ToolOrchestratorPanelContext;
@@ -326,6 +326,7 @@ export class ChatController {
   }
 
   private async handleWebviewMessage(message: WebviewInboundMessage, context?: PanelMessageContext): Promise<void> {
+    try {
     if (context?.panel) {
       this.panelManager.setActivePanel(context.panel);
     }
@@ -368,6 +369,14 @@ export class ChatController {
       stopGeneration: (reason) => this.stopGeneration(reason),
       confirmDangerousAction: (confirmMessage, actionLabel) => this.confirmDangerousAction(confirmMessage, actionLabel)
     });
+    } catch (error) {
+      // Silently catch Canceled/abort errors from panel disposal or generation stop.
+      // These are expected when the user closes a panel or stops generation mid-stream.
+      const name = error instanceof Error ? error.name : '';
+      if (name !== 'Canceled' && name !== 'AbortError') {
+        warn('Unhandled webview message error:', error);
+      }
+    }
   }
 
   private handlePanelReady(context?: PanelMessageContext): void {
@@ -413,7 +422,7 @@ export class ChatController {
 
   private postMessage(message: WebviewOutboundMessage, context?: PanelMessageContext): void {
     const targetPanel = context?.panel ?? this.panelManager.getActivePanel();
-    void targetPanel?.webview.postMessage(message);
+    void targetPanel?.webview.postMessage(message).then(undefined, () => {});
   }
 
   private postError(message: string, context?: PanelMessageContext): void {

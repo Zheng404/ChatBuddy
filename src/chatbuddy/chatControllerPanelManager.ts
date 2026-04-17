@@ -16,7 +16,7 @@ type ChatPanelManagerDeps = {
   ensureSession: (assistantId: string) => void;
   setStreamingEnabled: (enabled: boolean) => void;
   renderWebviewHtml: (webview: vscode.Webview) => string;
-  handleWebviewMessage: (message: WebviewInboundMessage, context: ToolOrchestratorPanelContext) => void;
+  handleWebviewMessage: (message: WebviewInboundMessage, context: ToolOrchestratorPanelContext) => Promise<void>;
   handlePanelDisposing: (panel: vscode.WebviewPanel, assistantId?: string) => void;
 };
 
@@ -178,10 +178,10 @@ export class ChatPanelManager {
 
     const messageListener = panel.webview.onDidReceiveMessage((message: WebviewInboundMessage) => {
       this.panel = panel;
-      void this.deps.handleWebviewMessage(message, {
+      this.deps.handleWebviewMessage(message, {
         panel,
         assistantId: context.assistantId
-      });
+      }).catch(() => {});
     });
 
     const viewStateListener = panel.onDidChangeViewState((event) => {

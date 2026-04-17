@@ -407,8 +407,19 @@ function registerCommands(ctx: ExtensionContext): vscode.Disposable[] {
 // ─── Extension lifecycle ────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext) {
-  // Global unhandled rejection handler — prevents silent crashes in production
+  // Global unhandled rejection handler — prevents silent crashes in production.
+  // Silently ignore benign errors from VSCode's internal lifecycle:
+  // - Canceled: panel disposal, extension deactivation, abort controllers
+  // - AbortError: standard fetch/web API abort
+  // - Channel has been closed: webview disposed while message in flight
   process.on('unhandledRejection', (reason: unknown) => {
+    if (reason instanceof Error) {
+      const msg = reason.message || '';
+      const name = reason.name || '';
+      if (name === 'Canceled' || name === 'AbortError' || msg === 'Channel has been closed') {
+        return;
+      }
+    }
     warn('Unhandled promise rejection:', reason);
   });
 
