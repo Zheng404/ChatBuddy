@@ -50,6 +50,8 @@ The format is based on Keep a Changelog, but kept intentionally simple for this 
 
 - 修复 VSCode webview 生命周期事件导致的良性未处理 Promise 拒绝。
 
+## [0.2.3] - 2026-04-16
+
 ### English
 
 #### Added
