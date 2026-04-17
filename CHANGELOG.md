@@ -4,7 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
-## [0.2.3] - 2026-04-16
+## [0.2.4] - 2026-04-17
+
+### English
+
+#### Added
+
+- Added model kind & capability inference system: automatically resolves model type (chat, image, video, audio, embedding, rerank) and capabilities (vision, reasoning, tools, webSearch) from a built-in registry.
+- Added model type selector dropdown to the model edit modal.
+- Added model kind and capability display (`[kind | cap1, cap2]`) in all model selection dropdowns across the app.
+- Added user-only persistence for model overrides: only manually edited kind/capabilities are saved; runtime-inferred values are never stored to DB.
+- Added capability editing support for ALL models including fetched/online models (with model ID editing disabled for fetched models).
+- Added ~175 SiliconCloud models to the capability registry with accurate types and capabilities sourced from the official platform.
+- Added 30+ GLM models to the registry based on Zhipu official documentation.
+
+#### Changed
+
+- Refactored model capability editor from pill-toggle buttons to proper checkbox controls.
+- Improved model type suffix matching regex patterns for better fuzzy registry lookups.
+- All model types (including chat) are now shown in dropdown meta labels; previously chat was omitted.
+
+#### Fixed
+
+- Fixed benign unhandled promise rejections from VSCode webview lifecycle events.
+
+### 中文
+
+#### 新增
+
+- 新增模型类型与能力自动推断系统：从内置注册表自动解析模型类型（chat、image、video、audio、embedding、rerank）和能力（vision、reasoning、tools、webSearch）。
+- 新增模型编辑弹窗中的模型类型下拉选择器。
+- 新增全应用模型下拉列表中的类型与能力展示（`[类型 | 能力1, 能力2]` 格式）。
+- 新增用户手动覆盖的持久化机制：仅保存用户编辑的模型类型/能力，运行时推断值不会被写入数据库。
+- 新增所有模型（包括在线模型）的能力编辑支持（在线模型禁止编辑模型 ID）。
+- 新增约 175 个硅基流动平台模型的能力注册表条目，类型和能力数据来源于官方平台。
+- 新增 30+ 个智谱 GLM 模型注册表条目，基于智谱官方文档。
+
+#### 变更
+
+- 重构模型能力编辑器，从胶囊按钮改为标准勾选框控件。
+- 改进模型类型后缀匹配的正则表达式，提升模糊查找准确率。
+- 所有模型类型（包括 chat）均在下拉列表中展示，此前 chat 类型被省略。
+
+#### 修复
+
+- 修复 VSCode webview 生命周期事件导致的良性未处理 Promise 拒绝。
 
 ### English
 
