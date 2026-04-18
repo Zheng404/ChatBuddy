@@ -33,6 +33,7 @@ export function getChatScript(args: { nonce: string; mermaidScriptUri: string })
         messagesInner: document.getElementById('messagesInner'),
         composerResizer: document.getElementById('composerResizer'),
         composerInput: document.getElementById('composerInput'),
+        imagePreviewBar: document.getElementById('imagePreviewBar'),
         sendBtn: document.getElementById('sendBtn'),
         stopBtn: document.getElementById('stopBtn'),
         clearBtn: document.getElementById('clearBtn'),
@@ -49,7 +50,13 @@ export function getChatScript(args: { nonce: string; mermaidScriptUri: string })
         toolContinuationTitle: document.getElementById('toolContinuationTitle'),
         toolContinuationDescription: document.getElementById('toolContinuationDescription'),
         toolContinuationCancelBtn: document.getElementById('toolContinuationCancelBtn'),
-        toolContinuationContinueBtn: document.getElementById('toolContinuationContinueBtn')
+        toolContinuationContinueBtn: document.getElementById('toolContinuationContinueBtn'),
+        searchBar: document.getElementById('searchBar'),
+        searchInput: document.getElementById('searchInput'),
+        searchCount: document.getElementById('searchCount'),
+        searchPrevBtn: document.getElementById('searchPrevBtn'),
+        searchNextBtn: document.getElementById('searchNextBtn'),
+        searchCloseBtn: document.getElementById('searchCloseBtn')
       };
 
       let state = {
@@ -92,6 +99,63 @@ export function getChatScript(args: { nonce: string; mermaidScriptUri: string })
       let toolContinuationActionPending = false;
       let editingMessageId = '';
       let editingSessionId = '';
+      let pendingImages = [];
+
+      function clearPendingImages() {
+        pendingImages = [];
+        renderImagePreviews();
+      }
+
+      function renderImagePreviews() {
+        dom.imagePreviewBar.innerHTML = '';
+        if (!pendingImages.length) {
+          dom.imagePreviewBar.style.display = 'none';
+          return;
+        }
+        dom.imagePreviewBar.style.display = 'flex';
+        pendingImages.forEach(function(img, idx) {
+          var wrapper = document.createElement('div');
+          wrapper.className = 'image-preview-item';
+          var imgEl = document.createElement('img');
+          imgEl.src = 'data:' + img.mimeType + ';base64,' + img.base64;
+          imgEl.className = 'image-preview-thumb';
+          wrapper.appendChild(imgEl);
+          var removeBtn = document.createElement('button');
+          removeBtn.className = 'image-preview-remove';
+          removeBtn.type = 'button';
+          removeBtn.innerHTML = '<span class="codicon codicon-close"></span>';
+          removeBtn.title = state.strings.imageRemove || '';
+          removeBtn.addEventListener('click', function() {
+            pendingImages.splice(idx, 1);
+            renderImagePreviews();
+          });
+          wrapper.appendChild(removeBtn);
+          dom.imagePreviewBar.appendChild(wrapper);
+        });
+      }
+
+      function handleImagePaste(e) {
+        var items = e.clipboardData && e.clipboardData.items;
+        if (!items) { return; }
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== 0) { continue; }
+          var file = items[i].getAsFile();
+          if (!file) { continue; }
+          e.preventDefault();
+          var reader = new FileReader();
+          reader.onload = function(ev) {
+            var dataUrl = ev.target.result;
+            var parts = dataUrl.split(',');
+            var mimeMatch = parts[0].match(new RegExp(':(.*?);'));
+            var mime = mimeMatch ? mimeMatch[1] : 'image/png';
+            var b64 = parts[1];
+            pendingImages.push({ base64: b64, mimeType: mime });
+            renderImagePreviews();
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
+      }
 
       function clearMessageEditState(clearInput) {
         editingMessageId = '';

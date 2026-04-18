@@ -7,7 +7,7 @@ import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } fro
 import { error, nowTs } from './utils';
 
 const DB_FILE_NAME = 'chatbuddy.sqlite';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const PREVIEW_MAX_LENGTH = 240;
 
 type SessionTitleSource = ChatSessionDetail['titleSource'];
@@ -63,6 +63,18 @@ function mapMessageRow(row: Record<string, unknown>): ChatMessage {
       // Ignore malformed tool_rounds data.
     }
   }
+  const imagesRaw = toStringValue(row.images).trim();
+  let images: ChatMessage['images'];
+  if (imagesRaw) {
+    try {
+      const parsed = JSON.parse(imagesRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        images = parsed;
+      }
+    } catch {
+      // Ignore malformed images data.
+    }
+  }
   return {
     id: toStringValue(row.id),
     role: toRoleValue(row.role),
@@ -70,7 +82,8 @@ function mapMessageRow(row: Record<string, unknown>): ChatMessage {
     timestamp: toNumberValue(row.ts, nowTs()),
     model: model ? model : undefined,
     reasoning: reasoning ? reasoning : undefined,
-    toolRounds
+    toolRounds,
+    images
   };
 }
 
@@ -111,6 +124,18 @@ export class ChatStorage {
       [assistantId]
     );
     return rows.map((row) => this.mapSummaryRow(row));
+  }
+
+  public searchSessionIdsByContent(assistantId: string, keyword: string): string[] {
+    const likePattern = `%${keyword}%`;
+    const rows = this.queryAll(
+      `SELECT DISTINCT m.session_id
+         FROM messages m
+         JOIN sessions_meta s ON m.session_id = s.id
+        WHERE s.assistant_id = ? AND m.content LIKE ?`,
+      [assistantId, likePattern]
+    );
+    return rows.map((row) => toStringValue(row.session_id));
   }
 
   public getSessionSummary(assistantId: string, sessionId: string): ChatSessionSummary | undefined {
@@ -205,8 +230,8 @@ export class ChatStorage {
     const messageCount = nextSeq + 1;
     const db = this.ensureDb();
     db.run(
-      `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds, images)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         message.id,
         sessionId,
@@ -215,7 +240,9 @@ export class ChatStorage {
         message.reasoning ?? null,
         message.model ?? null,
         message.timestamp,
-        nextSeq
+        nextSeq,
+        message.toolRounds ? JSON.stringify(message.toolRounds) : null,
+        message.images ? JSON.stringify(message.images) : null
       ]
     );
     const messageContent = toStringValue(message.content).trim();
@@ -251,7 +278,7 @@ export class ChatStorage {
     const existingCount = toNumberValue(metaRow?.message_count, 0);
 
     const target = this.queryOne(
-      `SELECT id, role, content, reasoning, model, ts, seq, tool_rounds
+      `SELECT id, role, content, reasoning, model, ts, seq, tool_rounds, images
          FROM messages
         WHERE session_id = ? AND role = 'assistant'
         ORDER BY seq DESC
@@ -265,7 +292,7 @@ export class ChatStorage {
     if (target) {
       db.run(
         `UPDATE messages
-            SET id = ?, role = ?, content = ?, reasoning = ?, model = ?, ts = ?, tool_rounds = ?
+            SET id = ?, role = ?, content = ?, reasoning = ?, model = ?, ts = ?, tool_rounds = ?, images = ?
           WHERE session_id = ? AND seq = ?`,
         [
           next.id,
@@ -275,6 +302,7 @@ export class ChatStorage {
           next.model ?? null,
           next.timestamp,
           next.toolRounds ? JSON.stringify(next.toolRounds) : null,
+          next.images ? JSON.stringify(next.images) : null,
           sessionId,
           toNumberValue(target.seq)
         ]
@@ -282,9 +310,9 @@ export class ChatStorage {
     } else {
       const nextSeq = this.getNextSeq(sessionId);
       db.run(
-        `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [next.id, sessionId, next.role, next.content, next.reasoning ?? null, next.model ?? null, next.timestamp, nextSeq, next.toolRounds ? JSON.stringify(next.toolRounds) : null]
+        `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds, images)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [next.id, sessionId, next.role, next.content, next.reasoning ?? null, next.model ?? null, next.timestamp, nextSeq, next.toolRounds ? JSON.stringify(next.toolRounds) : null, next.images ? JSON.stringify(next.images) : null]
       );
     }
 
@@ -309,6 +337,37 @@ export class ChatStorage {
       `DELETE FROM messages
         WHERE session_id = ? AND seq >= ?`,
       [sessionId, normalizedKeepCount]
+    );
+    this.updateSessionMetaFromMessages(sessionId, updatedAt);
+    if (persist) {
+      this.schedulePersist();
+    }
+    return true;
+  }
+
+  public truncateMessagesAfter(assistantId: string, sessionId: string, messageId: string, updatedAt: number, persist = true): boolean {
+    if (!this.sessionExists(assistantId, sessionId)) {
+      return false;
+    }
+    const target = this.queryOne(
+      `SELECT seq
+         FROM messages
+        WHERE session_id = ? AND id = ?
+        LIMIT 1`,
+      [sessionId, messageId]
+    );
+    if (!target) {
+      return false;
+    }
+    const seq = toNumberValue(target.seq, -1);
+    if (seq < 0) {
+      return false;
+    }
+    const db = this.ensureDb();
+    db.run(
+      `DELETE FROM messages
+        WHERE session_id = ? AND seq > ?`,
+      [sessionId, seq]
     );
     this.updateSessionMetaFromMessages(sessionId, updatedAt);
     if (persist) {
@@ -537,6 +596,13 @@ export class ChatStorage {
         // Column may already exist from a previous attempt.
       }
     }
+    if (currentVersion < 3) {
+      try {
+        db.run(`ALTER TABLE messages ADD COLUMN images TEXT`);
+      } catch {
+        // Column may already exist from a previous attempt.
+      }
+    }
   }
 
   private mapSummaryRow(row: Record<string, unknown>): ChatSessionSummary {
@@ -556,7 +622,7 @@ export class ChatStorage {
   private buildDetailFromMeta(meta: Record<string, unknown>): ChatSessionDetail {
     const sessionId = toStringValue(meta.id);
     const messages = this.queryAll(
-      `SELECT id, role, content, reasoning, model, ts, tool_rounds
+      `SELECT id, role, content, reasoning, model, ts, tool_rounds, images
          FROM messages
         WHERE session_id = ?
         ORDER BY seq ASC`,
@@ -606,8 +672,8 @@ export class ChatStorage {
     }
     const db = this.ensureDb();
     const stmt = db.prepare(
-      `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds, images)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     try {
       for (let index = 0; index < messages.length; index += 1) {
@@ -621,8 +687,10 @@ export class ChatStorage {
           message.model ?? null,
           message.timestamp,
           index,
-          message.toolRounds ? JSON.stringify(message.toolRounds) : null
+          message.toolRounds ? JSON.stringify(message.toolRounds) : null,
+          message.images ? JSON.stringify(message.images) : null
         ]);
+
       }
     } finally {
       stmt.free();

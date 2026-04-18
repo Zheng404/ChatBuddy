@@ -49,6 +49,14 @@
       }
     },
     {
+      "command": "chatbuddy.searchSessions",
+      "icon": "$(search)",
+      "titles": {
+        "en": "Search Sessions",
+        "zh-CN": "搜索会话"
+      }
+    },
+    {
       "command": "chatbuddy.emptyRecycleBin",
       "icon": "$(trash)",
       "titles": {
@@ -169,6 +177,11 @@
         "command": "chatbuddy.clearAllSessions",
         "when": "view == chatbuddy.sessionsView",
         "group": "navigation@2"
+      },
+      {
+        "command": "chatbuddy.searchSessions",
+        "when": "view == chatbuddy.sessionsView",
+        "group": "navigation@3"
       },
       {
         "command": "chatbuddy.emptyRecycleBin",

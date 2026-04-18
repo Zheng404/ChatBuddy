@@ -15,6 +15,9 @@ export function getChatUiScript(): string {
               return String((r.calls || []).length) + '|' + (r.calls || []).map(function(c) { return c.name || ''; }).join(',');
             }).join(';')
           : '';
+        const imagesDigest = Array.isArray(message.images)
+          ? String(message.images.length)
+          : '';
         return [
           String(message.id || ''),
           String(message.role || ''),
@@ -24,6 +27,7 @@ export function getChatUiScript(): string {
           reasoning.slice(-80),
           String(message.timestamp || ''),
           String(message.model || ''),
+          imagesDigest,
           toolRoundsDigest
         ].join('~');
       }
@@ -334,6 +338,11 @@ export function getChatUiScript(): string {
               preToolReasoning +
               toolRoundsBlock +
               postToolReasoning +
+              '<div class="message-images">' + (Array.isArray(message.images) && message.images.length > 0
+                ? message.images.map(function(img) {
+                    return '<img class="message-image" src="data:' + img.mimeType + ';base64,' + img.base64 + '" />';
+                  }).join('')
+                : '') + '</div>' +
               '<div class="message-text">' + markdownToHtml(message.content || '') + ((showCursor && message.id === lastMsg.id) ? '<span class="streaming-cursor"></span>' : '') + '</div>' +
             '</div>' +
           '</div>';

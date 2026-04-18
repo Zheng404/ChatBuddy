@@ -224,6 +224,16 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "chatbuddy.searchSessions.uiEn",
+        "title": "Search Sessions",
+        "icon": "$(search)"
+      },
+      {
+        "command": "chatbuddy.searchSessions.uiZh",
+        "title": "搜索会话",
+        "icon": "$(search)"
+      },
+      {
         "command": "chatbuddy.emptyRecycleBin.uiEn",
         "title": "Empty Recycle Bin",
         "icon": "$(trash)"
@@ -391,6 +401,16 @@
           "command": "chatbuddy.clearAllSessions.uiZh",
           "when": "(view == chatbuddy.sessionsView) && chatbuddy.locale == 'zh-CN'",
           "group": "navigation@2"
+        },
+        {
+          "command": "chatbuddy.searchSessions.uiEn",
+          "when": "(view == chatbuddy.sessionsView) && chatbuddy.locale == 'en'",
+          "group": "navigation@3"
+        },
+        {
+          "command": "chatbuddy.searchSessions.uiZh",
+          "when": "(view == chatbuddy.sessionsView) && chatbuddy.locale == 'zh-CN'",
+          "group": "navigation@3"
         },
         {
           "command": "chatbuddy.emptyRecycleBin.uiEn",
@@ -625,6 +645,14 @@
           "when": "false"
         },
         {
+          "command": "chatbuddy.searchSessions.uiEn",
+          "when": "false"
+        },
+        {
+          "command": "chatbuddy.searchSessions.uiZh",
+          "when": "false"
+        },
+        {
           "command": "chatbuddy.emptyRecycleBin.uiEn",
           "when": "false"
         },
@@ -721,7 +749,19 @@
           "when": "false"
         }
       ]
-    }
+    },
+    "editor/context": [
+      {
+        "command": "chatbuddy.askAI.uiEn",
+        "when": "chatbuddy.locale == 'en' && editorHasSelection",
+        "group": "9_ai@1"
+      },
+      {
+        "command": "chatbuddy.askAI.uiZh",
+        "when": "chatbuddy.locale == 'zh-CN' && editorHasSelection",
+        "group": "9_ai@1"
+      }
+    ]
   },
   "icon": "media/chatbuddy.png",
   "keywords": [

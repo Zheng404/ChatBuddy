@@ -83,15 +83,21 @@ function toChatCompletionsMessages(messages: ProviderMessage[], toolRounds: Prov
 }
 
 function toResponsesInput(messages: ProviderMessage[], toolRounds: ProviderToolRound[] = []) {
-  const input: Array<Record<string, unknown>> = messages.map((message) => ({
-    role: message.role,
-    content: [
-      {
-        type: 'input_text',
-        text: message.content
+  const input: Array<Record<string, unknown>> = messages.map((message) => {
+    if (typeof message.content === 'string') {
+      return {
+        role: message.role,
+        content: [{ type: 'input_text', text: message.content }]
+      };
+    }
+    const mapped = message.content.map((part) => {
+      if (part.type === 'text') {
+        return { type: 'input_text', text: part.text };
       }
-    ]
-  }));
+      return { type: 'input_image', image_url: part.image_url.url };
+    });
+    return { role: message.role, content: mapped };
+  });
   for (const round of toolRounds) {
     for (const toolCall of round.toolCalls) {
       input.push({

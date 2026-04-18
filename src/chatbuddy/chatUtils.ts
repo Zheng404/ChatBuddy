@@ -1,4 +1,4 @@
-import type { ChatMessage, ProviderMessage } from './types';
+import type { ChatMessage, ProviderMessage, ProviderMessageContent } from './types';
 
 /**
  * Prepend the question prefix to content if not already present.
@@ -22,14 +22,23 @@ export function applyQuestionPrefix(content: string, questionPrefix: string): st
 export function toProviderConversationMessages(questionPrefix: string, messages: ChatMessage[]): ProviderMessage[] {
   const result: ProviderMessage[] = [];
   for (const message of messages) {
-    if (message.content.trim().length === 0 || message.role === 'system') {
+    if ((message.content.trim().length === 0 && !message.images?.length) || message.role === 'system') {
       continue;
     }
     if (message.role === 'user') {
-      result.push({
-        role: 'user',
-        content: applyQuestionPrefix(message.content, questionPrefix)
-      });
+      const textContent = applyQuestionPrefix(message.content, questionPrefix);
+      if (message.images && message.images.length > 0) {
+        const parts: ProviderMessageContent[] = [];
+        if (textContent.trim()) {
+          parts.push({ type: 'text', text: textContent });
+        }
+        for (const img of message.images) {
+          parts.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+        }
+        result.push({ role: 'user', content: parts });
+      } else {
+        result.push({ role: 'user', content: textContent });
+      }
       continue;
     }
     result.push({

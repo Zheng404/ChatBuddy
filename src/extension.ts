@@ -74,7 +74,8 @@ function createTreeProviders(repository: ChatStateRepository): ActivationTreePro
       getSelectedAssistant: () => repository.getSelectedAssistant(),
       getSessionsForAssistant: (assistantId: string) => repository.getSessionsForAssistant(assistantId),
       getSelectedSessionId: (assistantId?: string) => repository.getSelectedSessionId(assistantId),
-      getLocaleSetting: () => repository.getLocaleSetting()
+      getLocaleSetting: () => repository.getLocaleSetting(),
+      searchSessionContent: (assistantId: string, keyword: string) => repository.searchSessionContent(assistantId, keyword)
     })
   };
 }
@@ -467,6 +468,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const keyword = assistantsTreeProvider.getSearchKeyword();
     assistantsTreeView.message = keyword ? `${strings.searchAssistants}: ${keyword}` : undefined;
     recycleBinTreeView.message = undefined;
+    const sessionKeyword = sessionsTreeProvider.getSearchKeyword();
+    sessionsTreeView.message = sessionKeyword ? `${strings.searchSessions}: ${sessionKeyword}` : undefined;
   };
 
   const refreshAll = () => {
@@ -530,6 +533,7 @@ export async function activate(context: vscode.ExtensionContext) {
     settingsCenterPanelController,
     assistantEditorPanelController,
     assistantsTreeProvider,
+    sessionsTreeProvider,
     refreshAll,
     updateTreeMessage,
     getRuntimeLocale,

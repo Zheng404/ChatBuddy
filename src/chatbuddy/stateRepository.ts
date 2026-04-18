@@ -338,6 +338,13 @@ export class ChatStateRepository {
     return this.sessionStateService.getSessionsForAssistant(assistantId);
   }
 
+  public searchSessionContent(assistantId: string, keyword: string): string[] {
+    if (!this.storageReady) {
+      return [];
+    }
+    return this.storage.searchSessionIdsByContent(assistantId, keyword);
+  }
+
   private getLatestSessionForAssistantRaw(assistantId: string): ChatSessionSummary | undefined {
     return this.sessionStateService.getLatestSessionForAssistantRaw(assistantId);
   }
@@ -401,6 +408,10 @@ export class ChatStateRepository {
 
   public editMessage(assistantId: string, sessionId: string, messageId: string, newContent: string): ChatSessionDetail | undefined {
     return this.sessionStateService.editMessage(assistantId, sessionId, messageId, newContent);
+  }
+
+  public editMessageAndTruncateAfter(assistantId: string, sessionId: string, messageId: string, newContent: string): ChatSessionDetail | undefined {
+    return this.sessionStateService.editMessageAndTruncateAfter(assistantId, sessionId, messageId, newContent);
   }
 
   public clearSessionMessages(assistantId: string, sessionId: string): ChatSessionDetail | undefined {

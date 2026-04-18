@@ -38,9 +38,9 @@ export type ChatControllerWebviewRouterArgs = {
   regenerateFromMessage: (messageId: string, context?: ChatControllerPanelMessageContext) => Promise<void>;
   copyMessage: (messageId: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
-  editMessage: (messageId: string, newContent: string) => Promise<void>;
+  editMessage: (messageId: string, newContent: string, regenerate?: boolean) => Promise<void>;
   clearSession: () => Promise<void>;
-  sendMessage: (content: string, context?: ChatControllerPanelMessageContext) => Promise<void>;
+  sendMessage: (content: string, images: Array<{ base64: string; mimeType: string }> | undefined, context?: ChatControllerPanelMessageContext) => Promise<void>;
   continuePendingToolCalls: (context?: ChatControllerPanelMessageContext) => Promise<void>;
   cancelPendingToolCalls: (context?: ChatControllerPanelMessageContext) => void;
   listMcpResources: (context?: ChatControllerPanelMessageContext) => Promise<void>;
@@ -212,13 +212,13 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       await deleteMessage(message.messageId);
       return;
     case 'editMessage':
-      await editMessage(message.messageId, message.newContent);
+      await editMessage(message.messageId, message.newContent, message.regenerate);
       return;
     case 'clearSession':
       await clearSession();
       return;
     case 'sendMessage':
-      await sendMessage(message.content, context);
+      await sendMessage(message.content, message.images, context);
       return;
     case 'continueToolCalls':
       await continuePendingToolCalls(context);

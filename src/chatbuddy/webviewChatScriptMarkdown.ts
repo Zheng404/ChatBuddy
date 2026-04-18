@@ -96,7 +96,8 @@ export function getChatMarkdownRendererScript(args: {
             codeBlocks.push('<div class="mermaid-placeholder" data-mermaid>' + code + '</div>');
           } else {
             const cls = lang ? ' class="lang-' + lang + '"' : '';
-            codeBlocks.push('<pre><code' + cls + '>' + code + '</code></pre>');
+            const langLabel = lang ? '<span class="code-block-lang">' + escapeHtml(lang) + '</span>' : '';
+            codeBlocks.push('<div class="code-block-wrapper">' + langLabel + '<button class="code-block-copy" type="button" title="Copy"><span class="codicon codicon-copy"></span></button><pre><code' + cls + '>' + code + '</code></pre></div>');
           }
           return marker;
         });
@@ -546,5 +547,30 @@ export function getChatMarkdownRendererScript(args: {
         });
         processMermaidQueue();
       }
+
+      // Code block copy button (event delegation, bound once)
+      var codeBlockCopyListenerAttached = false;
+      function attachCodeBlockCopyListener() {
+        if (codeBlockCopyListenerAttached) { return; }
+        codeBlockCopyListenerAttached = true;
+        dom.messagesInner.addEventListener('click', function(e) {
+          var btn = e.target.closest('.code-block-copy');
+          if (!btn) { return; }
+          var wrapper = btn.closest('.code-block-wrapper');
+          if (!wrapper) { return; }
+          var codeEl = wrapper.querySelector('pre code');
+          if (!codeEl) { return; }
+          var text = codeEl.textContent || '';
+          navigator.clipboard.writeText(text).then(function() {
+            btn.innerHTML = '<span class="codicon codicon-check"></span>';
+            btn.classList.add('copied');
+            setTimeout(function() {
+              btn.innerHTML = '<span class="codicon codicon-copy"></span>';
+              btn.classList.remove('copied');
+            }, 1500);
+          });
+        });
+      }
+      attachCodeBlockCopyListener();
 `;
 }

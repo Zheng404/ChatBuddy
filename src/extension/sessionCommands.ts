@@ -7,10 +7,24 @@ import type { ExtensionContext } from './shared';
 import { asSessionNode, getSessionCommandAssistant, getSessionCommandTarget, buildSessionExportFileName, buildSessionExportContent } from './shared';
 
 export function registerSessionCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  const { repository, chatController, refreshAll, getRuntimeLocale, getRuntimeStrings } = ctx;
+  const { repository, chatController, refreshAll, getRuntimeLocale, getRuntimeStrings, sessionsTreeProvider, updateTreeMessage } = ctx;
   const strings = getRuntimeStrings;
 
   return [
+    vscode.commands.registerCommand('chatbuddy.searchSessions', async () => {
+      const keyword = await vscode.window.showInputBox({
+        prompt: strings().sessionSearchPlaceholder,
+        value: sessionsTreeProvider.getSearchKeyword(),
+        ignoreFocusOut: true
+      });
+      if (keyword === undefined) { return; }
+      sessionsTreeProvider.setSearchKeyword(keyword);
+      updateTreeMessage();
+    }),
+    vscode.commands.registerCommand('chatbuddy.clearSessionSearch', () => {
+      sessionsTreeProvider.clearSearchKeyword();
+      updateTreeMessage();
+    }),
     vscode.commands.registerCommand('chatbuddy.createSession', () => {
       chatController.createSessionForSelectedAssistant();
       chatController.openAssistantChat();

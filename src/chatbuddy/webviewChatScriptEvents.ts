@@ -63,26 +63,28 @@ export function getChatEventScript(): string {
           return;
         }
         const content = dom.composerInput.value.trim();
-        if (!content) {
+        if (!content && !pendingImages.length) {
           return;
         }
         if (editingMessageId) {
           const messageId = editingMessageId;
-          const currentContent = String(
-            state.selectedSession?.messages?.find((message) => message.id === messageId)?.content || ''
-          ).trim();
+          const editingMsg = state.selectedSession?.messages?.find((message) => message.id === messageId);
+          const currentContent = String(editingMsg?.content || '').trim();
+          const isUserMsg = editingMsg?.role === 'user';
           clearMessageEditState(true);
           renderByDiff(true);
           if (content === currentContent) {
             return;
           }
-          vscode.postMessage({ type: 'editMessage', messageId, newContent: content });
+          vscode.postMessage({ type: 'editMessage', messageId, newContent: content, regenerate: isUserMsg });
           return;
         }
+        const images = pendingImages.length > 0 ? pendingImages.slice() : undefined;
         dom.composerInput.value = '';
+        clearPendingImages();
         beginOptimisticSend(content);
         renderByDiff(true);
-        vscode.postMessage({ type: 'sendMessage', content });
+        vscode.postMessage({ type: 'sendMessage', content, images });
       });
 
       dom.clearBtn.addEventListener('click', () => {
@@ -101,6 +103,10 @@ export function getChatEventScript(): string {
         vscode.postMessage({ type: 'clearSession' });
       });
 
+      dom.composerInput.addEventListener('paste', (event) => {
+        handleImagePaste(event);
+      });
+
       dom.composerInput.addEventListener('keydown', (event) => {
         if (!state.canChat) {
           return;
@@ -117,7 +123,23 @@ export function getChatEventScript(): string {
         }
         if (shouldSend) {
           event.preventDefault();
-          dom.sendBtn.click();
+          if (!state.canChat || state.isGenerating || optimisticSendState) {
+            return;
+          }
+          const sendContent = dom.composerInput.value.trim();
+          if (!sendContent && !pendingImages.length) {
+            return;
+          }
+          if (editingMessageId) {
+            dom.sendBtn.click();
+            return;
+          }
+          const images = pendingImages.length > 0 ? pendingImages.slice() : undefined;
+          dom.composerInput.value = '';
+          clearPendingImages();
+          beginOptimisticSend(sendContent);
+          renderByDiff(true);
+          vscode.postMessage({ type: 'sendMessage', content: sendContent, images });
         }
       });
 
@@ -258,5 +280,113 @@ export function getChatEventScript(): string {
       });
 
       vscode.postMessage({ type: 'ready' });
+
+      // ── In-message search ──
+      var searchMatches = [];
+      var searchIndex = -1;
+      var searchLastQuery = '';
+
+      function clearSearchHighlights() {
+        searchMatches = [];
+        searchIndex = -1;
+        dom.messagesInner.querySelectorAll('mark.search-highlight').forEach(function(el) {
+          var parent = el.parentNode;
+          parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+          parent.normalize();
+        });
+      }
+
+      function performSearch(query) {
+        clearSearchHighlights();
+        if (!query) {
+          dom.searchCount.textContent = '';
+          return;
+        }
+        var specialChars = new RegExp('[.*+?^' + String.fromCharCode(36) + '{}()|[\\]\\\\]', 'g');
+        var escapedQuery = query.replace(specialChars, '\\\\$&');
+        var regex = new RegExp('(' + escapedQuery + ')', 'gi');
+        var textNodes = [];
+        var walker = document.createTreeWalker(dom.messagesInner, NodeFilter.SHOW_TEXT, null);
+        while (walker.nextNode()) { textNodes.push(walker.currentNode); }
+        textNodes.forEach(function(node) {
+          var text = node.textContent || '';
+          if (!regex.test(text)) { return; }
+          regex.lastIndex = 0;
+          var fragment = document.createDocumentFragment();
+          var lastIdx = 0;
+          var match;
+          while ((match = regex.exec(text)) !== null) {
+            if (match.index > lastIdx) {
+              fragment.appendChild(document.createTextNode(text.slice(lastIdx, match.index)));
+            }
+            var mark = document.createElement('mark');
+            mark.className = 'search-highlight';
+            mark.textContent = match[1];
+            fragment.appendChild(mark);
+            searchMatches.push(mark);
+            lastIdx = regex.lastIndex;
+          }
+          if (lastIdx < text.length) {
+            fragment.appendChild(document.createTextNode(text.slice(lastIdx)));
+          }
+          node.parentNode.replaceChild(fragment, node);
+        });
+        searchLastQuery = query;
+        if (searchMatches.length > 0) {
+          searchIndex = 0;
+          searchMatches[0].classList.add('active');
+          searchMatches[0].scrollIntoView({ block: 'center' });
+          dom.searchCount.textContent = '1/' + searchMatches.length;
+        } else {
+          dom.searchCount.textContent = '0/0';
+        }
+      }
+
+      function navigateSearch(delta) {
+        if (searchMatches.length === 0) { return; }
+        searchMatches[searchIndex].classList.remove('active');
+        searchIndex = (searchIndex + delta + searchMatches.length) % searchMatches.length;
+        searchMatches[searchIndex].classList.add('active');
+        searchMatches[searchIndex].scrollIntoView({ block: 'center' });
+        dom.searchCount.textContent = (searchIndex + 1) + '/' + searchMatches.length;
+      }
+
+      function openSearch() {
+        dom.searchBar.classList.add('visible');
+        dom.searchInput.focus();
+        dom.searchInput.select();
+      }
+
+      function closeSearch() {
+        dom.searchBar.classList.remove('visible');
+        clearSearchHighlights();
+        dom.searchInput.value = '';
+        dom.searchCount.textContent = '';
+        searchLastQuery = '';
+      }
+
+      window.addEventListener('keydown', function(event) {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+          event.preventDefault();
+          event.stopPropagation();
+          openSearch();
+        }
+        if (event.key === 'Escape' && dom.searchBar.classList.contains('visible')) {
+          event.preventDefault();
+          closeSearch();
+        }
+        if (dom.searchBar.classList.contains('visible') && event.key === 'Enter') {
+          event.preventDefault();
+          navigateSearch(event.shiftKey ? -1 : 1);
+        }
+      }, true);
+
+      dom.searchInput.addEventListener('input', function() {
+        performSearch(dom.searchInput.value);
+      });
+
+      dom.searchPrevBtn.addEventListener('click', function() { navigateSearch(-1); });
+      dom.searchNextBtn.addEventListener('click', function() { navigateSearch(1); });
+      dom.searchCloseBtn.addEventListener('click', closeSearch);
 `;
 }

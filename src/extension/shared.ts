@@ -5,6 +5,7 @@ import { SettingsCenterPanelController } from '../chatbuddy/settingsCenterPanel'
 import { escapeHtml, resolveLocaleString, warn } from '../chatbuddy/utils';
 import { ChatStateRepository } from '../chatbuddy/stateRepository';
 import { AssistantsTreeProvider } from '../chatbuddy/assistantsView';
+import { SessionsTreeProvider } from '../chatbuddy/sessionsView';
 import { ChatSessionDetail } from '../chatbuddy/types';
 import { SessionNode } from '../chatbuddy/sessionsView';
 
@@ -14,6 +15,7 @@ export type ExtensionContext = {
   settingsCenterPanelController: SettingsCenterPanelController;
   assistantEditorPanelController: AssistantEditorPanelController;
   assistantsTreeProvider: AssistantsTreeProvider;
+  sessionsTreeProvider: SessionsTreeProvider;
   refreshAll: () => void;
   updateTreeMessage: () => void;
   getRuntimeLocale: () => string;

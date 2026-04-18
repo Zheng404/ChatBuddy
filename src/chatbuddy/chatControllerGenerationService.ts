@@ -4,6 +4,7 @@ import { TITLE_GENERATION } from './constants';
 import { formatString, getStrings } from './i18n';
 import { DEFAULT_TITLE_SUMMARY_PROMPT } from './modelCatalog';
 import { applyQuestionPrefix, toProviderMessages } from './chatUtils';
+import { resolveTemplateVariables } from './utils/template';
 import {
   GenerationAbortReason,
   PendingToolContinuation,
@@ -25,6 +26,7 @@ import {
   AssistantProfile,
   ChatBuddySettings,
   ChatMessage,
+  ChatMessageImage,
   RuntimeLocale,
   WebviewOutboundMessage
 } from './types';
@@ -65,9 +67,9 @@ type ChatGenerationServiceDeps = {
 export class ChatGenerationService {
   constructor(private readonly deps: ChatGenerationServiceDeps) {}
 
-  public async sendMessage(content: string, context?: ToolOrchestratorPanelContext): Promise<void> {
+  public async sendMessage(content: string, images?: Array<{ base64: string; mimeType: string }>, context?: ToolOrchestratorPanelContext): Promise<void> {
     const normalized = content.trim();
-    if (!normalized) {
+    if (!normalized && (!images || !images.length)) {
       return;
     }
     if (this.deps.isGenerating()) {
@@ -97,11 +99,13 @@ export class ChatGenerationService {
     }
 
     const normalizedWithPrefix = applyQuestionPrefix(normalized, assistant.questionPrefix);
+    const messageImages: ChatMessageImage[] | undefined = images && images.length > 0 ? images : undefined;
     const userMessage: ChatMessage = {
       id: createId('msg'),
       role: 'user',
       content: normalizedWithPrefix,
-      timestamp: nowTs()
+      timestamp: nowTs(),
+      images: messageImages
     };
     const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
 
@@ -122,7 +126,7 @@ export class ChatGenerationService {
     }
 
     const providerMessages = toProviderMessages(
-      assistant.systemPrompt,
+      resolveTemplateVariables(assistant.systemPrompt),
       assistant.questionPrefix,
       sessionAfterUser.messages,
       assistant.contextCount
@@ -288,9 +292,11 @@ export class ChatGenerationService {
       return;
     }
 
-    const userContent = session.messages[userIndex].content;
+    const userMsg = session.messages[userIndex];
+    const userContent = userMsg.content;
+    const userImages = userMsg.images && userMsg.images.length > 0 ? userMsg.images : undefined;
     this.deps.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent, context);
+    await this.sendMessage(userContent, userImages, context);
   }
 
   public async regenerateFromMessage(
@@ -339,9 +345,11 @@ export class ChatGenerationService {
       return;
     }
 
-    const userContent = session.messages[userIndex].content;
+    const userMsg = session.messages[userIndex];
+    const userContent = userMsg.content;
+    const userImages = userMsg.images && userMsg.images.length > 0 ? userMsg.images : undefined;
     this.deps.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent, context);
+    await this.sendMessage(userContent, userImages, context);
   }
 
   public async copyMessage(messageId: string): Promise<void> {
@@ -392,7 +400,7 @@ export class ChatGenerationService {
     this.deps.postState();
   }
 
-  public async editMessage(messageId: string, newContent: string): Promise<void> {
+  public async editMessage(messageId: string, newContent: string, regenerate?: boolean): Promise<void> {
     const assistant = this.deps.repository.getSelectedAssistant();
     if (!assistant) {
       return;
@@ -407,6 +415,13 @@ export class ChatGenerationService {
     }
     const trimmedContent = newContent.trim();
     if (!trimmedContent) {
+      return;
+    }
+    if (regenerate && message.role === 'user') {
+      const originalImages = message.images && message.images.length > 0 ? message.images : undefined;
+      this.deps.repository.editMessageAndTruncateAfter(assistant.id, session.id, messageId, trimmedContent);
+      this.deps.postState();
+      await this.sendMessage(trimmedContent, originalImages);
       return;
     }
     this.deps.repository.editMessage(assistant.id, session.id, messageId, trimmedContent);

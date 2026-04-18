@@ -143,6 +143,12 @@ export interface ChatMessage {
   model?: string;
   reasoning?: string;
   toolRounds?: ChatToolRound[];
+  images?: ChatMessageImage[];
+}
+
+export interface ChatMessageImage {
+  base64: string;
+  mimeType: string;
 }
 
 export interface ChatToolRound {
@@ -294,9 +300,13 @@ export interface McpPromptEntry {
 
 export type RuntimeStrings = Record<string, string>;
 
+export type ProviderMessageContent =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export interface ProviderMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ProviderMessageContent[];
 }
 
 export interface ChatStatePayload {
@@ -338,10 +348,10 @@ export type WebviewInboundMessage =
   | { type: 'regenerateFromMessage'; messageId: string }
   | { type: 'copyMessage'; messageId: string }
   | { type: 'deleteMessage'; messageId: string }
-  | { type: 'editMessage'; messageId: string; newContent: string }
+  | { type: 'editMessage'; messageId: string; newContent: string; regenerate?: boolean }
   | { type: 'clearSession' }
   | { type: 'setStreaming'; enabled: boolean }
-  | { type: 'sendMessage'; content: string }
+  | { type: 'sendMessage'; content: string; images?: Array<{ base64: string; mimeType: string }> }
   | { type: 'continueToolCalls' }
   | { type: 'cancelToolCalls' }
   | { type: 'listMcpResources' }

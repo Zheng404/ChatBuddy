@@ -93,6 +93,76 @@ ${SHARED_WEBVIEW_BASE}
         margin: 0 auto;
       }
 
+      .search-bar {
+        display: none;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 6px 10px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        align-items: center;
+        gap: 4px;
+      }
+
+      .search-bar.visible {
+        display: flex;
+      }
+
+      .search-input {
+        flex: 1;
+        background: var(--vscode-inputBackground);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 13px;
+        outline: none;
+        font-family: var(--font-sans);
+      }
+
+      .search-input:focus {
+        border-color: var(--vscode-focusBorder);
+      }
+
+      .search-count {
+        font-size: 11px;
+        color: var(--color-text-subtle);
+        min-width: 40px;
+        text-align: center;
+        font-family: var(--font-sans);
+      }
+
+      .search-nav-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 2px 4px;
+        border-radius: 3px;
+        color: var(--color-text-subtle);
+        display: flex;
+        align-items: center;
+      }
+
+      .search-nav-btn:hover {
+        background: var(--color-bg-hover);
+        color: var(--fg);
+      }
+
+      mark.search-highlight {
+        background: #f0c04080;
+        color: inherit;
+        border-radius: 2px;
+        padding: 0 1px;
+      }
+
+      mark.search-highlight.active {
+        background: #f0a020c0;
+        color: #000;
+      }
+
       .empty-state {
         min-height: 100%;
         display: flex;
@@ -334,18 +404,66 @@ ${SHARED_WEBVIEW_BASE}
         margin: 8px 0;
       }
 
-      .message-text pre {
+      .code-block-wrapper {
+        position: relative;
         margin: 10px 0 0;
+      }
+
+      .code-block-wrapper pre {
         background: var(--code-bg);
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 10px;
         overflow-x: auto;
+        margin: 0;
       }
 
-      .message-text pre code {
+      .code-block-lang {
+        position: absolute;
+        top: 4px;
+        left: 10px;
+        font-size: 11px;
+        color: var(--color-text-subtle);
+        opacity: 0.7;
+        pointer-events: none;
+        text-transform: uppercase;
+        font-family: var(--font-sans);
+      }
+
+      .code-block-wrapper pre code {
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
         background: transparent !important;
+      }
+
+      .code-block-copy {
+        position: absolute;
+        top: 4px;
+        right: 6px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        color: var(--color-text-subtle);
+        opacity: 0;
+        transition: opacity 0.15s, color 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .code-block-wrapper:hover .code-block-copy {
+        opacity: 1;
+      }
+
+      .code-block-copy:hover {
+        color: var(--color-text);
+        background: var(--color-bg-hover);
+      }
+
+      .code-block-copy.copied {
+        color: #4caf50;
+        opacity: 1;
       }
 
       .message-text code {
@@ -610,6 +728,65 @@ ${SHARED_WEBVIEW_BASE}
         font-size: 12px;
         line-height: 1.5;
         word-break: break-word;
+      }
+
+      .image-preview-bar {
+        display: none;
+        flex-direction: row;
+        gap: 6px;
+        padding: 6px 10px 0;
+        overflow-x: auto;
+        flex-shrink: 0;
+      }
+
+      .image-preview-item {
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      .image-preview-thumb {
+        width: 60px;
+        height: 60px;
+        object-fit: cover;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+      }
+
+      .image-preview-remove {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: none;
+        background: var(--fg);
+        color: var(--bg);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+
+      .image-preview-remove .codicon {
+        font-size: 12px;
+      }
+
+      .message-images {
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 6px;
+      }
+
+      .message-image {
+        max-width: 260px;
+        max-height: 200px;
+        border-radius: 8px;
+        object-fit: contain;
+        cursor: pointer;
       }
 
       .composer-shell {

@@ -8,6 +8,13 @@ export function getChatBodyHtml(): string {
         <section class="stage">
           <div class="messages" id="messages">
             <div class="messages-inner" id="messagesInner"></div>
+            <div class="search-bar" id="searchBar">
+              <input type="text" id="searchInput" class="search-input" placeholder="" />
+              <span class="search-count" id="searchCount"></span>
+              <button class="search-nav-btn" id="searchPrevBtn" type="button"><span class="codicon codicon-arrow-up"></span></button>
+              <button class="search-nav-btn" id="searchNextBtn" type="button"><span class="codicon codicon-arrow-down"></span></button>
+              <button class="search-nav-btn" id="searchCloseBtn" type="button"><span class="codicon codicon-close"></span></button>
+            </div>
           </div>
         </section>
       </section>
@@ -16,6 +23,7 @@ export function getChatBodyHtml(): string {
         <div class="composer">
           <div class="composer-box">
             <div class="composer-resizer" id="composerResizer"></div>
+            <div class="image-preview-bar" id="imagePreviewBar"></div>
             <textarea class="composer-textarea" id="composerInput"></textarea>
             <div class="composer-actions">
               <div class="composer-inline-controls">

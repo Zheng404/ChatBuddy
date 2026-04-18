@@ -301,6 +301,20 @@ export class SessionStateService {
     return next && next.id === sessionId ? cloneSession(next) : undefined;
   }
 
+  public editMessageAndTruncateAfter(assistantId: string, sessionId: string, messageId: string, newContent: string): ChatSessionDetail | undefined {
+    if (!this.context.storageReady()) {
+      return undefined;
+    }
+    const updatedAt = nowTs();
+    this.context.storage.updateMessage(assistantId, sessionId, messageId, newContent, updatedAt, true);
+    this.context.storage.truncateMessagesAfter(assistantId, sessionId, messageId, updatedAt, true);
+    const current = this.getSelectedSession(assistantId);
+    if (current && current.id === sessionId) {
+      return cloneSession(current);
+    }
+    return undefined;
+  }
+
   public editMessage(assistantId: string, sessionId: string, messageId: string, newContent: string): ChatSessionDetail | undefined {
     if (!this.context.storageReady()) {
       return undefined;

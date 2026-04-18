@@ -360,9 +360,9 @@ export class ChatController {
       regenerateFromMessage: (messageId, targetContext) => this.regenerateFromMessage(messageId, targetContext),
       copyMessage: (messageId) => this.copyMessage(messageId),
       deleteMessage: (messageId) => this.deleteMessage(messageId),
-      editMessage: (messageId, newContent) => this.editMessage(messageId, newContent),
+      editMessage: (messageId, newContent, regenerate) => this.editMessage(messageId, newContent, regenerate),
       clearSession: () => this.clearSession(),
-      sendMessage: (content, targetContext) => this.sendMessage(content, targetContext),
+      sendMessage: (content, images, targetContext) => this.sendMessage(content, images, targetContext),
       continuePendingToolCalls: (targetContext) => this.continuePendingToolCalls(targetContext),
       cancelPendingToolCalls: (targetContext) => this.cancelPendingToolCalls(targetContext),
       listMcpResources: (targetContext) => this.listMcpResources(targetContext),
@@ -629,8 +629,8 @@ export class ChatController {
     this.postMessage({ type: 'state', payload }, { panel: targetPanel });
   }
 
-  private async sendMessage(content: string, context?: PanelMessageContext): Promise<void> {
-    await this.generationService.sendMessage(content, context);
+  private async sendMessage(content: string, images: Array<{ base64: string; mimeType: string }> | undefined, context?: PanelMessageContext): Promise<void> {
+    await this.generationService.sendMessage(content, images, context);
   }
 
   private async regenerateReply(context?: PanelMessageContext): Promise<void> {
@@ -649,8 +649,8 @@ export class ChatController {
     await this.generationService.deleteMessage(messageId);
   }
 
-  private async editMessage(messageId: string, newContent: string): Promise<void> {
-    await this.generationService.editMessage(messageId, newContent);
+  private async editMessage(messageId: string, newContent: string, regenerate?: boolean): Promise<void> {
+    await this.generationService.editMessage(messageId, newContent, regenerate);
   }
 
   private async clearSession(): Promise<void> {

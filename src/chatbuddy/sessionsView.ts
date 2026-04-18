@@ -25,6 +25,7 @@ type ProviderContext = {
   getSessionsForAssistant: (assistantId: string) => ChatSessionSummary[];
   getSelectedSessionId: (assistantId?: string) => string | undefined;
   getLocaleSetting: () => ChatBuddyLocaleSetting;
+  searchSessionContent: (assistantId: string, keyword: string) => string[];
 };
 
 function toDisplayLocale(locale: RuntimeLocale): string {
@@ -41,11 +42,26 @@ function formatSessionTooltip(strings: Record<string, string>, session: ChatSess
 export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionsTreeNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<SessionsTreeNode | undefined | void>();
   public readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
+  private searchKeyword = '';
 
   constructor(private readonly context: ProviderContext) {}
 
   public refresh(): void {
     this.onDidChangeTreeDataEmitter.fire();
+  }
+
+  public getSearchKeyword(): string {
+    return this.searchKeyword;
+  }
+
+  public setSearchKeyword(keyword: string): void {
+    this.searchKeyword = keyword.trim().toLowerCase();
+    this.refresh();
+  }
+
+  public clearSearchKeyword(): void {
+    this.searchKeyword = '';
+    this.refresh();
   }
 
   public getTreeItem(element: SessionsTreeNode): vscode.TreeItem {
@@ -84,12 +100,26 @@ export class SessionsTreeProvider implements vscode.TreeDataProvider<SessionsTre
       return Promise.resolve(this.appendSpacers([]));
     }
     const sessions = this.context.getSessionsForAssistant(assistant.id);
-    const nodes = sessions.map((session) => ({
+    const matchingIds = this.searchKeyword
+      ? this.context.searchSessionContent(assistant.id, this.searchKeyword)
+      : undefined;
+    const filtered = sessions.filter((session) => this.matchSearch(session, matchingIds));
+    const nodes = filtered.map((session) => ({
         kind: 'session' as const,
         assistantId: assistant.id,
         session
       }));
     return Promise.resolve(this.appendSpacers(nodes));
+  }
+
+  private matchSearch(session: ChatSessionSummary, matchingIds?: string[]): boolean {
+    if (!this.searchKeyword) {
+      return true;
+    }
+    if (session.title?.toLowerCase().includes(this.searchKeyword)) {
+      return true;
+    }
+    return matchingIds?.includes(session.id) ?? false;
   }
 
   private appendSpacers(nodes: SessionNode[]): SessionsTreeNode[] {
