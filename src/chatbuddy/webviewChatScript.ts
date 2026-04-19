@@ -135,6 +135,11 @@ export function getChatScript(args: { nonce: string; mermaidScriptUri: string })
       }
 
       function handleImagePaste(e) {
+        if (!supportsImageInputOnCurrentModel()) {
+          showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
+          e.preventDefault();
+          return;
+        }
         var items = e.clipboardData && e.clipboardData.items;
         if (!items) { return; }
         for (var i = 0; i < items.length; i++) {
@@ -155,6 +160,34 @@ export function getChatScript(args: { nonce: string; mermaidScriptUri: string })
           reader.readAsDataURL(file);
           return;
         }
+      }
+
+      function getCurrentModelRef() {
+        var tempModelRef = String(state.sessionTempModelRef || '').trim();
+        if (tempModelRef) {
+          return tempModelRef;
+        }
+        return String(state.selectedAssistant?.modelRef || '').trim();
+      }
+
+      function supportsImageInputOnCurrentModel() {
+        var modelRef = getCurrentModelRef();
+        if (!modelRef) {
+          return true;
+        }
+        var options = Array.isArray(state.modelOptions) ? state.modelOptions : [];
+        for (var i = 0; i < options.length; i++) {
+          var option = options[i];
+          if (!option || option.ref !== modelRef) {
+            continue;
+          }
+          var capabilities = option.capabilities;
+          if (!capabilities || typeof capabilities.vision !== 'boolean') {
+            return true;
+          }
+          return !!capabilities.vision;
+        }
+        return true;
       }
 
       function clearMessageEditState(clearInput) {

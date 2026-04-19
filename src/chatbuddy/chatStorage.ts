@@ -47,6 +47,10 @@ function buildPreview(messages: ChatMessage[]): string | undefined {
   return undefined;
 }
 
+function escapeSqlLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
 function mapMessageRow(row: Record<string, unknown>): ChatMessage {
   const content = toStringValue(row.content);
   const reasoning = toStringValue(row.reasoning).trim();
@@ -127,12 +131,12 @@ export class ChatStorage {
   }
 
   public searchSessionIdsByContent(assistantId: string, keyword: string): string[] {
-    const likePattern = `%${keyword}%`;
+    const likePattern = `%${escapeSqlLikePattern(keyword)}%`;
     const rows = this.queryAll(
       `SELECT DISTINCT m.session_id
          FROM messages m
          JOIN sessions_meta s ON m.session_id = s.id
-        WHERE s.assistant_id = ? AND m.content LIKE ?`,
+        WHERE s.assistant_id = ? AND m.content LIKE ? ESCAPE '\\'`,
       [assistantId, likePattern]
     );
     return rows.map((row) => toStringValue(row.session_id));

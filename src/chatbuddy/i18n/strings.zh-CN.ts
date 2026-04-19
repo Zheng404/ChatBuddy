@@ -22,6 +22,7 @@ export const ZH_CN_RUNTIME_STRINGS: RuntimeStrings = {
     searchSessions: '搜索会话',
     clearSessionSearch: '清除搜索',
     sessionSearchPlaceholder: '按标题或消息内容筛选',
+    askAiEmptySelection: '请先选择代码或文本。',
     defaultGroupName: '默认分组',
     deletedGroupName: '已删除分组',
     groupDeleteBlocked: '系统分组不可删除。',

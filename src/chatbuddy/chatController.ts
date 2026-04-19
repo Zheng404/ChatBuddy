@@ -260,6 +260,32 @@ export class ChatController {
     });
   }
 
+  public prefillComposer(content: string, assistantId?: string): void {
+    if (!content.trim()) {
+      return;
+    }
+    this.openAssistantChat(assistantId);
+    const targetPanel = this.panelManager.getActivePanel();
+    if (!targetPanel) {
+      return;
+    }
+    const selectedAssistantId = this.repository.getSelectedAssistant()?.id;
+    if (!this.panelManager.isPanelReady(targetPanel)) {
+      this.panelManager.queuePendingState(targetPanel, {
+        assistantId: selectedAssistantId,
+        composerPrefill: content
+      });
+      return;
+    }
+    this.postMessage(
+      {
+        type: 'prefillComposer',
+        content
+      },
+      { panel: targetPanel, assistantId: selectedAssistantId }
+    );
+  }
+
   public stopGeneration(reason: GenerationAbortReason = 'manual'): void {
     this.abortReason = reason;
     this.abortController?.abort();
@@ -393,6 +419,15 @@ export class ChatController {
       panel: targetPanel,
       assistantId: pending?.assistantId ?? context?.assistantId
     });
+    if (pending?.composerPrefill?.trim()) {
+      this.postMessage(
+        {
+          type: 'prefillComposer',
+          content: pending.composerPrefill
+        },
+        { panel: targetPanel, assistantId: pending?.assistantId ?? context?.assistantId }
+      );
+    }
   }
 
   private ensureSession(assistantId: string): void {

@@ -102,6 +102,25 @@ test('getSessionDetailById returns undefined for unknown session', async () => {
   }
 });
 
+test('searchSessionIdsByContent treats LIKE wildcards as literals', async () => {
+  const { storage, cleanup } = await createStorage();
+  try {
+    storage.insertSession(makeSession('a1', 's1', [makeMessage('user', 'value contains 100% match and under_score')]), true);
+    storage.insertSession(makeSession('a1', 's2', [makeMessage('user', 'plain text only')]), true);
+
+    const percentMatches = storage.searchSessionIdsByContent('a1', '%');
+    assert.equal(percentMatches.length, 1);
+    assert.equal(percentMatches.includes('s1'), true);
+
+    const underscoreMatches = storage.searchSessionIdsByContent('a1', '_');
+    assert.equal(underscoreMatches.length, 1);
+    assert.equal(underscoreMatches.includes('s1'), true);
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
 test('sessionExists returns correct boolean', async () => {
   const { storage, cleanup } = await createStorage();
   try {

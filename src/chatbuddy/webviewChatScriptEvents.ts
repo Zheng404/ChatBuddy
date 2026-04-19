@@ -35,6 +35,18 @@ export function getChatEventScript(): string {
           const text = typeof message.message === 'string' ? message.message : '';
           showToast(text, message.tone || 'info');
         }
+        if (message.type === 'prefillComposer') {
+          const text = typeof message.content === 'string' ? message.content : '';
+          if (!text.trim()) {
+            return;
+          }
+          clearMessageEditState(false);
+          clearPendingImages();
+          dom.composerInput.value = text;
+          dom.composerInput.focus();
+          dom.composerInput.setSelectionRange(dom.composerInput.value.length, dom.composerInput.value.length);
+          renderByDiff(true);
+        }
       });
 
       dom.streamingToggle.addEventListener('change', () => {
@@ -64,6 +76,10 @@ export function getChatEventScript(): string {
         }
         const content = dom.composerInput.value.trim();
         if (!content && !pendingImages.length) {
+          return;
+        }
+        if (pendingImages.length > 0 && !supportsImageInputOnCurrentModel()) {
+          showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
           return;
         }
         if (editingMessageId) {
@@ -128,6 +144,10 @@ export function getChatEventScript(): string {
           }
           const sendContent = dom.composerInput.value.trim();
           if (!sendContent && !pendingImages.length) {
+            return;
+          }
+          if (pendingImages.length > 0 && !supportsImageInputOnCurrentModel()) {
+            showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
             return;
           }
           if (editingMessageId) {

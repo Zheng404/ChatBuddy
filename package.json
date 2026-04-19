@@ -160,6 +160,11 @@
         "icon": "$(export)"
       },
       {
+        "command": "chatbuddy.askAI",
+        "title": "%chatbuddy.command.askAI%",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "chatbuddy.stopGeneration",
         "title": "%chatbuddy.command.stopGeneration%"
       },
@@ -338,6 +343,16 @@
         "command": "chatbuddy.exportSession.uiZh",
         "title": "导出会话",
         "icon": "$(export)"
+      },
+      {
+        "command": "chatbuddy.askAI.uiEn",
+        "title": "Ask AI",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "chatbuddy.askAI.uiZh",
+        "title": "问 AI",
+        "icon": "$(sparkle)"
       }
     ],
     "menus": {
@@ -747,21 +762,29 @@
         {
           "command": "chatbuddy.exportSession.uiZh",
           "when": "false"
+        },
+        {
+          "command": "chatbuddy.askAI.uiEn",
+          "when": "false"
+        },
+        {
+          "command": "chatbuddy.askAI.uiZh",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "chatbuddy.askAI.uiEn",
+          "when": "(editorHasSelection) && chatbuddy.locale == 'en'",
+          "group": "9_ai@1"
+        },
+        {
+          "command": "chatbuddy.askAI.uiZh",
+          "when": "(editorHasSelection) && chatbuddy.locale == 'zh-CN'",
+          "group": "9_ai@1"
         }
       ]
-    },
-    "editor/context": [
-      {
-        "command": "chatbuddy.askAI.uiEn",
-        "when": "chatbuddy.locale == 'en' && editorHasSelection",
-        "group": "9_ai@1"
-      },
-      {
-        "command": "chatbuddy.askAI.uiZh",
-        "when": "chatbuddy.locale == 'zh-CN' && editorHasSelection",
-        "group": "9_ai@1"
-      }
-    ]
+    }
   },
   "icon": "media/chatbuddy.png",
   "keywords": [

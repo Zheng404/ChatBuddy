@@ -23,6 +23,7 @@ type ChatPanelManagerDeps = {
 type PendingPanelState = {
   error?: string;
   assistantId?: string;
+  composerPrefill?: string;
 };
 
 export type OpenAssistantChatResult = {
@@ -59,7 +60,8 @@ export class ChatPanelManager {
     const current = this.pendingPanelStates.get(panel);
     this.pendingPanelStates.set(panel, {
       assistantId: state.assistantId ?? current?.assistantId,
-      error: state.error
+      error: state.error,
+      composerPrefill: state.composerPrefill !== undefined ? state.composerPrefill : current?.composerPrefill
     });
   }
 

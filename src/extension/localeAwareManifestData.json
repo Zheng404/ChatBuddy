@@ -144,6 +144,14 @@
         "en": "Export Session",
         "zh-CN": "导出会话"
       }
+    },
+    {
+      "command": "chatbuddy.askAI",
+      "icon": "$(sparkle)",
+      "titles": {
+        "en": "Ask AI",
+        "zh-CN": "问 AI"
+      }
     }
   ],
   "menus": {
@@ -274,6 +282,13 @@
         "command": "chatbuddy.exportSession",
         "when": "view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item",
         "group": "inline@3"
+      }
+    ],
+    "editor/context": [
+      {
+        "command": "chatbuddy.askAI",
+        "when": "editorHasSelection",
+        "group": "9_ai@1"
       }
     ]
   }

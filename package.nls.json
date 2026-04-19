@@ -29,6 +29,7 @@
   "chatbuddy.command.renameSession": "Rename Session",
   "chatbuddy.command.deleteSession": "Delete Session",
   "chatbuddy.command.exportSession": "Export Session",
+  "chatbuddy.command.askAI": "Ask AI",
   "chatbuddy.command.stopGeneration": "Stop Generation",
   "chatbuddy.command.toggleSessionPanel": "Toggle Session Panel"
 }

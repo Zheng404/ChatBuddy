@@ -22,6 +22,7 @@ export const EN_RUNTIME_STRINGS: RuntimeStrings = {
     searchSessions: 'Search Sessions',
     clearSessionSearch: 'Clear Search',
     sessionSearchPlaceholder: 'Filter by title or message content',
+    askAiEmptySelection: 'Select code or text first.',
     defaultGroupName: 'Default Group',
     deletedGroupName: 'Deleted Group',
     groupDeleteBlocked: 'System groups cannot be deleted.',

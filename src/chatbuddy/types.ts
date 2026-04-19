@@ -366,4 +366,5 @@ export type WebviewOutboundMessage =
   | { type: 'mcpResources'; payload: { items: McpResourceEntry[]; message?: string } }
   | { type: 'mcpPrompts'; payload: { items: McpPromptEntry[]; message?: string } }
   | { type: 'mcpInsert'; payload: { content: string; message?: string } }
+  | { type: 'prefillComposer'; content: string }
   | { type: 'toast'; message: string; tone?: 'success' | 'error' | 'info' };
