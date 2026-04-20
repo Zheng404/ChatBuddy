@@ -298,6 +298,26 @@ test('clearSessionMessages removes all messages from a session', async () => {
   }
 });
 
+test('clearSessionMessages rejects assistant-session mismatch', async () => {
+  const { storage, cleanup } = await createStorage();
+  try {
+    const msgs = [makeMessage('user', 'msg1', 'm1'), makeMessage('assistant', 'reply1', 'm2')];
+    storage.insertSession(makeSession('a1', 's1', msgs), true);
+
+    const cleared = storage.clearSessionMessages('a2', 's1', Date.now(), true);
+    assert.equal(cleared, false);
+
+    const detail = storage.getSessionDetailById('s1');
+    assert.ok(detail);
+    assert.equal(detail.messages.length, 2);
+    assert.equal(detail.messages[0].id, 'm1');
+    assert.equal(detail.messages[1].id, 'm2');
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
 // ─── KV Store ────────────────────────────────────────────────────────────────
 
 test('KV store set and get', async () => {
@@ -338,6 +358,23 @@ test('updateMessage changes message content', async () => {
     const detail = storage.getSessionDetailById('s1');
     assert.ok(detail);
     assert.equal(detail.messages[0].content, 'updated');
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
+test('updateMessage rejects assistant-session mismatch', async () => {
+  const { storage, cleanup } = await createStorage();
+  try {
+    storage.insertSession(makeSession('a1', 's1', [makeMessage('assistant', 'original', 'm1')]), true);
+
+    const updated = storage.updateMessage('a2', 's1', 'm1', 'updated', Date.now(), true);
+    assert.equal(updated, false);
+
+    const detail = storage.getSessionDetailById('s1');
+    assert.ok(detail);
+    assert.equal(detail.messages[0].content, 'original');
   } finally {
     await storage.close();
     cleanup();

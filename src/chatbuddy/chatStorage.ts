@@ -707,7 +707,9 @@ export class ChatStorage {
   }
 
   public clearSessionMessages(assistantId: string, sessionId: string, updatedAt: number, persist = true): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- assistantId kept for API consistency
+    if (!this.sessionExists(assistantId, sessionId)) {
+      return false;
+    }
     const db = this.ensureDb();
     try {
       this.runInTransaction(() => {
@@ -725,6 +727,9 @@ export class ChatStorage {
   }
 
   public updateMessage(assistantId: string, sessionId: string, messageId: string, newContent: string, updatedAt: number, persist = true): boolean {
+    if (!this.sessionExists(assistantId, sessionId)) {
+      return false;
+    }
     const db = this.ensureDb();
     const stmt = db.prepare(`
       UPDATE messages
@@ -810,8 +815,16 @@ export class ChatStorage {
   }
 
   private queryOne(sql: string, params: SqlParam[] = []): Record<string, unknown> | undefined {
-    const rows = this.queryAll(sql, params);
-    return rows.length > 0 ? rows[0] : undefined;
+    const db = this.ensureDb();
+    const stmt = db.prepare(sql, params);
+    try {
+      if (!stmt.step()) {
+        return undefined;
+      }
+      return stmt.getAsObject() as Record<string, unknown>;
+    } finally {
+      stmt.free();
+    }
   }
 
   private schedulePersist(): void {

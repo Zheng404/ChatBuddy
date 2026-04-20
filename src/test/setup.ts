@@ -15,7 +15,8 @@ const vscodeStub = {
     createOutputChannel: () => ({
       appendLine: () => undefined,
       dispose: () => undefined
-    })
+    }),
+    showWarningMessage: async () => undefined
   },
   ViewColumn: {
     One: 1

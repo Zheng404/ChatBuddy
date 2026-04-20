@@ -1,5 +1,5 @@
 import { hasAnyCapability, resolveCapabilities, resolveKind } from './modelCapabilities';
-import { ModelCapabilities, ModelKind, ProviderModelProfile, ProviderToolCall } from './types';
+import { ModelCapabilities, ProviderModelProfile, ProviderToolCall } from './types';
 import {
   ProviderChatResult,
   ResponsesStreamEvent,

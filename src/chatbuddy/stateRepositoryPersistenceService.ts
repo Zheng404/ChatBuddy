@@ -90,25 +90,28 @@ export class StatePersistenceService {
       return;
     }
     this.persistScheduled = true;
-    await this.queuePersist(async () => {
-      const state = this.context.getState();
-      const persistedState: PersistedStateLite = {
-        ...state,
-        settings: {
-          ...state.settings,
-          defaultModels: cloneDefaultModels(state.settings.defaultModels),
-          mcp: cloneMcpSettings(state.settings.mcp),
-          providers: state.settings.providers.map((provider) => ({
-            ...provider,
-            apiKey: '',
-            models: provider.models.map(stripTransientModelFields)
-          })) as PersistedStateLite['settings']['providers']
-        }
-      };
-      this.context.storage.setKv(SQLITE_STATE_KEY, JSON.stringify(persistedState), false);
-      await this.context.storage.flush();
+    try {
+      await this.queuePersist(async () => {
+        const state = this.context.getState();
+        const persistedState: PersistedStateLite = {
+          ...state,
+          settings: {
+            ...state.settings,
+            defaultModels: cloneDefaultModels(state.settings.defaultModels),
+            mcp: cloneMcpSettings(state.settings.mcp),
+            providers: state.settings.providers.map((provider) => ({
+              ...provider,
+              apiKey: '',
+              models: provider.models.map(stripTransientModelFields)
+            })) as PersistedStateLite['settings']['providers']
+          }
+        };
+        this.context.storage.setKv(SQLITE_STATE_KEY, JSON.stringify(persistedState), false);
+        await this.context.storage.flush();
+      });
+    } finally {
       this.persistScheduled = false;
-    });
+    }
   }
 
   private queuePersist(task: () => Promise<void>): Promise<void> {
