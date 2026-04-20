@@ -1,18 +1,20 @@
 import * as vscode from 'vscode';
 
 import { cloneDefaultModels } from './modelCatalog';
-import { ChatStorage } from './chatStorage';
+import { ChatStorage, COMPASS_PROVIDER_API_KEYS_STORE_KEY, COMPASS_STATE_STORE_KEY } from './chatStorage';
 import { cloneMcpSettings } from './stateClone';
-import { parsePersistedStateLiteStore, parseProviderApiKeysStore } from './stateHelpers';
 import { mergePersistedState } from './stateRepositoryImportExport';
 import { PersistedStateLite, ProviderModelProfile } from './types';
 import { error } from './utils';
 
-export const SQLITE_STATE_KEY = 'chatbuddy.sqlite.state.v1';
-export const SQLITE_PROVIDER_API_KEYS_KEY = 'chatbuddy.sqlite.providerApiKeys.v1';
+export const COMPASS_STATE_KEY = COMPASS_STATE_STORE_KEY;
+export const COMPASS_PROVIDER_API_KEYS_KEY = COMPASS_PROVIDER_API_KEYS_STORE_KEY;
 
 type PersistenceServiceContext = {
-  storage: ChatStorage;
+  storage: Pick<
+    ChatStorage,
+    'readStateLite' | 'writeStateLite' | 'readProviderApiKeys' | 'writeProviderApiKeys' | 'flush'
+  >;
   storageReady: () => boolean;
   getState: () => PersistedStateLite;
   setState: (state: PersistedStateLite) => void;
@@ -22,7 +24,7 @@ type PersistenceServiceContext = {
 };
 
 /**
- * Strip runtime-resolved kind/capabilities before persisting to DB.
+ * Strip runtime-resolved kind/capabilities before persisting to storage.
  * Only user overrides (userKindOverride / userCapabilitiesOverride) are kept.
  * Returns a plain object for JSON serialization (not a ProviderModelProfile).
  */
@@ -47,8 +49,8 @@ export class StatePersistenceService {
 
   constructor(private readonly context: PersistenceServiceContext) {}
 
-  public hydrateStateFromSqlite(): void {
-    const stored = parsePersistedStateLiteStore(this.context.storage.getKv(SQLITE_STATE_KEY));
+  public hydrateStateFromStorage(): void {
+    const stored = this.context.storage.readStateLite();
     if (!stored) {
       return;
     }
@@ -56,8 +58,8 @@ export class StatePersistenceService {
     this.context.setState(merged.state);
   }
 
-  public hydrateProviderApiKeysFromSqlite(): void {
-    const stored = parseProviderApiKeysStore(this.context.storage.getKv(SQLITE_PROVIDER_API_KEYS_KEY));
+  public hydrateProviderApiKeysFromStorage(): void {
+    const stored = this.context.storage.readProviderApiKeys();
     this.context.setProviderApiKeys(stored);
   }
 
@@ -76,7 +78,7 @@ export class StatePersistenceService {
       const normalized = Object.fromEntries(
         normalizedEntries.map(([providerId, apiKey]) => [providerId.trim(), apiKey.trim()])
       );
-      this.context.storage.setKv(SQLITE_PROVIDER_API_KEYS_KEY, JSON.stringify(normalized), false);
+      this.context.storage.writeProviderApiKeys(normalized, false);
       await this.context.storage.flush();
     });
   }
@@ -106,7 +108,7 @@ export class StatePersistenceService {
             })) as PersistedStateLite['settings']['providers']
           }
         };
-        this.context.storage.setKv(SQLITE_STATE_KEY, JSON.stringify(persistedState), false);
+        this.context.storage.writeStateLite(persistedState, false);
         await this.context.storage.flush();
       });
     } finally {

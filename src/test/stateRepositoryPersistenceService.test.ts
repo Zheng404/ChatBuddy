@@ -2,26 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createInitialState } from '../chatbuddy/stateSanitizers';
-import {
-  SQLITE_STATE_KEY,
-  StatePersistenceService
-} from '../chatbuddy/stateRepositoryPersistenceService';
+import { StatePersistenceService } from '../chatbuddy/stateRepositoryPersistenceService';
 import type { PersistedStateLite } from '../chatbuddy/types';
 
 test('persist can recover after a failed persist attempt', async () => {
   let state: PersistedStateLite = createInitialState();
-  let persistedPayload: string | undefined;
-  let setKvCalls = 0;
+  let persistedState: PersistedStateLite | undefined;
+  let writeStateLiteCalls = 0;
   let flushCalls = 0;
 
   const storage = {
-    getKv: () => undefined,
-    setKv: (key: string, value: string) => {
-      if (key === SQLITE_STATE_KEY) {
-        persistedPayload = value;
-      }
-      setKvCalls += 1;
+    readStateLite: () => undefined,
+    writeStateLite: (nextState: PersistedStateLite) => {
+      persistedState = nextState;
+      writeStateLiteCalls += 1;
     },
+    readProviderApiKeys: () => ({}),
+    writeProviderApiKeys: () => undefined,
     flush: async () => {
       flushCalls += 1;
       if (flushCalls === 1) {
@@ -49,6 +46,6 @@ test('persist can recover after a failed persist attempt', async () => {
   await persistence.persist();
 
   assert.equal(flushCalls, 2);
-  assert.equal(setKvCalls, 2);
-  assert.ok(persistedPayload);
+  assert.equal(writeStateLiteCalls, 2);
+  assert.ok(persistedState);
 });

@@ -173,7 +173,8 @@ export function parsePersistedStateLiteStore(raw: string | undefined): Persisted
 
 // ─── Import helpers ──────────────────────────────────────────────────────────
 
-const BACKUP_SCHEMA = 'chatbuddy.backup';
+const LEGACY_BACKUP_SCHEMA = 'chatbuddy.backup';
+const COMPASS_BACKUP_SCHEMA = 'chatbuddy.backup.compass';
 const BACKUP_VERSION = 1;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,12 +202,19 @@ export function unwrapImportedState(input: unknown): PersistedState | Record<str
   if (looksLikePersistedState(input.data)) {
     return input.data;
   }
-  if (input.schema !== BACKUP_SCHEMA) {
+  const schema = typeof input.schema === 'string' ? input.schema : '';
+  if (schema !== LEGACY_BACKUP_SCHEMA && schema !== COMPASS_BACKUP_SCHEMA) {
     return undefined;
   }
   const version = Number(input.version);
   if (!Number.isFinite(version) || version > BACKUP_VERSION) {
     return undefined;
+  }
+  if (looksLikePersistedState(input.state)) {
+    return input.state;
+  }
+  if (looksLikePersistedState(input.data)) {
+    return input.data;
   }
   return undefined;
 }

@@ -27,7 +27,7 @@ import {
 import { StatePersistenceService } from './stateRepositoryPersistenceService';
 import { SessionStateService } from './stateRepositorySessionService';
 
-const BACKUP_SCHEMA = 'chatbuddy.backup';
+const BACKUP_SCHEMA = 'chatbuddy.backup.compass';
 const BACKUP_VERSION = 1;
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
 
@@ -120,8 +120,8 @@ export class ChatStateRepository {
   public async initialize(): Promise<void> {
     await this.storage.initialize(this.context.globalStorageUri.fsPath);
     this.storageReady = true;
-    this.persistenceService.hydrateStateFromSqlite();
-    this.persistenceService.hydrateProviderApiKeysFromSqlite();
+    this.persistenceService.hydrateStateFromStorage();
+    this.persistenceService.hydrateProviderApiKeysFromStorage();
     this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, this.state.settings);
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);

@@ -3,17 +3,24 @@ import assert from 'node:assert/strict';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import initSqlJs from 'sql.js';
 
-import { ChatStorage } from '../chatbuddy/chatStorage';
+import {
+  ChatStorage,
+  COMPASS_PROVIDER_API_KEYS_STORE_KEY,
+  COMPASS_STATE_STORE_KEY
+} from '../chatbuddy/chatStorage';
+import { createInitialState } from '../chatbuddy/stateSanitizers';
 import type { ChatMessage, ChatSessionDetail } from '../chatbuddy/types';
 
 // Use a temp directory for each test to avoid cross-test contamination
-async function createStorage(): Promise<{ storage: ChatStorage; cleanup: () => void }> {
+async function createStorage(): Promise<{ storage: ChatStorage; tmpDir: string; cleanup: () => void }> {
   const storage = new ChatStorage();
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'chatbuddy-test-'));
   await storage.initialize(tmpDir);
   return {
     storage,
+    tmpDir,
     cleanup: () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -41,6 +48,66 @@ function makeSession(assistantId: string, sessionId?: string, messages?: ChatMes
   };
 }
 
+async function createLegacySqlite(globalStoragePath: string): Promise<void> {
+  const SQL = await initSqlJs({
+    locateFile: (file: string) => require.resolve(`sql.js/dist/${file}`)
+  });
+  const db = new SQL.Database();
+  db.run(`
+    CREATE TABLE sessions_meta (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      title_source TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      preview TEXT
+    );
+    CREATE TABLE messages (
+      id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      reasoning TEXT,
+      model TEXT,
+      ts INTEGER NOT NULL,
+      seq INTEGER NOT NULL,
+      tool_rounds TEXT,
+      images TEXT,
+      PRIMARY KEY (session_id, seq)
+    );
+    CREATE TABLE kv (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+  db.run(
+    `INSERT INTO sessions_meta(id, assistant_id, title, title_source, created_at, updated_at, message_count, preview)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['legacy-session', 'legacy-assistant', 'Legacy Title', 'default', 1000, 2000, 1, 'legacy-preview']
+  );
+  db.run(
+    `INSERT INTO messages(id, session_id, role, content, reasoning, model, ts, seq, tool_rounds, images)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['legacy-msg', 'legacy-session', 'assistant', 'Legacy hello', null, 'legacy-model', 3000, 0, null, null]
+  );
+  db.run(
+    `INSERT INTO kv(key, value) VALUES (?, ?), (?, ?), (?, ?)`,
+    [
+      'chatbuddy.sqlite.state.v1',
+      JSON.stringify({ selectedAssistantId: 'legacy-assistant' }),
+      'chatbuddy.sqlite.providerApiKeys.v1',
+      JSON.stringify({ legacy: 'legacy-key' }),
+      'custom-key',
+      'custom-value'
+    ]
+  );
+  const binary = db.export();
+  db.close();
+  await fs.promises.writeFile(path.join(globalStoragePath, 'chatbuddy.sqlite'), Buffer.from(binary));
+}
+
 // ─── Initialize ──────────────────────────────────────────────────────────────
 
 test('initialize creates an empty storage', async () => {
@@ -51,6 +118,55 @@ test('initialize creates an empty storage', async () => {
   } finally {
     await storage.close();
     cleanup();
+  }
+});
+
+test('initialize migrates legacy sqlite data into compass storage', async () => {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'chatbuddy-legacy-test-'));
+  const storage = new ChatStorage();
+  try {
+    await createLegacySqlite(tmpDir);
+    await storage.initialize(tmpDir);
+
+    const summary = storage.getSessionSummary('legacy-assistant', 'legacy-session');
+    assert.ok(summary);
+    assert.equal(summary.title, 'Legacy Title');
+
+    const detail = storage.getSessionDetail('legacy-assistant', 'legacy-session');
+    assert.ok(detail);
+    assert.equal(detail.messages.length, 1);
+    assert.equal(detail.messages[0].content, 'Legacy hello');
+
+    const migratedState = storage.getKv(COMPASS_STATE_STORE_KEY);
+    assert.ok(migratedState);
+    assert.equal(JSON.parse(migratedState as string).selectedAssistantId, 'legacy-assistant');
+    assert.equal(storage.getKv(COMPASS_PROVIDER_API_KEYS_STORE_KEY), JSON.stringify({ legacy: 'legacy-key' }));
+    assert.equal(storage.getKv('custom-key'), 'custom-value');
+
+    const stateCorePath = path.join(tmpDir, 'chatbuddy-compass', 'meta', 'state.core.json');
+    const settingsGeneralPath = path.join(tmpDir, 'chatbuddy-compass', 'meta', 'settings.general.json');
+    const providerApiKeysPath = path.join(tmpDir, 'chatbuddy-compass', 'meta', 'providers.api-keys.json');
+    assert.equal(fs.existsSync(stateCorePath), true);
+    assert.equal(fs.existsSync(settingsGeneralPath), true);
+    assert.equal(fs.existsSync(providerApiKeysPath), true);
+
+    const migrationMarkerPath = path.join(
+      tmpDir,
+      'chatbuddy-compass',
+      'meta',
+      'chatbuddy.migration.compass.json'
+    );
+    const marker = JSON.parse(await fs.promises.readFile(migrationMarkerPath, 'utf-8')) as {
+      name: string;
+      layoutVersion: number;
+      source: string;
+    };
+    assert.equal(marker.name, 'compass');
+    assert.equal(marker.layoutVersion, 2);
+    assert.equal(marker.source, 'sqlite');
+  } finally {
+    await storage.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 
@@ -338,6 +454,47 @@ test('KV store overwrites existing value', async () => {
     storage.setKv('test.key', 'v1', true);
     storage.setKv('test.key', 'v2', true);
     assert.equal(storage.getKv('test.key'), 'v2');
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
+test('state/settings are persisted into structured per-page files', async () => {
+  const { storage, tmpDir, cleanup } = await createStorage();
+  try {
+    const state = createInitialState();
+    state.selectedAssistantId = 'assistant-structured';
+    state.selectedSessionIdByAssistant = { 'assistant-structured': 'session-1' };
+    state.settings.temperature = 0.42;
+    state.settings.sendShortcut = 'ctrlEnter';
+
+    storage.writeStateLite(state, false);
+    storage.writeProviderApiKeys({ openai: 'sk-structured' }, false);
+    await storage.flush();
+
+    const metaDir = path.join(tmpDir, 'chatbuddy-compass', 'meta');
+    const core = JSON.parse(await fs.promises.readFile(path.join(metaDir, 'state.core.json'), 'utf-8')) as {
+      assistants: Array<{ id: string }>;
+    };
+    const ui = JSON.parse(await fs.promises.readFile(path.join(metaDir, 'ui.selection.json'), 'utf-8')) as {
+      selectedAssistantId?: string;
+      selectedSessionIdByAssistant: Record<string, string>;
+    };
+    const general = JSON.parse(await fs.promises.readFile(path.join(metaDir, 'settings.general.json'), 'utf-8')) as {
+      temperature: number;
+      sendShortcut: string;
+    };
+    const providerApiKeys = JSON.parse(
+      await fs.promises.readFile(path.join(metaDir, 'providers.api-keys.json'), 'utf-8')
+    ) as Record<string, string>;
+
+    assert.equal(Array.isArray(core.assistants), true);
+    assert.equal(ui.selectedAssistantId, 'assistant-structured');
+    assert.equal(ui.selectedSessionIdByAssistant['assistant-structured'], 'session-1');
+    assert.equal(general.temperature, 0.42);
+    assert.equal(general.sendShortcut, 'ctrlEnter');
+    assert.equal(providerApiKeys.openai, 'sk-structured');
   } finally {
     await storage.close();
     cleanup();
