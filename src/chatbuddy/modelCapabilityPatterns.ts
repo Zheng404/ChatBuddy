@@ -1,3 +1,9 @@
+/**
+ * 模型能力正则模式匹配模块。
+ *
+ * 通过模型 ID 的命名模式推断模型类型和功能能力，
+ * 作为能力推断的最后一层回退（API > 注册表 > 模式）。
+ */
 import { ModelCapabilities, ModelKind } from './types';
 
 type PatternResult = {

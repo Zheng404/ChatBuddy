@@ -1,3 +1,9 @@
+/**
+ * 聊天工具函数模块。
+ *
+ * 提供消息格式化、问题前缀处理、<think> 标签内容提取、
+ * 以及内部消息格式到 Provider 消息格式的转换工具。
+ */
 import type { ChatMessage, ProviderMessage, ProviderMessageContent } from './types';
 
 /**

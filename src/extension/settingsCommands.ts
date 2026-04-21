@@ -1,3 +1,8 @@
+/**
+ * 设置相关命令注册模块。
+ *
+ * 注册打开设置中心各页面的命令（通用设置、模型配置、默认模型、MCP、关于）。
+ */
 import * as vscode from 'vscode';
 import type { ExtensionContext } from './shared';
 

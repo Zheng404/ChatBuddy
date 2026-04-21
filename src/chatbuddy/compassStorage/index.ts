@@ -1,3 +1,9 @@
+/**
+ * Compass 结构化存储公共 API 聚合模块。
+ *
+ * 统一导出 Compass 存储的所有公共类型、类和函数，
+ * 供 `ChatStateRepository` 和 `StatePersistenceService` 消费。
+ */
 export { CompassKvStore } from './kvStore';
 export { CompassMigrator, type CompassMigratorContext } from './migrator';
 export {

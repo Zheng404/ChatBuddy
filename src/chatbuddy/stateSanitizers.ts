@@ -1,3 +1,9 @@
+/**
+ * 状态初始化与清理模块。
+ *
+ * 提供初始状态的工厂函数、数据导入时的清理和规范化逻辑，
+ * 确保加载的数据符合预期的结构和约束。
+ */
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID } from './constants';
 import {
   createEmptyDefaultModels,

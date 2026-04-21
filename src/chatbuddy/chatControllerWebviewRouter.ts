@@ -1,3 +1,9 @@
+/**
+ * 聊天 WebView 消息路由器。
+ *
+ * 将 WebView 发来的 `WebviewInboundMessage` 分发给 `ChatController`
+ * 的对应处理函数，是所有用户交互操作的入口分发层。
+ */
 import * as vscode from 'vscode';
 
 import { formatString, getStrings } from './i18n';

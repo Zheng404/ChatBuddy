@@ -1,3 +1,11 @@
+/**
+ * MCP (Model Context Protocol) 运行时客户端。
+ *
+ * 管理 MCP 服务器的连接生命周期，支持 stdio、SSE、streamableHttp 三种传输方式。
+ * 提供工具发现与调用、资源读取、Prompt 获取等功能。
+ *
+ * `@modelcontextprotocol/client` 为 ESM-only，通过动态 `import()` 在运行时加载。
+ */
 import {
   AssistantProfile,
   ChatBuddySettings,

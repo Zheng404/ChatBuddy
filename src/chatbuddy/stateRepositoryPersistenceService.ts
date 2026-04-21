@@ -1,3 +1,9 @@
+/**
+ * 状态持久化服务模块。
+ *
+ * 负责将内存中的 `PersistedStateLite` 异步持久化到 Compass 结构化存储，
+ * 以及从存储中恢复状态。管理防抖持久化、版本冲突检测和数据一致性。
+ */
 import * as vscode from 'vscode';
 
 import { cloneDefaultModels } from './modelCatalog';

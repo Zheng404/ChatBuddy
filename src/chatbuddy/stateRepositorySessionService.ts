@@ -1,3 +1,9 @@
+/**
+ * 会话状态服务模块。
+ *
+ * 封装会话和消息的 CRUD 操作，包括创建会话、追加/更新/删除消息、
+ * 会话搜索和清空等功能。所有操作直接修改 `PersistedStateLite` 并通过回调触发持久化。
+ */
 import * as vscode from 'vscode';
 
 import { resolveLocale } from './i18n';

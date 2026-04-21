@@ -1,3 +1,12 @@
+/**
+ * ChatBuddy 聊天控制器核心协调器。
+ *
+ * `ChatController` 聚合 `ChatGenerationService`、`ChatPanelManager` 和 `ToolCallOrchestrator`
+ * 三个子服务，负责 WebView 消息路由、状态载荷构建、面板生命周期管理。
+ *
+ * 本身不处理业务细节，而是将消息分发到对应的服务模块，
+ * 并负责 Extension Host ↔ WebView 的状态同步。
+ */
 import * as vscode from 'vscode';
 
 import {

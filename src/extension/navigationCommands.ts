@@ -1,3 +1,8 @@
+/**
+ * 导航相关命令注册模块。
+ *
+ * 注册"问 AI"、打开助手聊天等导航命令。
+ */
 import * as vscode from 'vscode';
 import type { ExtensionContext } from './shared';
 import { asAssistantNode, asSessionNode } from './shared';

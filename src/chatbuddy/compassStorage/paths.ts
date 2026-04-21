@@ -1,3 +1,12 @@
+/**
+ * Compass 存储路径定义模块。
+ *
+ * 定义 Compass 结构化存储的所有文件路径常量、布局版本号，
+ * 以及通过 `createCompassPaths()` 生成完整路径对象的工厂函数。
+ *
+ * 存储根目录为 ExtensionContext.globalStorageUri.fsPath，
+ * 下分为 `meta/`（状态与设置）和 `sessions/`（会话消息）两大区域。
+ */
 import * as path from 'path';
 
 export const LEGACY_DB_FILE_NAME = 'chatbuddy.sqlite';

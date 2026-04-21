@@ -1,3 +1,9 @@
+/**
+ * Provider 客户端类型定义模块。
+ *
+ * 定义 `OpenAICompatibleClient` 使用的所有内部类型和接口，
+ * 包括流式处理回调、请求选项、连接输入、工具调用轮次等。
+ */
 import {
   ProviderApiType,
   ProviderConfig,

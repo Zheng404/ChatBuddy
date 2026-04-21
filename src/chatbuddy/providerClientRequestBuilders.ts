@@ -1,3 +1,9 @@
+/**
+ * Provider 请求体构建模块。
+ *
+ * 将内部 `ProviderConfig` 和消息列表转换为不同 Provider API 的请求体格式，
+ * 包括 chat_completions 和 responses 两种 API 类型，以及本地函数工具和 MCP 工具的注入。
+ */
 import { ProviderConfig, ProviderMessage, ProviderToolDefinition } from './types';
 import { ProviderConnectionInput, ProviderToolRound } from './providerClientTypes';
 

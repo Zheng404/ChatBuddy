@@ -1,3 +1,9 @@
+/**
+ * 状态导入导出模块。
+ *
+ * 提供备份数据的导入、导出和合并逻辑，处理不同版本备份的兼容性转换，
+ * 以及 Provider API Key 的提取与应用。
+ */
 import { cloneProvider } from './stateClone';
 import {
   resolveUntitledSessionTitle

@@ -1,3 +1,8 @@
+/**
+ * 状态深拷贝模块。
+ *
+ * 提供所有核心数据类型的不可变克隆函数，确保状态变更时不会意外修改共享引用。
+ */
 import type { AssistantGroup, AssistantProfile, ChatSession, ChatSessionSummary, McpKeyValueEntry, McpServerProfile, McpSettings, ProviderProfile } from './types';
 
 export function cloneProvider(provider: ProviderProfile): ProviderProfile {

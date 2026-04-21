@@ -1,3 +1,9 @@
+/**
+ * 助手状态服务模块。
+ *
+ * 封装助手和分组的 CRUD 操作，包括创建、更新、软删除/恢复、置顶、
+ * 分组管理等功能。所有操作直接修改 `PersistedStateLite` 并通过回调触发持久化。
+ */
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID } from './constants';
 import { getDefaultAssistantModelRef, resolveDefaultAssistantName } from './stateHelpers';
 import { cloneAssistant, cloneGroup } from './stateClone';

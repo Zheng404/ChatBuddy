@@ -1,3 +1,9 @@
+/**
+ * 助手编辑器面板控制器。
+ *
+ * 管理助手创建/编辑的 WebViewPanel，提供表单界面供用户编辑助手的
+ * 所有属性（名称、系统提示词、问候语、模型选择、温度等参数）。
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';

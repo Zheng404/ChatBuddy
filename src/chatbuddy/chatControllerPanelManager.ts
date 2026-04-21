@@ -1,3 +1,9 @@
+/**
+ * 聊天面板管理器。
+ *
+ * 管理 WebViewPanel 的生命周期，包括面板的创建、显示、复用和销毁。
+ * 支持多面板模式（每个助手一个独立面板）和单面板模式。
+ */
 import * as vscode from 'vscode';
 
 import { getCodiconRootUri } from './codicon';

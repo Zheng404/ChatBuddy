@@ -1,3 +1,9 @@
+/**
+ * 模型能力推断模块。
+ *
+ * 三层推断策略：API 响应（运行时） > 内置注册表（已知模型） > 正则模式（模糊匹配）。
+ * 自动解析模型类型（chat/image/video/audio/embedding/rerank）和功能能力（vision/reasoning/tools/webSearch）。
+ */
 import { ModelCapabilities, ModelKind } from './types';
 import { resolveFromRegistry } from './modelCapabilityRegistry';
 import { resolveFromPatterns } from './modelCapabilityPatterns';

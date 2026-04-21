@@ -1,3 +1,9 @@
+/**
+ * 聊天 WebView 主脚本组装模块。
+ *
+ * 将多个 JS 片段（事件处理、Markdown 渲染、UI 交互）组装为单个脚本块，
+ * 注入到聊天 WebView 中。包含 KaTeX 和 Mermaid 的初始化逻辑。
+ */
 import { getToastScript } from './webviewShared';
 import { getHtmlEscaperScript } from './utils/html';
 import { getChatEventScript } from './webviewChatScriptEvents';

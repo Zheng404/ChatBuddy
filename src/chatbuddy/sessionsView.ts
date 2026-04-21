@@ -1,3 +1,9 @@
+/**
+ * 会话树数据提供器。
+ *
+ * 为 VS Code TreeView 提供当前选中助手的会话列表数据，
+ * 支持搜索过滤和会话选择状态同步。
+ */
 import * as vscode from 'vscode';
 
 import { getStrings, resolveLocale } from './i18n';

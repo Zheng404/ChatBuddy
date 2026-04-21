@@ -1,3 +1,8 @@
+/**
+ * Toast 通知样式模块。
+ *
+ * 提供跨 WebView 面板共享的 Toast 通知 CSS 样式定义。
+ */
 export const SHARED_TOAST_STYLE = `
       .toast-stack {
         position: fixed;

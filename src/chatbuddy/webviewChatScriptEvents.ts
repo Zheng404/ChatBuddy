@@ -1,3 +1,9 @@
+/**
+ * 聊天 WebView 事件处理脚本模块。
+ *
+ * 提供 WebView 内部的事件监听逻辑，包括 VS Code 消息接收、
+ * 用户点击/滚动/粘贴等 DOM 事件的响应处理。
+ */
 export function getChatEventScript(): string {
   return `
       window.addEventListener('message', (event) => {

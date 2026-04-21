@@ -1,3 +1,11 @@
+/**
+ * 工具调用编排器。
+ *
+ * 负责 MCP 工具和本地函数工具的发现、构建、调用编排。
+ * 处理工具调用链：Provider 返回 toolCalls → 执行工具 → 将结果回传给 Provider → 获取最终回复。
+ *
+ * 支持用户确认机制（危险操作需要显式确认），以及多轮工具调用的状态保持。
+ */
 import * as vscode from 'vscode';
 
 import { getStrings } from './i18n';

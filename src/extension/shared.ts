@@ -1,3 +1,9 @@
+/**
+ * 扩展命令层共享类型与工具模块。
+ *
+ * 定义 `ExtensionContext` 接口（命令注册函数共享的依赖上下文），
+ * 以及树节点类型断言、会话导出等辅助函数。
+ */
 import { AssistantGroupNode, AssistantNode } from '../chatbuddy/assistantsView';
 import { ChatController } from '../chatbuddy/chatController';
 import { AssistantEditorPanelController } from '../chatbuddy/assistantEditorPanel';

@@ -1,3 +1,9 @@
+/**
+ * Codicon 图标字体加载模块。
+ *
+ * 从 VS Code 安装目录加载 Codicon SVG sprite，生成内联 CSS 样式文本，
+ * 供 WebView 使用 VS Code 原生图标字体。
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';

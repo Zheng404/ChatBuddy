@@ -1,3 +1,8 @@
+/**
+ * 面板图标路径解析模块。
+ *
+ * 为 WebViewPanel 提供图标路径解析，支持 Codicon 符号和自定义 SVG 图标。
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';

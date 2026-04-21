@@ -1,3 +1,9 @@
+/**
+ * 助手树数据提供器。
+ *
+ * 为 VS Code TreeView 提供助手和分组的数据，同时服务于主视图（活跃助手）
+ * 和回收站视图（已删除助手）。支持搜索过滤、分组展开/折叠状态同步。
+ */
 import * as vscode from 'vscode';
 
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from './constants';

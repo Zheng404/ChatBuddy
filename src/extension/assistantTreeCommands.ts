@@ -1,3 +1,8 @@
+/**
+ * 助手树交互命令注册模块。
+ *
+ * 注册助手树的搜索、折叠、展开、创建分组等交互命令。
+ */
 import * as vscode from 'vscode';
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from '../chatbuddy/constants';
 import { formatString } from '../chatbuddy/i18n';

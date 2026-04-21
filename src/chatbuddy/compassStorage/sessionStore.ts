@@ -1,3 +1,11 @@
+/**
+ * Compass 会话存储模块。
+ *
+ * 管理会话索引（`index.compass.json`）和消息文件（`{assistantId}/{sessionId}.jsonl`）
+ * 的加载、持久化、CRUD 和验证。
+ *
+ * 消息以 JSON Lines 格式存储，每行一个规范化后的消息对象。
+ */
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from '../types';
 import { nowTs } from '../utils';
 import {

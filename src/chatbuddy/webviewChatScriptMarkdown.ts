@@ -1,3 +1,9 @@
+/**
+ * 聊天 WebView Markdown 渲染脚本模块。
+ *
+ * 提供消息内容的 Markdown 解析与渲染逻辑，支持代码块高亮、
+ * KaTeX 数学公式、Mermaid 图表和 Markdown 基础语法。
+ */
 export function getChatMarkdownRendererScript(args: {
   latexDisplayPattern: string;
   latexInlinePattern: string;

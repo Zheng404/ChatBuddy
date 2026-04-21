@@ -1,3 +1,13 @@
+/**
+ * ChatBuddy 单一状态源（Single Source of Truth）。
+ *
+ * `ChatStateRepository` 管理整个扩展的运行时状态（`PersistedStateLite`），
+ * 通过内部服务拆分（AssistantStateService、SessionStateService、StatePersistenceService）
+ * 管理不同领域的数据操作。
+ *
+ * 状态读取带版本缓存，避免不必要的深拷贝。
+ * 所有变更通过 `bump()` 递增版本号触发刷新。
+ */
 import * as vscode from 'vscode';
 
 import { COMPASS_LAYOUT_VERSION, persistedStateLiteToStructuredStateDocument, structuredStateDocumentToPersistedStateLite } from './compassStorage';

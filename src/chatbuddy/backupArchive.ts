@@ -1,3 +1,9 @@
+/**
+ * 备份归档模块。
+ *
+ * 提供 ZIP 格式的数据备份/恢复功能，将 Compass 结构化存储的多个文件
+ * 打包为单个 ZIP 归档，支持压缩和完整的数据重建。
+ */
 import { inflateRawSync } from 'zlib';
 
 import {

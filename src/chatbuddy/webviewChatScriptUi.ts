@@ -1,3 +1,9 @@
+/**
+ * 聊天 WebView UI 交互脚本模块。
+ *
+ * 提供输入框管理、消息渲染、工具栏交互、会话面板切换、
+ * 模型选择下拉、图片粘贴和 Toast 显示等 UI 交互逻辑。
+ */
 export function getChatUiScript(): string {
   return `
       function getSelectedAssistantAvatar() {

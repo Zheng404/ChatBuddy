@@ -1,3 +1,12 @@
+/**
+ * 聊天消息生成服务。
+ *
+ * 处理用户消息发送、流式/非流式响应生成、消息追加与更新、
+ * 以及自动标题生成功能。
+ *
+ * 与 `ToolCallOrchestrator` 协作处理工具调用链，
+ * 通过 `StreamAccumulator` 管理增量流数据的累积与节流刷新。
+ */
 import * as vscode from 'vscode';
 
 import { TITLE_GENERATION } from './constants';

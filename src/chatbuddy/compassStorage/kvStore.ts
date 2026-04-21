@@ -1,3 +1,9 @@
+/**
+ * Compass 键值存储模块。
+ *
+ * 提供简单的字符串键值对持久化存储，数据保存在 `kv.compass.json` 中。
+ * 主要用于兼容少量非结构化数据的存储需求。
+ */
 import { fileExists, readJsonFile, readTextFile, removeFileIfExists, writeJsonAtomic } from './io';
 import { CompassPaths } from './paths';
 import { CompassValidationResult } from './types';

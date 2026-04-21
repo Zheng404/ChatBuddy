@@ -1,3 +1,12 @@
+/**
+ * Compass 结构化设置存储模块。
+ *
+ * 管理 6 个独立的结构化状态 JSON 文件的读写、
+ * `PersistedStateLite` 与 `StructuredStateDocument` 的双向转换、
+ * 以及 API Key 的隔离存储。
+ *
+ * 支持从旧版单文件 Compass payload 和 VS Code globalState 的向后兼容。
+ */
 import { ChatBuddySettings, PersistedStateLite, ProviderModelProfile, ProviderProfile } from '../types';
 import { createInitialState } from '../stateSanitizers';
 import { warn } from '../utils';

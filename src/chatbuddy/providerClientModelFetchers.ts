@@ -1,3 +1,9 @@
+/**
+ * Provider 模型列表获取模块。
+ *
+ * 支持从 OpenAI、Gemini、OpenRouter、Ollama 等 Provider 自动获取可用模型列表，
+ * 包含各 Provider 特有的模型解析逻辑。
+ */
 import { getStrings } from './i18n';
 import { ProviderModelProfile, RuntimeLocale } from './types';
 import {

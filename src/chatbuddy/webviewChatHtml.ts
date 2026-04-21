@@ -1,3 +1,9 @@
+/**
+ * 聊天 WebView HTML body 结构模块。
+ *
+ * 返回聊天面板的 HTML body 内容，包含消息区域、输入框、会话侧边栏、
+ * 工具栏和 Toast 容器等核心 UI 结构。
+ */
 import { TOAST_CONTAINER_HTML } from './webviewShared';
 
 /** Returns the HTML body for the chat webview panel. */

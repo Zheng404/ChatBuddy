@@ -1,3 +1,9 @@
+/**
+ * 国际化模块。
+ *
+ * 提供运行时本地化字符串加载、语言环境解析、
+ * 以及字符串格式化（支持模板变量替换）功能。
+ */
 import { AssistantProfile, ChatBuddyLocaleSetting, RuntimeLocale, RuntimeStrings } from './types';
 import { RUNTIME_STRINGS } from './i18n/runtimeStrings';
 

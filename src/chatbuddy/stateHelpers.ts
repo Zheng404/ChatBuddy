@@ -1,3 +1,9 @@
+/**
+ * 状态辅助工具模块。
+ *
+ * 提供状态转换、默认值解析、模型引用处理等辅助函数，
+ * 以及备份数据解包和会话标题生成工具。
+ */
 import { createModelRef, dedupeModels, parseModelRef } from './modelCatalog';
 import { COMPASS_LAYOUT_VERSION, StructuredStateDocument } from './compassStorage';
 import { cloneProvider } from './stateClone';

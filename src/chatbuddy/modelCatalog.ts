@@ -1,3 +1,9 @@
+/**
+ * 模型目录管理模块。
+ *
+ * 提供模型引用（modelRef）的解析与构建、模型选项列表的生成、
+ * 默认模型配置的管理，以及模型显示标签的格式化。
+ */
 import { resolveCapabilities, resolveKind } from './modelCapabilities';
 import {
   DefaultModelSettings,

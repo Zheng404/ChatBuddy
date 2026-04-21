@@ -1,3 +1,9 @@
+/**
+ * Provider 多媒体响应解析模块。
+ *
+ * 处理 AI Provider 返回的多媒体内容（图片、视频），
+ * 支持 URL 引用、Base64 编码和嵌套对象等多种数据格式。
+ */
 type MediaKind = 'image' | 'video';
 
 type MediaSourceConfig = {

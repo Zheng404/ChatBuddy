@@ -1,3 +1,8 @@
+/**
+ * 会话管理命令注册模块。
+ *
+ * 注册会话的创建、重命名、删除、导出、清空等管理命令。
+ */
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';

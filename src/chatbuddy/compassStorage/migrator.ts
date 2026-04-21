@@ -1,3 +1,16 @@
+/**
+ * Compass 存储迁移器模块。
+ *
+ * 负责检测存储格式版本、执行从旧版 SQLite 和旧版 Compass 到当前结构化格式的
+ * 自动迁移，并在启动时验证数据完整性。
+ *
+ * 迁移策略：
+ * 1. 检查迁移标记，确认是否需要迁移
+ * 2. 验证当前快照完整性
+ * 3. 如无效，尝试从 SQLite 恢复
+ * 4. 执行必要的格式转换
+ * 5. 写入新的迁移标记
+ */
 import * as fs from 'fs';
 
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';

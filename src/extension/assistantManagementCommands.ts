@@ -1,3 +1,8 @@
+/**
+ * 助手管理命令注册模块。
+ *
+ * 注册助手的创建、编辑、删除、置顶、恢复、彻底删除等 CRUD 命令。
+ */
 import * as vscode from 'vscode';
 import { formatString } from '../chatbuddy/i18n';
 import type { ExtensionContext } from './shared';

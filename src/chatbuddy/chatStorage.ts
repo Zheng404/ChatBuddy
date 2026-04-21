@@ -1,3 +1,10 @@
+/**
+ * 存储适配器模块。
+ *
+ * `ChatStorage` 是 `StatePersistenceService` 与底层 Compass 存储之间的桥梁，
+ * 负责初始化存储目录、协调 CompassMigrator 迁移、以及提供状态/会话/密钥的读写接口。
+ * 同时保留对旧版 VS Code `globalState` 的兼容层。
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 

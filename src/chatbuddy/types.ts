@@ -1,3 +1,9 @@
+/**
+ * ChatBuddy 全局类型定义模块。
+ *
+ * 定义整个扩展使用的所有核心数据类型和接口，
+ * 包括助手、会话、消息、Provider 配置、MCP 设置、WebView 消息协议等。
+ */
 export type ChatRole = 'system' | 'user' | 'assistant';
 export type RuntimeLocale = 'zh-CN' | 'en';
 export type ChatBuddyLocaleSetting = 'auto' | RuntimeLocale;

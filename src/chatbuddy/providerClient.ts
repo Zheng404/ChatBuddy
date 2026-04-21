@@ -1,3 +1,12 @@
+/**
+ * OpenAI 兼容 Provider 客户端。
+ *
+ * 统一的 AI 服务调用入口，支持 chat_completions 和 responses 两种 API 类型，
+ * 适配 OpenAI、Gemini、OpenRouter、Ollama 和自定义端点。
+ *
+ * 提供流式和非流式两种调用模式，内置指数退避重试、HTTP 状态码错误处理、
+ * 以及模型列表自动获取能力。
+ */
 import { getStrings } from './i18n';
 import { createModelRef, getModelDisplayLabel, parseModelRef } from './modelCatalog';
 import { TIMEOUT } from './constants';

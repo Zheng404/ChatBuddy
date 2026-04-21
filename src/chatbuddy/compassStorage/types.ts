@@ -1,3 +1,9 @@
+/**
+ * Compass 存储类型定义与数据规范化工具模块。
+ *
+ * 包含结构化存储的 TypeScript 类型（StateDocument、SettingsFile、Commit 等），
+ * 以及将原始数据安全转换为已知类型的工具函数（`toStringValue`、`toNumberValue` 等）。
+ */
 import {
   AssistantGroup,
   AssistantProfile,

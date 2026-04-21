@@ -1,3 +1,11 @@
+/**
+ * Compass 存储原子 I/O 工具模块。
+ *
+ * 提供文件系统层面的原子写操作（先写 `.tmp` 再重命名）、
+ * 安全读操作（ENOENT 返回 undefined）、目录操作和递归文件列表。
+ *
+ * 所有写函数保证要么完全写入，要么不修改目标文件，防止数据损坏。
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 

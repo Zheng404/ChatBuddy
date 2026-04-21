@@ -1,3 +1,9 @@
+/**
+ * Provider 响应解析模块。
+ *
+ * 处理 OpenAI 兼容 API 的流式和非流式响应解析，
+ * 支持 chat_completions 和 responses 两种 API 类型的差异格式。
+ */
 import { hasAnyCapability, resolveCapabilities, resolveKind } from './modelCapabilities';
 import { ModelCapabilities, ProviderModelProfile, ProviderToolCall } from './types';
 import {

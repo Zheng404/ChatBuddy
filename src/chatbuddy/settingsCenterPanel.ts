@@ -1,3 +1,9 @@
+/**
+ * 设置中心面板控制器。
+ *
+ * 管理设置中心的 WebViewPanel，包含模型配置、默认模型、MCP 设置、
+ * 通用设置、公告和关于等多个页面。通过 `postMessage` 与 WebView 双向通信。
+ */
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';

@@ -1,3 +1,10 @@
+/**
+ * 聊天状态载荷构建模块。
+ *
+ * 将 `ChatStateRepository` 中的运行时状态转换为 `ChatStatePayload`，
+ * 供 WebView 渲染使用。包含 Provider 配置解析、会话作用域状态同步、
+ * 以及完整的 payload 组装逻辑。
+ */
 import { resolveProviderConfig, resolveModelBindingConfig } from './providerClient';
 import {
   AssistantProfile,
