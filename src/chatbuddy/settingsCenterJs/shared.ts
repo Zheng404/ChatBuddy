@@ -111,7 +111,10 @@ export function getSharedJs(): string {
         discardChangesConfirmBtn: document.getElementById('discardChangesConfirmBtn'),
         navMcp: document.getElementById('navMcp'),
         navMcpTitle: document.getElementById('navMcpTitle'),
+        navNotice: document.getElementById('navNotice'),
+        navNoticeTitle: document.getElementById('navNoticeTitle'),
         paneMcp: document.getElementById('paneMcp'),
+        paneNotice: document.getElementById('paneNotice'),
         mcpMaxToolRoundsTitle: document.getElementById('mcpMaxToolRoundsTitle'),
 
         mcpMaxToolRoundsHelp: document.getElementById('mcpMaxToolRoundsHelp'),
@@ -129,6 +132,12 @@ export function getSharedJs(): string {
         mcpModalTransport: document.getElementById('mcpModalTransport'),
         mcpModalCancelBtn: document.getElementById('mcpModalCancelBtn'),
         mcpModalSaveBtn: document.getElementById('mcpModalSaveBtn'),
+        noticeAnnouncementTitle: document.getElementById('noticeAnnouncementTitle'),
+        noticeAnnouncementDescription: document.getElementById('noticeAnnouncementDescription'),
+        noticeAnnouncementList: document.getElementById('noticeAnnouncementList'),
+        noticeChangelogTitle: document.getElementById('noticeChangelogTitle'),
+        noticeChangelogDescription: document.getElementById('noticeChangelogDescription'),
+        noticeChangelogContent: document.getElementById('noticeChangelogContent'),
         toastStack: document.getElementById('toastStack')
       };
 
@@ -147,6 +156,11 @@ export function getSharedJs(): string {
         },
         modelOptions: [],
         invalidDefaultSelection: '',
+        bulletin: {
+          deprecationStartVersion: '',
+          removalVersion: ''
+        },
+        changelogMarkdown: '',
         notice: '',
         noticeTone: 'info'
       };
@@ -186,7 +200,7 @@ export function getSharedUtilsJs(toastScript: string): string {
 ${getHtmlEscaperScript()}
 
       function normalizeSectionValue(section) {
-        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' ? section : 'general';
+        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' || section === 'notice' ? section : 'general';
       }
 
       function renderNav() {
@@ -196,8 +210,9 @@ ${getHtmlEscaperScript()}
         dom.navDefaultModelsTitle.textContent = strings.defaultModelsTitle || '';
         dom.navGeneralTitle.textContent = strings.settingsTitle || '';
         dom.navMcpTitle.textContent = strings.mcpTitle || 'MCP';
+        dom.navNoticeTitle.textContent = strings.noticeTitle || 'Notice';
 
-        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navGeneral];
+        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navGeneral, dom.navNotice];
         for (const item of items) {
           const isActive = item.getAttribute('data-section') === activeSection;
           item.classList.toggle('active', isActive);
@@ -207,7 +222,7 @@ ${getHtmlEscaperScript()}
       }
 
       function renderSectionVisibility() {
-        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral, dom.paneMcp];
+        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral, dom.paneMcp, dom.paneNotice];
         for (const pane of panes) {
           const isActive = pane.getAttribute('data-section') === activeSection;
           pane.classList.toggle('active', isActive);

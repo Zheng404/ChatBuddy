@@ -73,6 +73,11 @@
         "icon": "$(plug)"
       },
       {
+        "command": "chatbuddy.openNotice",
+        "title": "%chatbuddy.command.openNotice%",
+        "icon": "$(bell)"
+      },
+      {
         "command": "chatbuddy.openAssistantChat",
         "title": "%chatbuddy.command.openAssistantChat%",
         "icon": "$(comment-discussion)"

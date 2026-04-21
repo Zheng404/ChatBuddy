@@ -10,6 +10,7 @@
   "chatbuddy.command.openModelConfig": "模型配置",
   "chatbuddy.command.openDefaultModels": "默认模型",
   "chatbuddy.command.openMcp": "MCP 设置",
+  "chatbuddy.command.openNotice": "公告",
   "chatbuddy.command.openAssistantChat": "打开聊天",
   "chatbuddy.command.createAssistant": "新建助手",
   "chatbuddy.command.createGroup": "新建分组",

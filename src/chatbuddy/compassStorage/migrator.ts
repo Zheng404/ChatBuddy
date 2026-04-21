@@ -15,6 +15,8 @@ import { CompassSettingsStore } from './settingsStore';
 import { CompassMigrationRecord, toStringValue } from './types';
 
 type SqlParam = string | number | null | Uint8Array;
+export const SQLITE_MIGRATION_DEPRECATION_START_VERSION = '0.3.0';
+export const SQLITE_MIGRATION_SUPPORT_REMOVAL_VERSION = '0.5.0';
 
 export type CompassMigratorContext = {
   paths: CompassPaths;

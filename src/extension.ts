@@ -154,7 +154,14 @@ function createSettingsTreeDataSource(getRuntimeStrings: () => Record<string, st
           'chatbuddy.openMcp',
           strings.mcpDescription
         ),
-        createItem('chatbuddy.settings.open', strings.openSettings, 'settings-gear', 'chatbuddy.openSettings', strings.settingsDescription)
+        createItem('chatbuddy.settings.open', strings.openSettings, 'settings-gear', 'chatbuddy.openSettings', strings.settingsDescription),
+        createItem(
+          'chatbuddy.notice.open',
+          strings.openNotice || strings.noticeTitle || 'Notice',
+          'bell',
+          'chatbuddy.openNotice',
+          strings.noticeDescription
+        )
       ];
       for (let index = items.length; index < MIN_SETTINGS_VIEW_ROWS; index += 1) {
         const spacer = new vscode.TreeItem(' ', vscode.TreeItemCollapsibleState.None);

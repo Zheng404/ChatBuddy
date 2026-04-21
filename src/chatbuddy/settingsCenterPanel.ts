@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { createModelRef, DEFAULT_TITLE_SUMMARY_PROMPT, getProviderModelOptions, parseModelRef } from './modelCatalog';
 import { getCodiconStyleText } from './codicon';
@@ -12,6 +14,10 @@ import { TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
 import { getSettingsCenterCss } from './settingsCenterStyles';
 import { getSettingsCenterJs } from './settingsCenterJs';
 import {
+  SQLITE_MIGRATION_DEPRECATION_START_VERSION,
+  SQLITE_MIGRATION_SUPPORT_REMOVAL_VERSION
+} from './compassStorage/migrator';
+import {
   ChatBuddyLocaleSetting,
   ChatBuddySettings,
   ChatSendShortcut,
@@ -24,7 +30,7 @@ import {
 } from './types';
 import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp, toErrorMessage, warn } from './utils';
 
-export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp';
+export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp' | 'notice';
 
 type SettingsActionResult = {
   notice: string;
@@ -98,6 +104,11 @@ type SettingsCenterState = {
   settings: ChatBuddySettings;
   modelOptions: ProviderModelOption[];
   invalidDefaultSelection: string;
+  bulletin: {
+    deprecationStartVersion: string;
+    removalVersion: string;
+  };
+  changelogMarkdown: string;
   notice?: string;
   noticeTone?: 'success' | 'error' | 'info';
 };
@@ -141,7 +152,7 @@ type SettingsCenterOutbound =
     };
 
 function normalizeSection(section: SettingsCenterSection | string | undefined): SettingsCenterSection {
-  if (section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp') {
+  if (section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' || section === 'notice') {
     return section;
   }
   return 'general';
@@ -175,6 +186,7 @@ function toModelRef(value: ChatBuddySettings['defaultModels']['assistant']): str
 export class SettingsCenterPanelController {
   private panel: vscode.WebviewPanel | undefined;
   private activeSection: SettingsCenterSection = 'general';
+  private changelogMarkdownCache: string | undefined;
 
   constructor(
     private readonly repository: ChatStateRepository,
@@ -664,10 +676,28 @@ export class SettingsCenterPanelController {
         settings,
         modelOptions,
         invalidDefaultSelection,
+        bulletin: {
+          deprecationStartVersion: SQLITE_MIGRATION_DEPRECATION_START_VERSION,
+          removalVersion: SQLITE_MIGRATION_SUPPORT_REMOVAL_VERSION
+        },
+        changelogMarkdown: this.loadChangelogPreview(),
         notice,
         noticeTone: notice ? noticeTone : undefined
       }
     });
+  }
+
+  private loadChangelogPreview(): string {
+    if (typeof this.changelogMarkdownCache === 'string') {
+      return this.changelogMarkdownCache;
+    }
+    const changelogPath = path.resolve(__dirname, '../../CHANGELOG.md');
+    try {
+      this.changelogMarkdownCache = fs.readFileSync(changelogPath, 'utf-8');
+    } catch {
+      this.changelogMarkdownCache = '';
+    }
+    return this.changelogMarkdownCache;
   }
 
   private getHtml(webview: vscode.Webview): string {
@@ -708,6 +738,10 @@ export class SettingsCenterPanelController {
             <button class="nav-item" id="navGeneral" type="button" data-section="general">
               <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
               <span class="nav-item-title" id="navGeneralTitle"></span>
+            </button>
+            <button class="nav-item" id="navNotice" type="button" data-section="notice">
+              <span class="nav-item-icon"><span class="codicon codicon-bell"></span></span>
+              <span class="nav-item-title" id="navNoticeTitle"></span>
             </button>
           </nav>
           <button class="tab-arrow" id="tabArrowRight" type="button">
@@ -891,6 +925,22 @@ export class SettingsCenterPanelController {
                 <div class="danger-actions">
                   <button class="btn-danger" id="resetBtn" type="button"></button>
                 </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="settings-pane" id="paneNotice" data-section="notice">
+            <div class="section-grid">
+              <section class="section-card">
+                <h2 class="section-title" id="noticeAnnouncementTitle"></h2>
+                <p class="help" id="noticeAnnouncementDescription"></p>
+                <ul class="notice-list" id="noticeAnnouncementList"></ul>
+              </section>
+
+              <section class="section-card">
+                <h2 class="section-title" id="noticeChangelogTitle"></h2>
+                <p class="help" id="noticeChangelogDescription"></p>
+                <div class="changelog-content changelog-markdown" id="noticeChangelogContent"></div>
               </section>
             </div>
           </section>

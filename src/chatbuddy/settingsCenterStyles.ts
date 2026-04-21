@@ -241,6 +241,82 @@ export function getSettingsCenterCss(): string {
         font-weight: 700;
       }
 
+      .notice-list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .notice-list li {
+        color: var(--fg);
+        line-height: 1.5;
+      }
+
+      .changelog-content {
+        margin: 10px 0 0;
+        max-height: 420px;
+        overflow: auto;
+        border: 1px solid var(--input-border);
+        border-radius: var(--radius-md);
+        background: var(--input-bg);
+        color: var(--input-fg);
+        padding: 12px;
+        font-size: 12px;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+
+      .changelog-markdown h1,
+      .changelog-markdown h2,
+      .changelog-markdown h3,
+      .changelog-markdown h4,
+      .changelog-markdown h5,
+      .changelog-markdown h6 {
+        margin: 12px 0 6px;
+        line-height: 1.3;
+      }
+
+      .changelog-markdown h1:first-child,
+      .changelog-markdown h2:first-child,
+      .changelog-markdown h3:first-child,
+      .changelog-markdown h4:first-child,
+      .changelog-markdown h5:first-child,
+      .changelog-markdown h6:first-child {
+        margin-top: 0;
+      }
+
+      .changelog-markdown p {
+        margin: 8px 0;
+      }
+
+      .changelog-markdown ul,
+      .changelog-markdown ol {
+        margin: 8px 0 8px 18px;
+        padding: 0;
+      }
+
+      .changelog-markdown code {
+        font-family: var(--vscode-editor-font-family, 'Consolas', monospace);
+        background: color-mix(in srgb, var(--panel-bg-strong) 92%, black 8%);
+        border-radius: var(--radius-sm);
+        padding: 0 4px;
+      }
+
+      .changelog-markdown pre {
+        margin: 8px 0;
+        padding: 10px;
+        border: 1px solid var(--input-border);
+        border-radius: var(--radius-sm);
+        background: color-mix(in srgb, var(--panel-bg-strong) 92%, black 8%);
+        overflow: auto;
+      }
+
+      .changelog-markdown pre code {
+        background: transparent;
+        padding: 0;
+      }
+
       .field-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -35,6 +35,7 @@ export function getStateSyncJs(): string {
         renderProviderFields();
         renderModels();
         renderMcp();
+        renderNotice();
         if (typeof refreshWorkspaceLayout === 'function') refreshWorkspaceLayout();
       }
 `;
