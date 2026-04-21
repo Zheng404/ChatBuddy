@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
+## [0.3.0] - 2026-04-21
+
+### English
+
+#### Added
+
+- Added multimodal chat: paste images directly into the chat input, sent as base64 to vision-capable models.
+- Added in-message search: search within the current session's messages.
+- Added session search: filter the session list by keyword.
+- Added code copy: one-click copy button on every code block in assistant replies.
+- Added edit & regenerate: edit any past user message and optionally regenerate the assistant reply from that point.
+- Added prompt variables: `{{currentFile}}`, `{{selection}}`, `{{language}}`, `{{fileName}}`, `{{fileDir}}`, `{{lineNumber}}`, `{{lineCount}}`, `{{activeEditorLanguage}}` are auto-resolved before sending.
+- Added About page to the Settings Center.
+- Added structured ZIP backup: export and import all data (assistants, sessions, settings, API keys) as a single compressed archive.
+
+#### Changed
+
+- Refactored storage layer to Compass structured format: state, settings, and sessions are now stored as independent JSON/JSONL files instead of a single SQLite database.
+- Improved askAI flow stability when triggered from the editor context menu.
+
+#### Fixed
+
+- Hardened persistence recovery: corrupt or incomplete storage snapshots are now automatically detected and recovered from legacy SQLite when available.
+- Hardened session ownership checks to prevent cross-assistant session leaks.
+- Hardened Compass storage snapshot validation with atomic I/O and commit markers.
+- Fixed session search keyword escaping issues.
+
+### 中文
+
+#### 新增
+
+- 新增多模态聊天：直接粘贴图片到聊天输入框，以 Base64 格式发送给支持 vision 的模型。
+- 新增消息内搜索：在当前会话的消息内容中搜索关键词。
+- 新增会话搜索：按关键词过滤会话列表。
+- 新增代码复制：助手回复中的每个代码块增加一键复制按钮。
+- 新增编辑与重新生成：可编辑任意历史用户消息，并选择从该位置重新生成助手回复。
+- 新增 Prompt 变量：`{{currentFile}}`、`{{selection}}`、`{{language}}`、`{{fileName}}`、`{{fileDir}}`、`{{lineNumber}}`、`{{lineCount}}`、`{{activeEditorLanguage}}` 在发送前自动解析替换。
+- 设置中心新增「关于」页面。
+- 新增结构化 ZIP 备份：将助手、会话、设置、API 密钥等全部数据导出为单个压缩包，支持导入恢复。
+
+#### 变更
+
+- 重构存储层为 Compass 结构化格式：状态、设置和会话现在以独立的 JSON/JSONL 文件存储，替代原有的单文件 SQLite 数据库。
+- 改进从编辑器右键菜单触发「问 AI」流程的稳定性。
+
+#### 修复
+
+- 加固持久化恢复机制：可自动检测损坏或不完整的存储快照，并在存在旧版 SQLite 时自动回退恢复。
+- 加固会话所有权校验，防止跨助手会话泄漏。
+- 加固 Compass 存储快照验证，增加原子 I/O 和提交标记保护。
+- 修复会话搜索关键词转义问题。
+
 ## [0.2.4] - 2026-04-17
 
 ### English
