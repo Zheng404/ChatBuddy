@@ -16,8 +16,8 @@ export function registerSettingsCommands(ctx: ExtensionContext): vscode.Disposab
     vscode.commands.registerCommand('chatbuddy.openMcp', () => {
       settingsCenterPanelController.openPanel('mcp');
     }),
-    vscode.commands.registerCommand('chatbuddy.openNotice', () => {
-      settingsCenterPanelController.openPanel('notice');
+    vscode.commands.registerCommand('chatbuddy.openAbout', () => {
+      settingsCenterPanelController.openPanel('about');
     })
   ];
 }

@@ -4,6 +4,7 @@ import { getDefaultModelsJs } from './defaultModels';
 import { getModelConfigJs } from './modelConfig';
 import { getMcpJs } from './mcp';
 import { getNoticeJs } from './notice';
+import { getAboutJs } from './about';
 import { getStateSyncJs } from './stateSync';
 import { getMessageHandlerJs } from './messageHandler';
 import { getEventListenersJs } from './eventListeners';
@@ -21,6 +22,7 @@ export function getSettingsCenterJs(toastScript: string, defaultTitleSummaryProm
     getModelConfigJs(),
     getMcpJs(),
     getNoticeJs(),
+    getAboutJs(),
     getStateSyncJs(),
     getMessageHandlerJs(),
     getEventListenersJs(defaultTitleSummaryPrompt)

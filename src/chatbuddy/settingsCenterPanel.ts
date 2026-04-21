@@ -30,7 +30,7 @@ import {
 } from './types';
 import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp, toErrorMessage, warn } from './utils';
 
-export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp' | 'notice';
+export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp' | 'about';
 
 type SettingsActionResult = {
   notice: string;
@@ -108,6 +108,17 @@ type SettingsCenterState = {
     deprecationStartVersion: string;
     removalVersion: string;
   };
+  about: {
+    appName: string;
+    version: string;
+    author: string;
+    authorUrl: string;
+    publisher: string;
+    license: string;
+    repositoryUrl: string;
+    marketplaceUrl: string;
+    openVsxUrl: string;
+  };
   changelogMarkdown: string;
   notice?: string;
   noticeTone?: 'success' | 'error' | 'info';
@@ -152,7 +163,13 @@ type SettingsCenterOutbound =
     };
 
 function normalizeSection(section: SettingsCenterSection | string | undefined): SettingsCenterSection {
-  if (section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' || section === 'notice') {
+  if (
+    section === 'modelConfig' ||
+    section === 'defaultModels' ||
+    section === 'general' ||
+    section === 'mcp' ||
+    section === 'about'
+  ) {
     return section;
   }
   return 'general';
@@ -187,6 +204,19 @@ export class SettingsCenterPanelController {
   private panel: vscode.WebviewPanel | undefined;
   private activeSection: SettingsCenterSection = 'general';
   private changelogMarkdownCache: string | undefined;
+  private packageMetadataCache:
+    | {
+        appName: string;
+        version: string;
+        author: string;
+        authorUrl: string;
+        publisher: string;
+        license: string;
+        repositoryUrl: string;
+        marketplaceUrl: string;
+        openVsxUrl: string;
+      }
+    | undefined;
 
   constructor(
     private readonly repository: ChatStateRepository,
@@ -680,11 +710,88 @@ export class SettingsCenterPanelController {
           deprecationStartVersion: SQLITE_MIGRATION_DEPRECATION_START_VERSION,
           removalVersion: SQLITE_MIGRATION_SUPPORT_REMOVAL_VERSION
         },
+        about: this.loadPackageMetadata(),
         changelogMarkdown: this.loadChangelogPreview(),
         notice,
         noticeTone: notice ? noticeTone : undefined
       }
     });
+  }
+
+  private loadPackageMetadata(): {
+    appName: string;
+    version: string;
+    author: string;
+    authorUrl: string;
+    publisher: string;
+    license: string;
+    repositoryUrl: string;
+    marketplaceUrl: string;
+    openVsxUrl: string;
+  } {
+    if (this.packageMetadataCache) {
+      return this.packageMetadataCache;
+    }
+    const packageJsonPath = path.resolve(__dirname, '../../package.json');
+    try {
+      const raw = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
+        displayName?: string;
+        name?: string;
+        author?: string | { name?: string; url?: string };
+        version?: string;
+        publisher?: string;
+        license?: string;
+        repository?: { url?: string };
+      };
+      const publisher = raw.publisher || '';
+      const packageName = raw.name || '';
+      const repositoryUrl = raw.repository?.url || '';
+      const authorName =
+        typeof raw.author === 'string'
+          ? raw.author
+          : (typeof raw.author?.name === 'string' ? raw.author.name : '');
+      const authorUrl =
+        (typeof raw.author === 'object' && typeof raw.author?.url === 'string' ? raw.author.url : '') ||
+        this.deriveGithubProfileUrl(repositoryUrl);
+      this.packageMetadataCache = {
+        appName:
+          (typeof raw.displayName === 'string' && raw.displayName.trim() && !raw.displayName.startsWith('%'))
+            ? raw.displayName
+            : 'ChatBuddy',
+        version: raw.version || '',
+        author: authorName || publisher,
+        authorUrl,
+        publisher,
+        license: raw.license || '',
+        repositoryUrl,
+        marketplaceUrl:
+          publisher && packageName ? `https://marketplace.visualstudio.com/items?itemName=${publisher}.${packageName}` : '',
+        openVsxUrl: publisher && packageName ? `https://open-vsx.org/extension/${publisher}/${packageName}` : ''
+      };
+    } catch {
+      this.packageMetadataCache = {
+        appName: 'ChatBuddy',
+        version: '',
+        author: '',
+        authorUrl: '',
+        publisher: '',
+        license: '',
+        repositoryUrl: '',
+        marketplaceUrl: '',
+        openVsxUrl: ''
+      };
+    }
+    return this.packageMetadataCache;
+  }
+
+  private deriveGithubProfileUrl(repositoryUrl: string): string {
+    if (!repositoryUrl) {
+      return '';
+    }
+    const normalized = repositoryUrl.trim();
+    const match = normalized.match(/github\.com[:/](?<owner>[^/\s]+)\/(?<repo>[^/\s]+?)(?:\.git)?$/i);
+    const owner = match?.groups?.owner;
+    return owner ? `https://github.com/${owner}` : '';
   }
 
   private loadChangelogPreview(): string {
@@ -739,9 +846,9 @@ export class SettingsCenterPanelController {
               <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
               <span class="nav-item-title" id="navGeneralTitle"></span>
             </button>
-            <button class="nav-item" id="navNotice" type="button" data-section="notice">
-              <span class="nav-item-icon"><span class="codicon codicon-bell"></span></span>
-              <span class="nav-item-title" id="navNoticeTitle"></span>
+            <button class="nav-item" id="navAbout" type="button" data-section="about">
+              <span class="nav-item-icon"><span class="codicon codicon-info"></span></span>
+              <span class="nav-item-title" id="navAboutTitle"></span>
             </button>
           </nav>
           <button class="tab-arrow" id="tabArrowRight" type="button">
@@ -929,18 +1036,27 @@ export class SettingsCenterPanelController {
             </div>
           </section>
 
-          <section class="settings-pane" id="paneNotice" data-section="notice">
-            <div class="section-grid">
-              <section class="section-card">
-                <h2 class="section-title" id="noticeAnnouncementTitle"></h2>
-                <p class="help" id="noticeAnnouncementDescription"></p>
-                <ul class="notice-list" id="noticeAnnouncementList"></ul>
-              </section>
-
-              <section class="section-card">
-                <h2 class="section-title" id="noticeChangelogTitle"></h2>
-                <p class="help" id="noticeChangelogDescription"></p>
-                <div class="changelog-content changelog-markdown" id="noticeChangelogContent"></div>
+          <section class="settings-pane" id="paneAbout" data-section="about">
+            <div class="section-grid about-layout">
+              <section class="section-card about-hero-card">
+                <div class="about-grid" id="aboutOverviewGrid"></div>
+                <div class="about-notice-shell">
+                  <div class="about-notice-grid">
+                    <section class="about-info-card">
+                      <div class="about-notice-header">
+                        <h2 class="section-title" id="noticeAnnouncementTitle"></h2>
+                        <p class="help" id="noticeAnnouncementDescription"></p>
+                      </div>
+                      <ul class="notice-list" id="noticeAnnouncementList"></ul>
+                    </section>
+                    <section class="about-info-card about-changelog-card">
+                      <div class="about-changelog-block">
+                        <h3 class="panel-title" id="noticeChangelogTitle"></h3>
+                        <div class="changelog-content changelog-markdown" id="noticeChangelogContent"></div>
+                      </div>
+                    </section>
+                  </div>
+                </div>
               </section>
             </div>
           </section>

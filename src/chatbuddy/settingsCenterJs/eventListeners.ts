@@ -16,8 +16,8 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
       dom.navMcp.addEventListener('click', () => {
         activateSection('mcp', true);
       });
-      dom.navNotice.addEventListener('click', () => {
-        activateSection('notice', true);
+      dom.navAbout.addEventListener('click', () => {
+        activateSection('about', true);
       });
 
       // Editor sub-tabs (provider config / models)

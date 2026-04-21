@@ -156,11 +156,11 @@ function createSettingsTreeDataSource(getRuntimeStrings: () => Record<string, st
         ),
         createItem('chatbuddy.settings.open', strings.openSettings, 'settings-gear', 'chatbuddy.openSettings', strings.settingsDescription),
         createItem(
-          'chatbuddy.notice.open',
-          strings.openNotice || strings.noticeTitle || 'Notice',
-          'bell',
-          'chatbuddy.openNotice',
-          strings.noticeDescription
+          'chatbuddy.about.open',
+          strings.openAbout || strings.aboutTitle || 'About',
+          'info',
+          'chatbuddy.openAbout',
+          strings.aboutDescription
         )
       ];
       for (let index = items.length; index < MIN_SETTINGS_VIEW_ROWS; index += 1) {

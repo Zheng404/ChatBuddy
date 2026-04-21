@@ -22,7 +22,6 @@ export function getNoticeJs(): string {
           .join('');
 
         dom.noticeChangelogTitle.textContent = strings.noticeChangelogTitle || '';
-        dom.noticeChangelogDescription.textContent = strings.noticeChangelogDescription || '';
 
         const markdown = runtimeState.changelogMarkdown || '';
         if (!markdown.trim()) {
@@ -33,7 +32,7 @@ export function getNoticeJs(): string {
       }
 
       function renderMarkdownToHtml(markdown) {
-        const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+        const lines = String(markdown || '').replace(/\\r\\n/g, '\\n').split('\\n');
         const html = [];
         const codeTick = String.fromCharCode(96);
         let inCodeBlock = false;
@@ -76,7 +75,7 @@ export function getNoticeJs(): string {
           }
 
           if (inCodeBlock) {
-            html.push(escapeHtml(line) + '\n');
+            html.push(escapeHtml(line) + '\\n');
             continue;
           }
 
