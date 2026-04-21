@@ -116,6 +116,10 @@ export class StatePersistenceService {
     }
   }
 
+  public async drain(): Promise<void> {
+    await this.persistQueue;
+  }
+
   private queuePersist(task: () => Promise<void>): Promise<void> {
     const run = this.persistQueue.then(
       () => this.executeWithRetry(task),

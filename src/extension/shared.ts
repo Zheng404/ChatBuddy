@@ -87,7 +87,7 @@ function sanitizeFileNameSegment(value: string, fallback: string): string {
 export function buildBackupFileName(): string {
   const now = new Date();
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `chatbuddy-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.json`;
+  return `chatbuddy-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.zip`;
 }
 
 export function buildSessionExportFileName(sessionTitle: string, extension: string): string {

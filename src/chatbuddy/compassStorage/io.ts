@@ -74,3 +74,82 @@ export async function listFilesRecursively(dirPath: string, suffix: string): Pro
   }
   return result;
 }
+
+export async function moveDirectoryContents(sourceDirPath: string, targetDirPath: string): Promise<void> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(sourceDirPath, { withFileTypes: true });
+  } catch (readError) {
+    if ((readError as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return;
+    }
+    throw readError;
+  }
+
+  await ensureDir(targetDirPath);
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDirPath, entry.name);
+    const targetPath = path.join(targetDirPath, entry.name);
+
+    if (entry.isDirectory()) {
+      let targetStats: fs.Stats | undefined;
+      try {
+        targetStats = await fs.promises.stat(targetPath);
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+          throw statError;
+        }
+      }
+
+      if (!targetStats) {
+        await fs.promises.rename(sourcePath, targetPath);
+        continue;
+      }
+      if (!targetStats.isDirectory()) {
+        continue;
+      }
+
+      await moveDirectoryContents(sourcePath, targetPath);
+      continue;
+    }
+
+    if (await fileExists(targetPath)) {
+      continue;
+    }
+    await fs.promises.rename(sourcePath, targetPath);
+  }
+
+  await removeEmptyDirectoriesRecursively(sourceDirPath);
+}
+
+export async function removeEmptyDirectoriesRecursively(rootDirPath: string): Promise<void> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(rootDirPath, { withFileTypes: true });
+  } catch (readError) {
+    if ((readError as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return;
+    }
+    throw readError;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const entryPath = path.join(rootDirPath, entry.name);
+    await removeEmptyDirectoriesRecursively(entryPath);
+  }
+
+  const remaining = await fs.promises.readdir(rootDirPath);
+  if (remaining.length > 0) {
+    return;
+  }
+
+  await fs.promises.rmdir(rootDirPath).catch((removeError: NodeJS.ErrnoException) => {
+    if (removeError.code !== 'ENOENT' && removeError.code !== 'ENOTEMPTY') {
+      throw removeError;
+    }
+  });
+}

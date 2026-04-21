@@ -83,6 +83,7 @@ type SettingsCenterMessage =
   | { type: 'reset' }
   | { type: 'exportData' }
   | { type: 'importData' }
+  | { type: 'importLegacyData' }
   | { type: 'saveMcpServers'; payload: McpServerProfile[] }
   | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
   | { type: 'probeMcpServers' }
@@ -225,7 +226,8 @@ export class SettingsCenterPanelController {
     private readonly onSave: (settings: ChatBuddySettings) => void,
     private readonly onReset: () => Promise<boolean> | boolean,
     private readonly onExportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
-    private readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined
+    private readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
+    private readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined
   ) {}
 
   public openPanel(section: SettingsCenterSection = 'general'): void {
@@ -613,6 +615,18 @@ export class SettingsCenterPanelController {
     if (message.type === 'importData') {
       try {
         const result = await this.onImportData();
+        if (result?.notice) {
+          this.postState(result.notice, result.tone ?? 'success');
+        }
+      } catch {
+        this.postState(this.getStrings().unknownError, 'error');
+      }
+      return;
+    }
+
+    if (message.type === 'importLegacyData') {
+      try {
+        const result = await this.onImportLegacyData();
         if (result?.notice) {
           this.postState(result.notice, result.tone ?? 'success');
         }
@@ -1023,6 +1037,7 @@ export class SettingsCenterPanelController {
                 <div class="data-actions">
                   <button class="btn-secondary" id="exportBtn" type="button"></button>
                   <button class="btn-secondary" id="importBtn" type="button"></button>
+                  <button class="btn-secondary" id="importLegacyBtn" type="button"></button>
                 </div>
               </section>
 

@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, PersistedStateLite } from './types';
 import { error } from './utils';
 import {
@@ -8,7 +11,8 @@ import {
   createCompassPaths,
   type CompassPaths
 } from './compassStorage';
-import { ensureDir } from './compassStorage/io';
+import { ensureDir, fileExists, moveDirectoryContents, removeEmptyDirectoriesRecursively } from './compassStorage/io';
+import { COMPASS_META_DIR_NAME, COMPASS_SESSIONS_DIR_NAME } from './compassStorage/paths';
 
 export const COMPASS_STATE_STORE_KEY = 'chatbuddy.state.compass';
 export const COMPASS_PROVIDER_API_KEYS_STORE_KEY = 'chatbuddy.providerApiKeys.compass';
@@ -24,6 +28,7 @@ export class ChatStorage {
     this.paths = createCompassPaths(globalStoragePath);
     const paths = this.requirePaths();
 
+    await this.migrateLegacyRootLayout(paths);
     await ensureDir(paths.metaPath);
     await ensureDir(paths.sessionsPath);
 
@@ -201,6 +206,10 @@ export class ChatStorage {
     return this.sessionStore.listAllSessions();
   }
 
+  public listAllKv(): Record<string, string> {
+    return this.kvStore.listAll();
+  }
+
   public getKv(key: string): string | undefined {
     const compatValue = this.settingsStore.getKvCompat(
       key,
@@ -223,6 +232,18 @@ export class ChatStorage {
     if (!handledBySettingsStore) {
       this.kvStore.set(key, value);
     }
+    if (persist) {
+      this.schedulePersist();
+    }
+  }
+
+  public replaceAllKv(entries: Record<string, string>, persist = true): void {
+    const filteredEntries = Object.fromEntries(
+      Object.entries(entries).filter(
+        ([key]) => key !== COMPASS_STATE_STORE_KEY && key !== COMPASS_PROVIDER_API_KEYS_STORE_KEY
+      )
+    );
+    this.kvStore.replaceAll(filteredEntries);
     if (persist) {
       this.schedulePersist();
     }
@@ -293,6 +314,61 @@ export class ChatStorage {
 
   private schedulePersist(): void {
     void this.enqueuePersist();
+  }
+
+  private async migrateLegacyRootLayout(paths: CompassPaths): Promise<void> {
+    const legacyRootPath = await this.findLegacyNestedRootPath(paths);
+    if (!legacyRootPath) {
+      return;
+    }
+
+    await moveDirectoryContents(legacyRootPath, paths.rootPath);
+    await removeEmptyDirectoriesRecursively(legacyRootPath);
+
+    const oldRootStillExists = await fileExists(legacyRootPath);
+    if (oldRootStillExists) {
+      error(`Legacy storage root still contains files after migration: ${legacyRootPath}`);
+    }
+  }
+
+  private async findLegacyNestedRootPath(paths: CompassPaths): Promise<string | undefined> {
+    if ((await fileExists(paths.metaPath)) || (await fileExists(paths.sessionsPath))) {
+      return undefined;
+    }
+
+    let rootEntries: fs.Dirent[];
+    try {
+      rootEntries = await fs.promises.readdir(paths.rootPath, { withFileTypes: true });
+    } catch (readError) {
+      if ((readError as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return undefined;
+      }
+      throw readError;
+    }
+
+    const candidates: string[] = [];
+    for (const entry of rootEntries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const candidatePath = path.join(paths.rootPath, entry.name);
+      if (await this.isLegacyNestedRootCandidate(candidatePath)) {
+        candidates.push(candidatePath);
+      }
+    }
+
+    if (candidates.length > 1) {
+      error(`Multiple legacy storage roots detected, skipping automatic migration: ${candidates.join(', ')}`);
+      return undefined;
+    }
+    return candidates[0];
+  }
+
+  private async isLegacyNestedRootCandidate(candidatePath: string): Promise<boolean> {
+    return (
+      (await fileExists(path.join(candidatePath, COMPASS_META_DIR_NAME))) ||
+      (await fileExists(path.join(candidatePath, COMPASS_SESSIONS_DIR_NAME)))
+    );
   }
 
   private async enqueuePersist(): Promise<void> {

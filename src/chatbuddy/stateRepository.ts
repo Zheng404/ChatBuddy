@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 
+import { COMPASS_LAYOUT_VERSION, persistedStateLiteToStructuredStateDocument, structuredStateDocumentToPersistedStateLite } from './compassStorage';
 import { cloneDefaultModels, getProviderModelOptions, resolveModelOption } from './modelCatalog';
 import {
   AssistantGroup,
@@ -14,7 +15,7 @@ import {
 } from './types';
 import { ChatStorage } from './chatStorage';
 import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider } from './stateClone';
-import { unwrapImportedState } from './stateHelpers';
+import { unwrapImportedState, unwrapImportedStorageBackup } from './stateHelpers';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
 import { AssistantStateService } from './stateRepositoryAssistantService';
 import {
@@ -28,14 +29,23 @@ import { StatePersistenceService } from './stateRepositoryPersistenceService';
 import { SessionStateService } from './stateRepositorySessionService';
 
 const BACKUP_SCHEMA = 'chatbuddy.backup.compass';
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 2;
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
+
+export interface ChatBuddyBackupStorageData {
+  layout: 'compass';
+  layoutVersion: typeof COMPASS_LAYOUT_VERSION;
+  structuredState: import('./compassStorage').StructuredStateDocument;
+  providerApiKeys: Record<string, string>;
+  sessions: import('./types').PersistedState['sessions'];
+  kv: Record<string, string>;
+}
 
 export interface ChatBuddyBackupData {
   schema: typeof BACKUP_SCHEMA;
   version: typeof BACKUP_VERSION;
   exportedAt: string;
-  state: import('./types').PersistedState;
+  storage: ChatBuddyBackupStorageData;
 }
 
 export interface CreateAssistantInput {
@@ -130,6 +140,7 @@ export class ChatStateRepository {
   }
 
   public async close(): Promise<void> {
+    await this.persistenceService.drain();
     await this.storage.close();
   }
 
@@ -212,6 +223,7 @@ export class ChatStateRepository {
     this.providerApiKeys = {};
     if (this.storageReady) {
       this.storage.replaceAllSessions([], false);
+      this.storage.replaceAllKv({}, false);
       await this.storage.flush();
     }
     await this.persistenceService.persistSecrets();
@@ -219,29 +231,42 @@ export class ChatStateRepository {
   }
 
   public exportBackupData(): ChatBuddyBackupData {
+    const state = this.getState();
     return {
       schema: BACKUP_SCHEMA,
       version: BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
-      state: {
-        ...this.getState(),
-        sessions: this.storageReady ? this.storage.listAllSessions() : []
+      storage: {
+        layout: 'compass',
+        layoutVersion: COMPASS_LAYOUT_VERSION,
+        structuredState: persistedStateLiteToStructuredStateDocument(state),
+        providerApiKeys: { ...this.providerApiKeys },
+        sessions: this.storageReady ? this.storage.listAllSessions() : [],
+        kv: this.storageReady ? this.storage.listAllKv() : {}
       }
     };
   }
 
   public async importBackupData(input: unknown): Promise<void> {
-    const unwrapped = unwrapImportedState(input);
-    if (!unwrapped) {
+    const storageBackup = unwrapImportedStorageBackup(input);
+    const legacyState = storageBackup ? undefined : unwrapImportedState(input);
+    if (!storageBackup && !legacyState) {
       throw new Error('Invalid import payload');
     }
-    const merged = this.mergeState(unwrapped);
+    const merged = storageBackup
+      ? this.mergeState({
+          ...structuredStateDocumentToPersistedStateLite(storageBackup.structuredState),
+          sessions: storageBackup.sessions
+        })
+      : this.mergeState(legacyState);
     this.state = merged.state;
-    this.providerApiKeys = extractProviderApiKeys(this.state.settings.providers);
+    this.providerApiKeys = storageBackup
+      ? storageBackup.providerApiKeys
+      : extractProviderApiKeys(this.state.settings.providers);
     this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, this.state.settings);
     this.ensureStorageReady();
     this.storage.replaceAllSessions(merged.sessions, false);
-    await this.storage.flush();
+    this.storage.replaceAllKv(storageBackup?.kv ?? {}, false);
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
     await this.persistenceService.persistSecrets();

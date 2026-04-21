@@ -1,16 +1,26 @@
 import { ChatBuddySettings, PersistedStateLite, ProviderModelProfile, ProviderProfile } from '../types';
 import { createInitialState } from '../stateSanitizers';
+import { warn } from '../utils';
 import { readJsonFile, readTextFile, removeFileIfExists, writeJsonAtomic, writeTextAtomic } from './io';
-import { CompassPaths } from './paths';
+import { COMPASS_LAYOUT_VERSION, CompassPaths } from './paths';
 import {
   StructuredSettingsDefaultModelsFile,
   StructuredSettingsGeneralFile,
   StructuredSettingsMcpFile,
   StructuredSettingsModelConfigFile,
+  StructuredStateCommitFile,
   StructuredStateCoreFile,
   StructuredStateDocument,
   StructuredUiSelectionFile
 } from './types';
+
+type SettingsSnapshotMode = 'empty' | 'legacy' | 'structured';
+
+type SettingsSnapshotValidationResult = {
+  valid: boolean;
+  reason?: string;
+  mode: SettingsSnapshotMode;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -26,6 +36,10 @@ function parseJsonObject(raw: string | undefined): Record<string, unknown> | und
   } catch {
     return undefined;
   }
+}
+
+function isStringMap(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
 }
 
 function normalizeProviderApiKeys(raw: unknown): Record<string, string> {
@@ -123,6 +137,53 @@ function cloneSettingsMcp(mcp: StructuredSettingsMcpFile): StructuredSettingsMcp
   };
 }
 
+function cloneStructuredStateCommit(commit: StructuredStateCommitFile): StructuredStateCommitFile {
+  return { ...commit };
+}
+
+function isStructuredStateCommitFile(value: unknown): value is StructuredStateCommitFile {
+  return (
+    isRecord(value) &&
+    value.name === 'compass-structured-state' &&
+    typeof value.writtenAt === 'string' &&
+    value.writtenAt.trim().length > 0 &&
+    typeof value.layoutVersion === 'number' &&
+    Number.isFinite(value.layoutVersion) &&
+    typeof value.generation === 'number' &&
+    Number.isInteger(value.generation) &&
+    value.generation >= 1
+  );
+}
+
+function isStructuredStateCoreFile(value: unknown): value is StructuredStateCoreFile {
+  return isRecord(value) && Array.isArray(value.groups) && Array.isArray(value.assistants);
+}
+
+function isStructuredUiSelectionFile(value: unknown): value is StructuredUiSelectionFile {
+  return (
+    isRecord(value) &&
+    isRecord(value.selectedSessionIdByAssistant) &&
+    Array.isArray(value.collapsedGroupIds) &&
+    typeof value.sessionPanelCollapsed === 'boolean'
+  );
+}
+
+function isStructuredSettingsGeneralFile(value: unknown): value is StructuredSettingsGeneralFile {
+  return isRecord(value);
+}
+
+function isStructuredSettingsModelConfigFile(value: unknown): value is StructuredSettingsModelConfigFile {
+  return isRecord(value) && Array.isArray(value.providers);
+}
+
+function isStructuredSettingsDefaultModelsFile(value: unknown): value is StructuredSettingsDefaultModelsFile {
+  return isRecord(value) && isRecord(value.defaultModels);
+}
+
+function isStructuredSettingsMcpFile(value: unknown): value is StructuredSettingsMcpFile {
+  return isRecord(value) && isRecord(value.mcp);
+}
+
 function looksLikePersistedStateLite(value: unknown): value is PersistedStateLite {
   if (!isRecord(value)) {
     return false;
@@ -130,8 +191,15 @@ function looksLikePersistedStateLite(value: unknown): value is PersistedStateLit
   return Array.isArray(value.groups) && Array.isArray(value.assistants) && isRecord(value.settings);
 }
 
-function toPersistedStateLiteForStorage(raw: Record<string, unknown>): PersistedStateLite {
-  const base = createInitialState();
+function clonePersistedStateLite(state: PersistedStateLite): PersistedStateLite {
+  return structuredStateDocumentToPersistedStateLite(persistedStateLiteToStructuredStateDocument(state));
+}
+
+function toPersistedStateLiteForStorage(
+  raw: Record<string, unknown>,
+  fallbackState?: PersistedStateLite
+): PersistedStateLite {
+  const base = fallbackState ? clonePersistedStateLite(fallbackState) : createInitialState();
   const source = raw as Partial<PersistedStateLite> & { settings?: Partial<ChatBuddySettings> };
   const settings: Partial<ChatBuddySettings> = isRecord(source.settings)
     ? (source.settings as Partial<ChatBuddySettings>)
@@ -279,6 +347,7 @@ export class CompassSettingsStore {
   private settingsModelConfig: StructuredSettingsModelConfigFile | undefined;
   private settingsDefaultModels: StructuredSettingsDefaultModelsFile | undefined;
   private settingsMcp: StructuredSettingsMcpFile | undefined;
+  private structuredCommit: StructuredStateCommitFile | undefined;
 
   private providerApiKeys: Record<string, string> = {};
 
@@ -286,23 +355,28 @@ export class CompassSettingsStore {
   private legacyProviderApiKeysPayload: string | undefined;
 
   public async load(paths: CompassPaths): Promise<void> {
-    const [core, ui, settingsGeneral, settingsModelConfig, settingsDefaultModels, settingsMcp] = await Promise.all([
+    const [core, ui, settingsGeneral, settingsModelConfig, settingsDefaultModels, settingsMcp, structuredCommit] =
+      await Promise.all([
       readJsonFile<StructuredStateCoreFile>(paths.stateCorePath),
       readJsonFile<StructuredUiSelectionFile>(paths.uiSelectionPath),
       readJsonFile<StructuredSettingsGeneralFile>(paths.settingsGeneralPath),
       readJsonFile<StructuredSettingsModelConfigFile>(paths.settingsModelConfigPath),
       readJsonFile<StructuredSettingsDefaultModelsFile>(paths.settingsDefaultModelsPath),
-      readJsonFile<StructuredSettingsMcpFile>(paths.settingsMcpPath)
+      readJsonFile<StructuredSettingsMcpFile>(paths.settingsMcpPath),
+      readJsonFile<StructuredStateCommitFile>(paths.structuredStateCommitPath)
     ]);
 
-    this.core = core && Array.isArray(core.groups) && Array.isArray(core.assistants) ? core : undefined;
-    this.ui =
-      ui && isRecord(ui.selectedSessionIdByAssistant) && Array.isArray(ui.collapsedGroupIds) ? ui : undefined;
-    this.settingsGeneral = settingsGeneral ?? undefined;
-    this.settingsModelConfig =
-      settingsModelConfig && Array.isArray(settingsModelConfig.providers) ? settingsModelConfig : undefined;
-    this.settingsDefaultModels = settingsDefaultModels ?? undefined;
-    this.settingsMcp = settingsMcp && isRecord(settingsMcp.mcp) ? settingsMcp : undefined;
+    this.core = isStructuredStateCoreFile(core) ? core : undefined;
+    this.ui = isStructuredUiSelectionFile(ui) ? ui : undefined;
+    this.settingsGeneral = isStructuredSettingsGeneralFile(settingsGeneral) ? settingsGeneral : undefined;
+    this.settingsModelConfig = isStructuredSettingsModelConfigFile(settingsModelConfig) ? settingsModelConfig : undefined;
+    this.settingsDefaultModels = isStructuredSettingsDefaultModelsFile(settingsDefaultModels)
+      ? settingsDefaultModels
+      : undefined;
+    this.settingsMcp = isStructuredSettingsMcpFile(settingsMcp) ? settingsMcp : undefined;
+    this.structuredCommit = isStructuredStateCommitFile(structuredCommit)
+      ? cloneStructuredStateCommit(structuredCommit)
+      : undefined;
 
     const providerApiKeysPayload = await readJsonFile<Record<string, unknown>>(paths.providerApiKeysPath);
     this.providerApiKeys = normalizeProviderApiKeys(providerApiKeysPayload);
@@ -321,6 +395,12 @@ export class CompassSettingsStore {
   public async persist(paths: CompassPaths): Promise<void> {
     const document = this.getStructuredStateDocument();
     if (document) {
+      const commit: StructuredStateCommitFile = {
+        name: 'compass-structured-state',
+        layoutVersion: COMPASS_LAYOUT_VERSION,
+        generation: (this.structuredCommit?.generation ?? 0) + 1,
+        writtenAt: new Date().toISOString()
+      };
       await Promise.all([
         writeJsonAtomic(paths.stateCorePath, document.core),
         writeJsonAtomic(paths.uiSelectionPath, document.ui),
@@ -329,6 +409,8 @@ export class CompassSettingsStore {
         writeJsonAtomic(paths.settingsDefaultModelsPath, document.settingsDefaultModels),
         writeJsonAtomic(paths.settingsMcpPath, document.settingsMcp)
       ]);
+      await writeJsonAtomic(paths.structuredStateCommitPath, commit);
+      this.structuredCommit = cloneStructuredStateCommit(commit);
       await removeFileIfExists(paths.legacyStatePath);
       this.legacyStatePayload = undefined;
     } else {
@@ -338,8 +420,10 @@ export class CompassSettingsStore {
         removeFileIfExists(paths.settingsGeneralPath),
         removeFileIfExists(paths.settingsModelConfigPath),
         removeFileIfExists(paths.settingsDefaultModelsPath),
-        removeFileIfExists(paths.settingsMcpPath)
+        removeFileIfExists(paths.settingsMcpPath),
+        removeFileIfExists(paths.structuredStateCommitPath)
       ]);
+      this.structuredCommit = undefined;
       if (this.legacyStatePayload && this.legacyStatePayload.trim()) {
         await writeTextAtomic(paths.legacyStatePath, this.legacyStatePayload);
       } else {
@@ -432,6 +516,19 @@ export class CompassSettingsStore {
     this.legacyProviderApiKeysPayload = undefined;
   }
 
+  public clearAllData(): void {
+    this.core = undefined;
+    this.ui = undefined;
+    this.settingsGeneral = undefined;
+    this.settingsModelConfig = undefined;
+    this.settingsDefaultModels = undefined;
+    this.settingsMcp = undefined;
+    this.structuredCommit = undefined;
+    this.providerApiKeys = {};
+    this.legacyStatePayload = undefined;
+    this.legacyProviderApiKeysPayload = undefined;
+  }
+
   public setLegacyStatePayload(payload: string | undefined): void {
     this.legacyStatePayload = payload?.trim() ? payload : undefined;
   }
@@ -466,6 +563,183 @@ export class CompassSettingsStore {
     return changed;
   }
 
+  public async validateSnapshot(
+    paths: CompassPaths,
+    requireStructuredCommit = false
+  ): Promise<SettingsSnapshotValidationResult> {
+    const [
+      coreText,
+      uiText,
+      settingsGeneralText,
+      settingsModelConfigText,
+      settingsDefaultModelsText,
+      settingsMcpText,
+      structuredCommitText,
+      legacyStateText,
+      providerApiKeysText,
+      legacyProviderApiKeysText
+    ] = await Promise.all([
+      readTextFile(paths.stateCorePath),
+      readTextFile(paths.uiSelectionPath),
+      readTextFile(paths.settingsGeneralPath),
+      readTextFile(paths.settingsModelConfigPath),
+      readTextFile(paths.settingsDefaultModelsPath),
+      readTextFile(paths.settingsMcpPath),
+      readTextFile(paths.structuredStateCommitPath),
+      readTextFile(paths.legacyStatePath),
+      readTextFile(paths.providerApiKeysPath),
+      readTextFile(paths.legacyProviderApiKeysPath)
+    ]);
+
+    const structuredTexts = [
+      coreText,
+      uiText,
+      settingsGeneralText,
+      settingsModelConfigText,
+      settingsDefaultModelsText,
+      settingsMcpText
+    ];
+    const structuredFileCount = structuredTexts.filter((content) => content !== undefined).length;
+
+    if (structuredFileCount > 0 && structuredFileCount < structuredTexts.length) {
+      return { valid: false, reason: 'Structured state files are incomplete', mode: 'structured' };
+    }
+
+    if (structuredFileCount === structuredTexts.length) {
+      if (structuredCommitText !== undefined) {
+        const commit = this.parseJsonFileText(paths.structuredStateCommitPath, structuredCommitText);
+        if (!commit.valid) {
+          return { valid: false, reason: commit.reason, mode: 'structured' };
+        }
+        if (!isStructuredStateCommitFile(commit.value)) {
+          return { valid: false, reason: 'Structured state commit file has an invalid shape', mode: 'structured' };
+        }
+        if (commit.value.layoutVersion > COMPASS_LAYOUT_VERSION) {
+          return {
+            valid: false,
+            reason: `Structured state commit file is newer than supported: ${String(commit.value.layoutVersion)}`,
+            mode: 'structured'
+          };
+        }
+      } else if (requireStructuredCommit) {
+        return { valid: false, reason: 'Structured state commit file is missing', mode: 'structured' };
+      }
+
+      const core = this.parseJsonFileText(paths.stateCorePath, coreText as string);
+      if (!core.valid) {
+        return { valid: false, reason: core.reason, mode: 'structured' };
+      }
+      if (!isStructuredStateCoreFile(core.value)) {
+        return { valid: false, reason: 'Structured state core file has an invalid shape', mode: 'structured' };
+      }
+
+      const ui = this.parseJsonFileText(paths.uiSelectionPath, uiText as string);
+      if (!ui.valid) {
+        return { valid: false, reason: ui.reason, mode: 'structured' };
+      }
+      if (!isStructuredUiSelectionFile(ui.value)) {
+        return { valid: false, reason: 'Structured UI selection file has an invalid shape', mode: 'structured' };
+      }
+
+      const settingsGeneral = this.parseJsonFileText(paths.settingsGeneralPath, settingsGeneralText as string);
+      if (!settingsGeneral.valid) {
+        return { valid: false, reason: settingsGeneral.reason, mode: 'structured' };
+      }
+      if (!isStructuredSettingsGeneralFile(settingsGeneral.value)) {
+        return { valid: false, reason: 'Structured settings.general file has an invalid shape', mode: 'structured' };
+      }
+
+      const settingsModelConfig = this.parseJsonFileText(paths.settingsModelConfigPath, settingsModelConfigText as string);
+      if (!settingsModelConfig.valid) {
+        return { valid: false, reason: settingsModelConfig.reason, mode: 'structured' };
+      }
+      if (!isStructuredSettingsModelConfigFile(settingsModelConfig.value)) {
+        return {
+          valid: false,
+          reason: 'Structured settings.model-config file has an invalid shape',
+          mode: 'structured'
+        };
+      }
+
+      const settingsDefaultModels = this.parseJsonFileText(
+        paths.settingsDefaultModelsPath,
+        settingsDefaultModelsText as string
+      );
+      if (!settingsDefaultModels.valid) {
+        return { valid: false, reason: settingsDefaultModels.reason, mode: 'structured' };
+      }
+      if (!isStructuredSettingsDefaultModelsFile(settingsDefaultModels.value)) {
+        return {
+          valid: false,
+          reason: 'Structured settings.default-models file has an invalid shape',
+          mode: 'structured'
+        };
+      }
+
+      const settingsMcp = this.parseJsonFileText(paths.settingsMcpPath, settingsMcpText as string);
+      if (!settingsMcp.valid) {
+        return { valid: false, reason: settingsMcp.reason, mode: 'structured' };
+      }
+      if (!isStructuredSettingsMcpFile(settingsMcp.value)) {
+        return { valid: false, reason: 'Structured settings.mcp file has an invalid shape', mode: 'structured' };
+      }
+    } else if (structuredCommitText !== undefined) {
+      return { valid: false, reason: 'Structured state commit file exists without structured state files', mode: 'empty' };
+    }
+
+    if (structuredFileCount === 0 && legacyStateText !== undefined) {
+      const legacyState = this.parseJsonFileText(paths.legacyStatePath, legacyStateText);
+      if (!legacyState.valid) {
+        return { valid: false, reason: legacyState.reason, mode: 'legacy' };
+      }
+      if (!isRecord(legacyState.value)) {
+        return { valid: false, reason: 'Legacy compass state file has an invalid shape', mode: 'legacy' };
+      }
+    }
+
+    if (providerApiKeysText !== undefined) {
+      const providerApiKeys = this.parseJsonFileText(paths.providerApiKeysPath, providerApiKeysText);
+      if (!providerApiKeys.valid) {
+        return {
+          valid: false,
+          reason: providerApiKeys.reason,
+          mode: structuredFileCount === structuredTexts.length ? 'structured' : 'empty'
+        };
+      }
+      if (!isStringMap(providerApiKeys.value)) {
+        return {
+          valid: false,
+          reason: 'Structured provider API keys file has an invalid shape',
+          mode: structuredFileCount === structuredTexts.length ? 'structured' : 'empty'
+        };
+      }
+    } else if (legacyProviderApiKeysText !== undefined) {
+      const legacyProviderApiKeys = this.parseJsonFileText(paths.legacyProviderApiKeysPath, legacyProviderApiKeysText);
+      if (!legacyProviderApiKeys.valid) {
+        return {
+          valid: false,
+          reason: legacyProviderApiKeys.reason,
+          mode: structuredFileCount === structuredTexts.length ? 'structured' : structuredFileCount === 0 && legacyStateText !== undefined ? 'legacy' : 'empty'
+        };
+      }
+      if (!isStringMap(legacyProviderApiKeys.value)) {
+        return {
+          valid: false,
+          reason: 'Legacy provider API keys file has an invalid shape',
+          mode: structuredFileCount === structuredTexts.length ? 'structured' : structuredFileCount === 0 && legacyStateText !== undefined ? 'legacy' : 'empty'
+        };
+      }
+    }
+
+    if (structuredFileCount === structuredTexts.length) {
+      return { valid: true, mode: 'structured' };
+    }
+    if (legacyStateText !== undefined) {
+      return { valid: true, mode: 'legacy' };
+    }
+    return { valid: true, mode: 'empty' };
+  }
+
   public getKvCompat(key: string, stateStoreKey: string, providerApiKeysStoreKey: string): string | undefined {
     if (key === stateStoreKey) {
       const state = this.readStateLite();
@@ -483,18 +757,46 @@ export class CompassSettingsStore {
 
   public setKvCompat(key: string, value: string, stateStoreKey: string, providerApiKeysStoreKey: string): boolean {
     if (key === stateStoreKey) {
-      this.legacyStatePayload = value;
+      const currentState = this.readStateLite();
+      const baseState =
+        currentState && isRecord(currentState)
+          ? looksLikePersistedStateLite(currentState)
+            ? currentState
+            : toPersistedStateLiteForStorage(currentState)
+          : undefined;
+      this.legacyStatePayload = value.trim() ? value : undefined;
       const parsed = parseJsonObject(value);
-      if (parsed && looksLikePersistedStateLite(parsed)) {
-        this.writeStateLite(parsed);
+      if (parsed) {
+        const nextState = looksLikePersistedStateLite(parsed)
+          ? parsed
+          : toPersistedStateLiteForStorage(parsed, baseState);
+        this.writeStateLite(nextState);
+      } else if (value.trim()) {
+        warn('Ignoring invalid state compat payload; keeping the existing structured state intact.');
       }
       return true;
     }
     if (key === providerApiKeysStoreKey) {
-      this.legacyProviderApiKeysPayload = value;
-      this.providerApiKeys = normalizeProviderApiKeys(parseJsonObject(value));
+      this.legacyProviderApiKeysPayload = value.trim() ? value : undefined;
+      const parsed = parseJsonObject(value);
+      if (parsed) {
+        this.providerApiKeys = normalizeProviderApiKeys(parsed);
+      } else if (value.trim()) {
+        warn('Ignoring invalid provider API keys compat payload; keeping the existing structured secrets intact.');
+      }
       return true;
     }
     return false;
+  }
+
+  private parseJsonFileText(filePath: string, raw: string): { valid: boolean; value?: unknown; reason?: string } {
+    if (!raw.trim()) {
+      return { valid: false, reason: `Snapshot file is empty: ${filePath}` };
+    }
+    try {
+      return { valid: true, value: JSON.parse(raw) };
+    } catch {
+      return { valid: false, reason: `Snapshot file is not valid JSON: ${filePath}` };
+    }
   }
 }

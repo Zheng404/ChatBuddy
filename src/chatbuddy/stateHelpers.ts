@@ -1,4 +1,5 @@
 import { createModelRef, dedupeModels, parseModelRef } from './modelCatalog';
+import { COMPASS_LAYOUT_VERSION, StructuredStateDocument } from './compassStorage';
 import { cloneProvider } from './stateClone';
 import { PersistedStateLiteSchema } from './schemas';
 import { warn } from './utils';
@@ -175,10 +176,41 @@ export function parsePersistedStateLiteStore(raw: string | undefined): Persisted
 
 const LEGACY_BACKUP_SCHEMA = 'chatbuddy.backup';
 const COMPASS_BACKUP_SCHEMA = 'chatbuddy.backup.compass';
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 2;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function normalizePreservedStringMap(input: unknown): Record<string, string> {
+  if (!isRecord(input)) {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      continue;
+    }
+    result[normalizedKey] = value;
+  }
+  return result;
+}
+
+export function normalizeTrimmedStringMap(input: unknown): Record<string, string> {
+  const result = normalizePreservedStringMap(input);
+  for (const [key, value] of Object.entries(result)) {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+      delete result[key];
+      continue;
+    }
+    result[key] = normalizedValue;
+  }
+  return result;
 }
 
 export function looksLikePersistedState(value: unknown): value is PersistedState | Record<string, unknown> {
@@ -187,6 +219,59 @@ export function looksLikePersistedState(value: unknown): value is PersistedState
   }
   const keys = ['groups', 'assistants', 'sessions', 'settings', 'selectedAssistantId', 'selectedSessionIdByAssistant'];
   return keys.some((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function looksLikeStructuredStateDocument(value: unknown): value is StructuredStateDocument {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    isRecord(value.core) &&
+    isRecord(value.ui) &&
+    isRecord(value.settingsGeneral) &&
+    isRecord(value.settingsModelConfig) &&
+    isRecord(value.settingsDefaultModels) &&
+    isRecord(value.settingsMcp)
+  );
+}
+
+export type ImportedCompassStorageBackup = {
+  structuredState: StructuredStateDocument;
+  providerApiKeys: Record<string, string>;
+  sessions: PersistedState['sessions'];
+  kv: Record<string, string>;
+};
+
+export function unwrapImportedStorageBackup(input: unknown): ImportedCompassStorageBackup | undefined {
+  if (!isRecord(input)) {
+    return undefined;
+  }
+  const schema = typeof input.schema === 'string' ? input.schema : '';
+  if (schema !== COMPASS_BACKUP_SCHEMA) {
+    return undefined;
+  }
+  const version = Number(input.version);
+  if (!Number.isFinite(version) || version < 2 || version > BACKUP_VERSION) {
+    return undefined;
+  }
+  if (!isRecord(input.storage)) {
+    return undefined;
+  }
+  const storage = input.storage;
+  if (
+    storage.layout !== 'compass' ||
+    Number(storage.layoutVersion) > COMPASS_LAYOUT_VERSION ||
+    !looksLikeStructuredStateDocument(storage.structuredState) ||
+    !Array.isArray(storage.sessions)
+  ) {
+    return undefined;
+  }
+  return {
+    structuredState: storage.structuredState,
+    providerApiKeys: normalizeTrimmedStringMap(storage.providerApiKeys),
+    sessions: storage.sessions as PersistedState['sessions'],
+    kv: normalizePreservedStringMap(storage.kv)
+  };
 }
 
 export function unwrapImportedState(input: unknown): PersistedState | Record<string, unknown> | undefined {

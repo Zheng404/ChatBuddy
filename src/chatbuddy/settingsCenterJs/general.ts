@@ -20,6 +20,7 @@ export function getGeneralJs(): string {
         dom.resetDataDescription.textContent = strings.resetDataDescription || '';
         dom.exportBtn.textContent = strings.exportDataAction || '';
         dom.importBtn.textContent = strings.importDataAction || '';
+        dom.importLegacyBtn.textContent = strings.importLegacyDataAction || '';
         dom.resetBtn.textContent = strings.resetDataAction || '';
       }
 

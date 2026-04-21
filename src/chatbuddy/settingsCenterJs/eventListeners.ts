@@ -92,6 +92,10 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
         vscode.postMessage({ type: 'importData' });
       });
 
+      dom.importLegacyBtn.addEventListener('click', () => {
+        vscode.postMessage({ type: 'importLegacyData' });
+      });
+
       dom.resetBtn.addEventListener('click', () => {
         vscode.postMessage({ type: 'reset' });
       });

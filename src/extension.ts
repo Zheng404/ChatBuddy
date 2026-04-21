@@ -5,6 +5,7 @@ import * as path from 'path';
 import { AssistantsTreeProvider } from './chatbuddy/assistantsView';
 import type { AssistantsTreeNode } from './chatbuddy/assistantsView';
 import { AssistantEditorPanelController } from './chatbuddy/assistantEditorPanel';
+import { createBackupArchive, extractBackupPayloadFromArchive, isZipArchive } from './chatbuddy/backupArchive';
 import { ChatController } from './chatbuddy/chatController';
 import { DEFAULT_GROUP_ID } from './chatbuddy/constants';
 import { formatString, getStrings, resolveLocale } from './chatbuddy/i18n';
@@ -198,6 +199,7 @@ function createDataActionHandlers(args: {
   handleResetData: () => Promise<boolean>;
   handleExportData: () => Promise<DataActionResult | undefined>;
   handleImportData: () => Promise<DataActionResult | undefined>;
+  handleImportLegacyData: () => Promise<DataActionResult | undefined>;
 } {
   const {
     repository,
@@ -249,7 +251,7 @@ function createDataActionHandlers(args: {
       const uri = await vscode.window.showSaveDialog({
         saveLabel: strings.exportDataAction,
         filters: {
-          JSON: ['json']
+          ZIP: ['zip']
         },
         defaultUri
       });
@@ -257,8 +259,8 @@ function createDataActionHandlers(args: {
         return undefined;
       }
       const backup = repository.exportBackupData();
-      const content = JSON.stringify(backup, null, 2);
-      await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
+      const archive = createBackupArchive(backup);
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(archive));
       return {
         notice: formatString(strings.exportDataDone, { path: uri.fsPath }),
         tone: 'success'
@@ -270,7 +272,7 @@ function createDataActionHandlers(args: {
         canSelectMany: false,
         openLabel: strings.importDataAction,
         filters: {
-          JSON: ['json']
+          ZIP: ['zip']
         }
       });
       const target = picked?.[0];
@@ -288,7 +290,10 @@ function createDataActionHandlers(args: {
       let parsed: unknown;
       try {
         const raw = await vscode.workspace.fs.readFile(target);
-        parsed = JSON.parse(Buffer.from(raw).toString('utf8'));
+        if (!isZipArchive(raw)) {
+          throw new Error('Expected ZIP backup archive');
+        }
+        parsed = extractBackupPayloadFromArchive(raw);
       } catch (err) {
         warn('Failed to parse backup file:', err);
         return {
@@ -317,6 +322,64 @@ function createDataActionHandlers(args: {
         notice: strings.importDataDone,
         tone: 'success'
       };
+    },
+    handleImportLegacyData: async () => {
+      const strings = getRuntimeStrings();
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: strings.importLegacyDataAction,
+        filters: {
+          JSON: ['json']
+        }
+      });
+      const target = picked?.[0];
+      if (!target) {
+        return undefined;
+      }
+      const confirmed = await vscode.window.showWarningMessage(
+        strings.confirmImportLegacyData,
+        { modal: true },
+        strings.importLegacyDataAction
+      );
+      if (confirmed !== strings.importLegacyDataAction) {
+        return undefined;
+      }
+
+      let parsed: unknown;
+      try {
+        const raw = await vscode.workspace.fs.readFile(target);
+        if (isZipArchive(raw)) {
+          throw new Error('Legacy JSON import does not accept ZIP archives');
+        }
+        parsed = JSON.parse(Buffer.from(raw).toString('utf8'));
+      } catch (err) {
+        warn('Failed to parse legacy backup file:', err);
+        return {
+          notice: strings.importLegacyDataInvalid,
+          tone: 'error'
+        };
+      }
+
+      try {
+        chatController.stopGeneration('manual');
+        await repository.importBackupData(parsed);
+      } catch (err) {
+        warn('Failed to import legacy backup data:', err);
+        return {
+          notice: strings.importLegacyDataInvalid,
+          tone: 'error'
+        };
+      }
+
+      chatController.applySettings(repository.getSettings());
+      chatController.openAssistantChat();
+      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
+      refreshAll();
+      updateTreeMessage();
+      return {
+        notice: strings.importLegacyDataDone,
+        tone: 'success'
+      };
     }
   };
 }
@@ -334,6 +397,7 @@ function createPanelControllers(args: {
   handleResetData: () => Promise<boolean>;
   handleExportData: () => Promise<DataActionResult | undefined>;
   handleImportData: () => Promise<DataActionResult | undefined>;
+  handleImportLegacyData: () => Promise<DataActionResult | undefined>;
   refreshAll: () => void;
   updateTreeMessage: () => void;
   getRuntimeStrings: () => Record<string, string>;
@@ -349,6 +413,7 @@ function createPanelControllers(args: {
     handleResetData,
     handleExportData,
     handleImportData,
+    handleImportLegacyData,
     refreshAll,
     updateTreeMessage,
     getRuntimeStrings
@@ -361,7 +426,8 @@ function createPanelControllers(args: {
     applySettingsAndRefresh,
     handleResetData,
     handleExportData,
-    handleImportData
+    handleImportData,
+    handleImportLegacyData
   );
 
   const assistantEditorPanelController = new AssistantEditorPanelController(
@@ -505,7 +571,7 @@ export async function activate(context: vscode.ExtensionContext) {
     updateTreeMessage();
   };
 
-  const { handleResetData, handleExportData, handleImportData } = createDataActionHandlers({
+  const { handleResetData, handleExportData, handleImportData, handleImportLegacyData } = createDataActionHandlers({
     repository,
     chatController,
     getAssistantsTreeProvider: () => assistantsTreeProvider,
@@ -526,6 +592,7 @@ export async function activate(context: vscode.ExtensionContext) {
     handleResetData,
     handleExportData,
     handleImportData,
+    handleImportLegacyData,
     refreshAll,
     updateTreeMessage,
     getRuntimeStrings

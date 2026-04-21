@@ -143,16 +143,19 @@ test('initialize migrates legacy sqlite data into compass storage', async () => 
     assert.equal(storage.getKv(COMPASS_PROVIDER_API_KEYS_STORE_KEY), JSON.stringify({ legacy: 'legacy-key' }));
     assert.equal(storage.getKv('custom-key'), 'custom-value');
 
-    const stateCorePath = path.join(tmpDir, 'chatbuddy-compass', 'meta', 'state.core.json');
-    const settingsGeneralPath = path.join(tmpDir, 'chatbuddy-compass', 'meta', 'settings.general.json');
-    const providerApiKeysPath = path.join(tmpDir, 'chatbuddy-compass', 'meta', 'providers.api-keys.json');
+    const stateCorePath = path.join(tmpDir, 'meta', 'state.core.json');
+    const settingsGeneralPath = path.join(tmpDir, 'meta', 'settings.general.json');
+    const providerApiKeysPath = path.join(tmpDir, 'meta', 'providers.api-keys.json');
+    const stateCommitPath = path.join(tmpDir, 'meta', 'state.commit.json');
+    const legacyDbPath = path.join(tmpDir, 'chatbuddy.sqlite');
     assert.equal(fs.existsSync(stateCorePath), true);
     assert.equal(fs.existsSync(settingsGeneralPath), true);
     assert.equal(fs.existsSync(providerApiKeysPath), true);
+    assert.equal(fs.existsSync(stateCommitPath), true);
+    assert.equal(fs.existsSync(legacyDbPath), false);
 
     const migrationMarkerPath = path.join(
       tmpDir,
-      'chatbuddy-compass',
       'meta',
       'chatbuddy.migration.compass.json'
     );
@@ -162,10 +165,169 @@ test('initialize migrates legacy sqlite data into compass storage', async () => 
       source: string;
     };
     assert.equal(marker.name, 'compass');
-    assert.equal(marker.layoutVersion, 2);
+    assert.equal(marker.layoutVersion, 3);
     assert.equal(marker.source, 'sqlite');
   } finally {
     await storage.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('initialize removes lingering legacy sqlite when structured compass state exists without migration marker', async () => {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'chatbuddy-structured-legacy-test-'));
+  const storage = new ChatStorage();
+  try {
+    await storage.initialize(tmpDir);
+    storage.writeStateLite(createInitialState(), false);
+    await storage.flush();
+    await storage.close();
+    await fs.promises.rm(path.join(tmpDir, 'meta', 'chatbuddy.migration.compass.json'), { force: true });
+
+    await createLegacySqlite(tmpDir);
+
+    const reloaded = new ChatStorage();
+    try {
+      await reloaded.initialize(tmpDir);
+
+      const legacyDbPath = path.join(tmpDir, 'chatbuddy.sqlite');
+      const migrationMarkerPath = path.join(tmpDir, 'meta', 'chatbuddy.migration.compass.json');
+      const marker = JSON.parse(await fs.promises.readFile(migrationMarkerPath, 'utf-8')) as {
+        source: string;
+      };
+
+      assert.equal(fs.existsSync(legacyDbPath), false);
+      assert.equal(marker.source, 'existing-structured');
+    } finally {
+      await reloaded.close();
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('initialize removes lingering legacy sqlite after converting legacy compass payload', async () => {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'chatbuddy-existing-compass-test-'));
+  try {
+    const metaDir = path.join(tmpDir, 'meta');
+    await fs.promises.mkdir(metaDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(metaDir, 'state.compass.json'),
+      JSON.stringify({
+        ...createInitialState(),
+        selectedAssistantId: 'legacy-assistant'
+      }, null, 2),
+      'utf8'
+    );
+    await createLegacySqlite(tmpDir);
+
+    const storage = new ChatStorage();
+    try {
+      await storage.initialize(tmpDir);
+
+      const legacyDbPath = path.join(tmpDir, 'chatbuddy.sqlite');
+      const structuredStatePath = path.join(tmpDir, 'meta', 'state.core.json');
+      const migrationMarkerPath = path.join(tmpDir, 'meta', 'chatbuddy.migration.compass.json');
+      const marker = JSON.parse(await fs.promises.readFile(migrationMarkerPath, 'utf-8')) as {
+        source: string;
+      };
+
+      assert.equal(fs.existsSync(legacyDbPath), false);
+      assert.equal(fs.existsSync(structuredStatePath), true);
+      assert.equal(marker.source, 'existing-compass');
+    } finally {
+      await storage.close();
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('initialize migrates legacy nested compass root into storage root', async () => {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'chatbuddy-legacy-root-layout-test-'));
+  const storage = new ChatStorage();
+  try {
+    await storage.initialize(tmpDir);
+    const state = createInitialState();
+    state.selectedAssistantId = 'assistant-root-migrate';
+    storage.writeStateLite(state, false);
+    storage.insertSession(makeSession('assistant-root-migrate', 'session-root-migrate', [makeMessage('user', 'legacy root')]), false);
+    await storage.flush();
+    await storage.close();
+
+    const legacyRootDir = path.join(tmpDir, 'nested-storage-root');
+    await fs.promises.mkdir(legacyRootDir, { recursive: true });
+    await fs.promises.rename(path.join(tmpDir, 'meta'), path.join(legacyRootDir, 'meta'));
+    await fs.promises.rename(path.join(tmpDir, 'sessions'), path.join(legacyRootDir, 'sessions'));
+
+    const reloaded = new ChatStorage();
+    try {
+      await reloaded.initialize(tmpDir);
+
+      assert.equal(fs.existsSync(path.join(tmpDir, 'meta', 'state.core.json')), true);
+      assert.equal(fs.existsSync(path.join(tmpDir, 'sessions', 'assistant-root-migrate', 'session-root-migrate.jsonl')), true);
+      assert.equal(fs.existsSync(legacyRootDir), false);
+
+      const migratedState = reloaded.readStateLite() as { selectedAssistantId?: string } | undefined;
+      assert.equal(migratedState?.selectedAssistantId, 'assistant-root-migrate');
+      const detail = reloaded.getSessionDetail('assistant-root-migrate', 'session-root-migrate');
+      assert.ok(detail);
+      assert.equal(detail.messages[0].content, 'legacy root');
+    } finally {
+      await reloaded.close();
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('initialize recovers from legacy sqlite when the current structured snapshot is corrupted', async () => {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'chatbuddy-corrupted-structured-test-'));
+  const storage = new ChatStorage();
+  try {
+    await storage.initialize(tmpDir);
+    const state = createInitialState();
+    state.selectedAssistantId = 'structured-assistant';
+    storage.writeStateLite(state, false);
+    storage.insertSession(makeSession('structured-assistant', 'structured-session', [makeMessage('user', 'structured')]), false);
+    await storage.flush();
+    await storage.close();
+
+    await fs.promises.writeFile(path.join(tmpDir, 'meta', 'state.core.json'), '{broken json', 'utf8');
+    await createLegacySqlite(tmpDir);
+
+    const reloaded = new ChatStorage();
+    try {
+      await reloaded.initialize(tmpDir);
+
+      const migratedState = reloaded.readStateLite() as { selectedAssistantId?: string } | undefined;
+      assert.equal(migratedState?.selectedAssistantId, 'legacy-assistant');
+      assert.equal(reloaded.getSessionDetail('legacy-assistant', 'legacy-session')?.messages[0].content, 'Legacy hello');
+      assert.equal(fs.existsSync(path.join(tmpDir, 'chatbuddy.sqlite')), false);
+    } finally {
+      await reloaded.close();
+    }
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('initialize throws when the structured snapshot is corrupted and no sqlite recovery source exists', async () => {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'chatbuddy-corrupted-structured-no-sqlite-test-'));
+  const storage = new ChatStorage();
+  try {
+    await storage.initialize(tmpDir);
+    storage.writeStateLite(createInitialState(), false);
+    await storage.flush();
+    await storage.close();
+
+    await fs.promises.writeFile(path.join(tmpDir, 'meta', 'state.core.json'), '{broken json', 'utf8');
+
+    const reloaded = new ChatStorage();
+    await assert.rejects(
+      reloaded.initialize(tmpDir),
+      /Compass snapshot failed validation with a current migration marker/
+    );
+  } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
@@ -473,7 +635,7 @@ test('state/settings are persisted into structured per-page files', async () => 
     storage.writeProviderApiKeys({ openai: 'sk-structured' }, false);
     await storage.flush();
 
-    const metaDir = path.join(tmpDir, 'chatbuddy-compass', 'meta');
+    const metaDir = path.join(tmpDir, 'meta');
     const core = JSON.parse(await fs.promises.readFile(path.join(metaDir, 'state.core.json'), 'utf-8')) as {
       assistants: Array<{ id: string }>;
     };
@@ -485,6 +647,10 @@ test('state/settings are persisted into structured per-page files', async () => 
       temperature: number;
       sendShortcut: string;
     };
+    const commit = JSON.parse(await fs.promises.readFile(path.join(metaDir, 'state.commit.json'), 'utf-8')) as {
+      layoutVersion: number;
+      generation: number;
+    };
     const providerApiKeys = JSON.parse(
       await fs.promises.readFile(path.join(metaDir, 'providers.api-keys.json'), 'utf-8')
     ) as Record<string, string>;
@@ -494,7 +660,99 @@ test('state/settings are persisted into structured per-page files', async () => 
     assert.equal(ui.selectedSessionIdByAssistant['assistant-structured'], 'session-1');
     assert.equal(general.temperature, 0.42);
     assert.equal(general.sendShortcut, 'ctrlEnter');
+    assert.equal(commit.layoutVersion, 3);
+    assert.equal(commit.generation, 1);
     assert.equal(providerApiKeys.openai, 'sk-structured');
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
+test('state compat key merges partial payloads into the current structured state', async () => {
+  const { storage, cleanup } = await createStorage();
+  try {
+    const state = createInitialState();
+    state.selectedAssistantId = 'assistant-keep';
+    state.settings.temperature = 0.7;
+    state.settings.timeoutMs = 60000;
+    storage.writeStateLite(state, false);
+    await storage.flush();
+
+    storage.setKv(COMPASS_STATE_STORE_KEY, JSON.stringify({ settings: { temperature: 0.15 } }), false);
+
+    const nextState = storage.readStateLite() as ReturnType<typeof createInitialState>;
+    assert.equal(nextState.selectedAssistantId, 'assistant-keep');
+    assert.equal(nextState.settings.temperature, 0.15);
+    assert.equal(nextState.settings.timeoutMs, 60000);
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
+test('invalid state compat payload keeps the current structured state intact', async () => {
+  const { storage, cleanup } = await createStorage();
+  try {
+    const state = createInitialState();
+    state.selectedAssistantId = 'assistant-safe';
+    storage.writeStateLite(state, false);
+    await storage.flush();
+
+    storage.setKv(COMPASS_STATE_STORE_KEY, '{broken json', false);
+
+    const nextState = storage.readStateLite() as ReturnType<typeof createInitialState>;
+    assert.equal(nextState.selectedAssistantId, 'assistant-safe');
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
+test('invalid provider api keys compat payload does not clear the current structured secrets', async () => {
+  const { storage, cleanup } = await createStorage();
+  try {
+    storage.writeProviderApiKeys({ openai: 'sk-safe' }, false);
+    await storage.flush();
+
+    storage.setKv(COMPASS_PROVIDER_API_KEYS_STORE_KEY, '{broken json', false);
+
+    assert.equal(storage.readProviderApiKeys().openai, 'sk-safe');
+  } finally {
+    await storage.close();
+    cleanup();
+  }
+});
+
+test('replaceAllKv ignores reserved compass keys and only replaces regular kv entries', async () => {
+  const { storage, tmpDir, cleanup } = await createStorage();
+  try {
+    const state = createInitialState();
+    state.selectedAssistantId = 'assistant-safe';
+    storage.writeStateLite(state, false);
+    storage.writeProviderApiKeys({ openai: 'sk-safe' }, false);
+    await storage.flush();
+
+    storage.replaceAllKv(
+      {
+        custom: 'value',
+        [COMPASS_STATE_STORE_KEY]: JSON.stringify({ selectedAssistantId: 'assistant-hijack' }),
+        [COMPASS_PROVIDER_API_KEYS_STORE_KEY]: JSON.stringify({ evil: 'sk-evil' })
+      },
+      false
+    );
+    await storage.flush();
+
+    const kvPayload = JSON.parse(await fs.promises.readFile(path.join(tmpDir, 'meta', 'kv.compass.json'), 'utf-8')) as Record<
+      string,
+      string
+    >;
+    const nextState = storage.readStateLite() as ReturnType<typeof createInitialState>;
+
+    assert.equal(storage.getKv('custom'), 'value');
+    assert.deepEqual(kvPayload, { custom: 'value' });
+    assert.equal(nextState.selectedAssistantId, 'assistant-safe');
+    assert.equal(storage.readProviderApiKeys().openai, 'sk-safe');
   } finally {
     await storage.close();
     cleanup();

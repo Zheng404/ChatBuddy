@@ -1,11 +1,22 @@
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from '../types';
 import { nowTs } from '../utils';
-import { ensureDir, listFilesRecursively, readJsonFile, readTextFile, removeFileIfExists, writeJsonAtomic, writeTextAtomic } from './io';
+import {
+  ensureDir,
+  fileExists,
+  listFilesRecursively,
+  readJsonFile,
+  readTextFile,
+  removeEmptyDirectoriesRecursively,
+  removeFileIfExists,
+  writeJsonAtomic,
+  writeTextAtomic
+} from './io';
 import { CompassPaths, getSessionFilePath } from './paths';
 import {
   buildPreview,
   cloneMessage,
   cloneSummary,
+  CompassValidationResult,
   CompassIndexFile,
   normalizeMessageInput,
   normalizeSummary,
@@ -122,6 +133,7 @@ export class CompassSessionStore {
         await removeFileIfExists(filePath);
       }
     }
+    await removeEmptyDirectoriesRecursively(paths.sessionsPath);
   }
 
   public hasAnySession(): boolean {
@@ -134,6 +146,69 @@ export class CompassSessionStore {
 
   public hasData(): boolean {
     return this.sessionSummaries.size > 0 || this.sessionMessages.size > 0;
+  }
+
+  public async validateSnapshot(paths: CompassPaths): Promise<CompassValidationResult> {
+    const [indexExists, sessionFiles] = await Promise.all([
+      fileExists(paths.indexPath),
+      listFilesRecursively(paths.sessionsPath, '.jsonl').catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') {
+          return [];
+        }
+        throw error;
+      })
+    ]);
+
+    if (!indexExists) {
+      if (sessionFiles.length > 0) {
+        return { valid: false, reason: 'Session index is missing while session files still exist' };
+      }
+      return { valid: true };
+    }
+
+    const rawIndex = await readTextFile(paths.indexPath);
+    if (!rawIndex || !rawIndex.trim()) {
+      return { valid: false, reason: 'Session index file is empty' };
+    }
+
+    let parsedIndex: unknown;
+    try {
+      parsedIndex = JSON.parse(rawIndex);
+    } catch {
+      return { valid: false, reason: 'Session index file is not valid JSON' };
+    }
+
+    if (!parsedIndex || typeof parsedIndex !== 'object' || !Array.isArray((parsedIndex as CompassIndexFile).sessions)) {
+      return { valid: false, reason: 'Session index file has an invalid shape' };
+    }
+
+    const expectedSessionFiles = new Set<string>();
+    const sessionIds = new Set<string>();
+    for (const rawSummary of (parsedIndex as CompassIndexFile).sessions) {
+      const summary = normalizeSummary(rawSummary, nowTs());
+      if (!summary.id || !summary.assistantId) {
+        return { valid: false, reason: 'Session index contains a summary without id or assistantId' };
+      }
+      if (sessionIds.has(summary.id)) {
+        return { valid: false, reason: `Session index contains duplicate session id: ${summary.id}` };
+      }
+      sessionIds.add(summary.id);
+
+      const sessionFilePath = getSessionFilePath(paths, summary.assistantId, summary.id);
+      expectedSessionFiles.add(sessionFilePath);
+      const sessionValidation = await this.validateSessionFile(sessionFilePath);
+      if (!sessionValidation.valid) {
+        return sessionValidation;
+      }
+    }
+
+    for (const sessionFilePath of sessionFiles) {
+      if (!expectedSessionFiles.has(sessionFilePath)) {
+        return { valid: false, reason: `Found orphan session file not referenced by the index: ${sessionFilePath}` };
+      }
+    }
+
+    return { valid: true };
   }
 
   public listSessionsByAssistant(assistantId: string): ChatSessionSummary[] {
@@ -507,5 +582,30 @@ export class CompassSessionStore {
       }
     }
     return messages;
+  }
+
+  private async validateSessionFile(filePath: string): Promise<CompassValidationResult> {
+    if (!(await fileExists(filePath))) {
+      return { valid: false, reason: `Session file is missing: ${filePath}` };
+    }
+
+    const content = await readTextFile(filePath);
+    if (content === undefined) {
+      return { valid: false, reason: `Session file could not be read: ${filePath}` };
+    }
+
+    const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as unknown;
+        if (!parsed || typeof parsed !== 'object') {
+          return { valid: false, reason: `Session file contains a non-object message line: ${filePath}` };
+        }
+      } catch {
+        return { valid: false, reason: `Session file contains malformed JSONL: ${filePath}` };
+      }
+    }
+
+    return { valid: true };
   }
 }

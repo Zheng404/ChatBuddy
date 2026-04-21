@@ -35,6 +35,11 @@ export type CompassMigrationRecord = {
   legacyPath?: string;
 };
 
+export type CompassValidationResult = {
+  valid: boolean;
+  reason?: string;
+};
+
 export type StructuredStateCoreFile = {
   groups: AssistantGroup[];
   assistants: AssistantProfile[];
@@ -80,6 +85,13 @@ export type StructuredStateDocument = {
   settingsModelConfig: StructuredSettingsModelConfigFile;
   settingsDefaultModels: StructuredSettingsDefaultModelsFile;
   settingsMcp: StructuredSettingsMcpFile;
+};
+
+export type StructuredStateCommitFile = {
+  name: 'compass-structured-state';
+  layoutVersion: number;
+  generation: number;
+  writtenAt: string;
 };
 
 export type LegacySqliteRows = {

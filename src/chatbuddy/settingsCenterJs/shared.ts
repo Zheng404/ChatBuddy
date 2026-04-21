@@ -33,6 +33,7 @@ export function getSharedJs(): string {
         resetDataDescription: document.getElementById('resetDataDescription'),
         exportBtn: document.getElementById('exportBtn'),
         importBtn: document.getElementById('importBtn'),
+        importLegacyBtn: document.getElementById('importLegacyBtn'),
         resetBtn: document.getElementById('resetBtn'),
         locale: document.getElementById('locale'),
         sendShortcut: document.getElementById('sendShortcut'),
