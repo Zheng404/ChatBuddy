@@ -73,6 +73,11 @@
         "icon": "$(plug)"
       },
       {
+        "command": "chatbuddy.openDataManagement",
+        "title": "%chatbuddy.command.openDataManagement%",
+        "icon": "$(database)"
+      },
+      {
         "command": "chatbuddy.openAbout",
         "title": "%chatbuddy.command.openAbout%",
         "icon": "$(info)"

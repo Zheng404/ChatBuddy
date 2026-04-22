@@ -211,6 +211,20 @@ export interface PersistedStateLite {
   settings: ChatBuddySettings;
 }
 
+export interface LocalBackupSettings {
+  enabled: boolean;
+  directory: string;
+  intervalHours: number;
+  maxCount: number;
+  maxAgeDays: number;
+}
+
+export interface BackupFileEntry {
+  fileName: string;
+  fileSize: number;
+  createdAt: string;
+}
+
 export interface ChatBuddySettings {
   providers: ProviderProfile[];
   defaultModels: DefaultModelSettings;
@@ -225,6 +239,7 @@ export interface ChatBuddySettings {
   locale: ChatBuddyLocaleSetting;
   sendShortcut: ChatSendShortcut;
   chatTabMode: ChatTabMode;
+  localBackup: LocalBackupSettings;
 }
 
 export interface ProviderConfig {

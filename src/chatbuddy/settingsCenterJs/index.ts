@@ -1,5 +1,6 @@
 import { getSharedJs, getSharedUtilsJs } from './shared';
 import { getGeneralJs } from './general';
+import { getDataManagementJs } from './dataManagement';
 import { getDefaultModelsJs } from './defaultModels';
 import { getModelConfigJs } from './modelConfig';
 import { getMcpJs } from './mcp';
@@ -18,6 +19,7 @@ export function getSettingsCenterJs(toastScript: string, defaultTitleSummaryProm
     getSharedJs(),
     getSharedUtilsJs(toastScript),
     getGeneralJs(),
+    getDataManagementJs(),
     getDefaultModelsJs(defaultTitleSummaryPrompt),
     getModelConfigJs(),
     getMcpJs(),

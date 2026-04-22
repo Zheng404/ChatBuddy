@@ -660,6 +660,110 @@ export function getSettingsCenterCss(): string {
         margin-top: 12px;
       }
 
+      .data-tab-container {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        overflow: hidden;
+        background: color-mix(in srgb, var(--bg) 96%, white 4%);
+      }
+
+      .data-tab-container > .editor-tabs {
+        border-bottom: 1px solid var(--border);
+        padding: 0 8px;
+      }
+
+      .data-tab-container > .editor-pane {
+        padding: 16px;
+      }
+
+      .field-toggle-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+
+      .field-toggle-row + .field {
+        margin-top: 14px;
+      }
+
+      #autoBackupSectionTitle ~ .field + .field {
+        margin-top: 14px;
+      }
+
+      .backup-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin-bottom: 6px;
+        gap: 12px;
+      }
+
+      .backup-item-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        flex: 1;
+      }
+
+      .backup-item-name {
+        font-size: 13px;
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .backup-item-meta {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .backup-item-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .field-input-with-action {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .field-input-with-action input {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .field-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg);
+        color: var(--fg);
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .field-action:hover {
+        background: var(--hover);
+      }
+
+      .help-inline {
+        font-size: 11px;
+        color: var(--muted);
+        margin-left: 4px;
+      }
+
       .danger-copy {
         color: var(--muted);
         font-size: 12px;

@@ -51,6 +51,19 @@ export function getMessageHandlerJs(): string {
           }
           renderMcpServerList();
         }
+        if (message && message.type === 'backupDirSelected') {
+          dom.backupDirInput.value = message.payload.dir || '';
+          autoSaveBackupSettings();
+        }
+        if (message && message.type === 'backupList') {
+          runtimeState.backupFiles = message.payload.items || [];
+          renderBackupList();
+        }
+        if (message && message.type === 'backupOperationResult') {
+          if (message.payload.message) {
+            showToast(message.payload.message, message.payload.success ? 'success' : 'error');
+          }
+        }
       });
 `;
 }

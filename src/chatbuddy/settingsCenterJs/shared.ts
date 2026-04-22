@@ -27,7 +27,6 @@ export function getSharedJs(): string {
         chatTabModeSectionTitle: document.getElementById('chatTabModeSectionTitle'),
 
         chatTabModeHelp: document.getElementById('chatTabModeHelp'),
-        dataTransferSectionTitle: document.getElementById('dataTransferSectionTitle'),
         dataTransferDescription: document.getElementById('dataTransferDescription'),
         dangerSectionTitle: document.getElementById('dangerSectionTitle'),
         resetDataDescription: document.getElementById('resetDataDescription'),
@@ -35,6 +34,25 @@ export function getSharedJs(): string {
         importBtn: document.getElementById('importBtn'),
         importLegacyBtn: document.getElementById('importLegacyBtn'),
         resetBtn: document.getElementById('resetBtn'),
+        dataTabTransfer: document.getElementById('dataTabTransfer'),
+        dataTabLocal: document.getElementById('dataTabLocal'),
+        backupDirLabel: document.getElementById('backupDirLabel'),
+        backupDirInput: document.getElementById('backupDirInput'),
+        browseBackupDirBtn: document.getElementById('browseBackupDirBtn'),
+        autoBackupLabel: document.getElementById('autoBackupLabel'),
+        autoBackupToggle: document.getElementById('autoBackupToggle'),
+        intervalLabel: document.getElementById('intervalLabel'),
+        intervalInput: document.getElementById('intervalInput'),
+        maxCountLabel: document.getElementById('maxCountLabel'),
+        maxCountInput: document.getElementById('maxCountInput'),
+        maxAgeLabel: document.getElementById('maxAgeLabel'),
+        maxAgeInput: document.getElementById('maxAgeInput'),
+        manualBackupTitle: document.getElementById('manualBackupTitle'),
+        triggerBackupBtn: document.getElementById('triggerBackupBtn'),
+        refreshBackupListBtn: document.getElementById('refreshBackupListBtn'),
+        backupHistoryTitle: document.getElementById('backupHistoryTitle'),
+        backupListContainer: document.getElementById('backupListContainer'),
+        autoBackupSectionTitle: document.getElementById('autoBackupSectionTitle'),
         locale: document.getElementById('locale'),
         sendShortcut: document.getElementById('sendShortcut'),
         chatTabMode: document.getElementById('chatTabMode'),
@@ -112,6 +130,9 @@ export function getSharedJs(): string {
         discardChangesConfirmBtn: document.getElementById('discardChangesConfirmBtn'),
         navMcp: document.getElementById('navMcp'),
         navMcpTitle: document.getElementById('navMcpTitle'),
+        navDataManagement: document.getElementById('navDataManagement'),
+        navDataManagementTitle: document.getElementById('navDataManagementTitle'),
+        paneDataManagement: document.getElementById('paneDataManagement'),
         navAbout: document.getElementById('navAbout'),
         navAboutTitle: document.getElementById('navAboutTitle'),
         paneMcp: document.getElementById('paneMcp'),
@@ -174,9 +195,11 @@ export function getSharedJs(): string {
         },
         changelogMarkdown: '',
         notice: '',
-        noticeTone: 'info'
+        noticeTone: 'info',
+        backupFiles: []
       };
       let activeSection = 'general';
+      let activeDataTab = 'transfer';
       let providers = [];
       let persistedProvidersById = {};
       let dirtyProviderIds = new Set();
@@ -212,7 +235,7 @@ export function getSharedUtilsJs(toastScript: string): string {
 ${getHtmlEscaperScript()}
 
       function normalizeSectionValue(section) {
-        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'mcp' || section === 'about' ? section : 'general';
+        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'dataManagement' || section === 'mcp' || section === 'about' ? section : 'general';
       }
 
       function renderNav() {
@@ -222,9 +245,10 @@ ${getHtmlEscaperScript()}
         dom.navDefaultModelsTitle.textContent = strings.defaultModelsTitle || '';
         dom.navGeneralTitle.textContent = strings.settingsTitle || '';
         dom.navMcpTitle.textContent = strings.mcpTitle || 'MCP';
+        dom.navDataManagementTitle.textContent = strings.dataManagementTitle || 'Data';
         dom.navAboutTitle.textContent = strings.aboutTitle || 'About';
 
-        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navGeneral, dom.navAbout];
+        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navDataManagement, dom.navGeneral, dom.navAbout];
         for (const item of items) {
           const isActive = item.getAttribute('data-section') === activeSection;
           item.classList.toggle('active', isActive);
@@ -234,7 +258,7 @@ ${getHtmlEscaperScript()}
       }
 
       function renderSectionVisibility() {
-        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral, dom.paneMcp, dom.paneAbout];
+        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral, dom.paneDataManagement, dom.paneMcp, dom.paneAbout];
         for (const pane of panes) {
           const isActive = pane.getAttribute('data-section') === activeSection;
           pane.classList.toggle('active', isActive);

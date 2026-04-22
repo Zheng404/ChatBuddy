@@ -71,7 +71,8 @@ function createSettings(chatTabMode: 'single' | 'multi'): ChatBuddySettings {
     streamingDefault: true,
     locale: 'en',
     sendShortcut: 'enter',
-    chatTabMode
+    chatTabMode,
+    localBackup: { enabled: false, directory: '', intervalHours: 24, maxCount: 10, maxAgeDays: 30 }
   };
 }
 

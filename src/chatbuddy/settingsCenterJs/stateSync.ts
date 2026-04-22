@@ -25,11 +25,17 @@ export function getStateSyncJs(): string {
         renderNav();
         renderSectionVisibility();
         renderGeneralText();
+        renderDataManagementText();
         renderGeneralValues();
         renderDefaultModels();
         renderModelConfigText();
         renderEditorTabs();
         renderEditorTabVisibility();
+        renderDataTabs();
+        renderDataTabVisibility();
+        renderLocalBackupSettings();
+        renderManualBackupSection();
+        renderBackupList();
         ensureProviderEditorId();
         renderProviderList();
         renderProviderFields();

@@ -1,484 +1,22 @@
 import * as vscode from 'vscode';
-import * as os from 'os';
-import * as path from 'path';
 
 import { AssistantsTreeProvider } from './chatbuddy/assistantsView';
 import type { AssistantsTreeNode } from './chatbuddy/assistantsView';
-import { AssistantEditorPanelController } from './chatbuddy/assistantEditorPanel';
-import { createBackupArchive, extractBackupPayloadFromArchive, isZipArchive } from './chatbuddy/backupArchive';
 import { ChatController } from './chatbuddy/chatController';
-import { DEFAULT_GROUP_ID } from './chatbuddy/constants';
-import { formatString, getStrings, resolveLocale } from './chatbuddy/i18n';
+import { getStrings, resolveLocale } from './chatbuddy/i18n';
 import { McpRuntime } from './chatbuddy/mcpRuntime';
 import { OpenAICompatibleClient } from './chatbuddy/providerClient';
 import { SessionsTreeProvider } from './chatbuddy/sessionsView';
-import { SettingsCenterPanelController } from './chatbuddy/settingsCenterPanel';
 import { warn } from './chatbuddy/utils';
 import { ChatStateRepository } from './chatbuddy/stateRepository';
 import { ChatBuddySettings } from './chatbuddy/types';
 
-import type { ExtensionContext } from './extension/shared';
-import { buildBackupFileName } from './extension/shared';
-import { registerSettingsCommands } from './extension/settingsCommands';
-import { registerNavigationCommands } from './extension/navigationCommands';
-import { registerAssistantTreeCommands } from './extension/assistantTreeCommands';
-import { registerAssistantManagementCommands } from './extension/assistantManagementCommands';
-import { registerSessionCommands } from './extension/sessionCommands';
-import { registerLocaleAwareMenuAliasCommands } from './extension/localeMenuCommands';
-
-const MIN_SETTINGS_VIEW_ROWS = 4;
-
-// ─── Internal types ─────────────────────────────────────────────────────────
-
-type SettingsTreeDataSource = {
-  emitter: vscode.EventEmitter<void>;
-  provider: vscode.TreeDataProvider<vscode.TreeItem>;
-};
-
-type DataActionResult = {
-  notice: string;
-  tone: 'success' | 'error';
-};
-
-type ActivationTreeProviders = {
-  assistantsTreeProvider: AssistantsTreeProvider;
-  recycleBinTreeProvider: AssistantsTreeProvider;
-  sessionsTreeProvider: SessionsTreeProvider;
-};
-
-type ActivationTreeViews = {
-  assistantsTreeView: vscode.TreeView<unknown>;
-  recycleBinTreeView: vscode.TreeView<unknown>;
-  sessionsTreeView: vscode.TreeView<unknown>;
-  settingsTreeView: vscode.TreeView<unknown>;
-};
-
-type PanelControllers = {
-  settingsCenterPanelController: SettingsCenterPanelController;
-  assistantEditorPanelController: AssistantEditorPanelController;
-};
-
-// ─── Tree provider / view helpers ────────────────────────────────────────────
-
-function createTreeProviders(repository: ChatStateRepository): ActivationTreeProviders {
-  const assistantTreeRepository = {
-    getGroups: () => repository.getGroups(),
-    getAssistants: () => repository.getAssistants(),
-    getLocaleSetting: () => repository.getLocaleSetting(),
-    isGroupCollapsed: (groupId: string) => repository.getState().collapsedGroupIds.includes(groupId)
-  };
-
-  return {
-    assistantsTreeProvider: new AssistantsTreeProvider(assistantTreeRepository, 'main'),
-    recycleBinTreeProvider: new AssistantsTreeProvider(assistantTreeRepository, 'recycle'),
-    sessionsTreeProvider: new SessionsTreeProvider({
-      getSelectedAssistant: () => repository.getSelectedAssistant(),
-      getSessionsForAssistant: (assistantId: string) => repository.getSessionsForAssistant(assistantId),
-      getSelectedSessionId: (assistantId?: string) => repository.getSelectedSessionId(assistantId),
-      getLocaleSetting: () => repository.getLocaleSetting(),
-      searchSessionContent: (assistantId: string, keyword: string) => repository.searchSessionContent(assistantId, keyword)
-    })
-  };
-}
-
-function createTreeViews(args: {
-  assistantsTreeProvider: AssistantsTreeProvider;
-  recycleBinTreeProvider: AssistantsTreeProvider;
-  sessionsTreeProvider: SessionsTreeProvider;
-  settingsTreeProvider: vscode.TreeDataProvider<vscode.TreeItem>;
-}): ActivationTreeViews {
-  const { assistantsTreeProvider, recycleBinTreeProvider, sessionsTreeProvider, settingsTreeProvider } = args;
-
-  return {
-    assistantsTreeView: vscode.window.createTreeView('chatbuddy.assistantsView', {
-      treeDataProvider: assistantsTreeProvider,
-      showCollapseAll: false
-    }),
-    recycleBinTreeView: vscode.window.createTreeView('chatbuddy.recycleBinView', {
-      treeDataProvider: recycleBinTreeProvider,
-      showCollapseAll: false
-    }),
-    sessionsTreeView: vscode.window.createTreeView('chatbuddy.sessionsView', {
-      treeDataProvider: sessionsTreeProvider,
-      showCollapseAll: false
-    }),
-    settingsTreeView: vscode.window.createTreeView('chatbuddy.settingsView', {
-      treeDataProvider: settingsTreeProvider,
-      showCollapseAll: false
-    })
-  };
-}
-
-function createSettingsTreeDataSource(getRuntimeStrings: () => Record<string, string>): SettingsTreeDataSource {
-  const emitter = new vscode.EventEmitter<void>();
-  const provider: vscode.TreeDataProvider<vscode.TreeItem> = {
-    onDidChangeTreeData: emitter.event,
-    getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
-      return element;
-    },
-    getChildren(element?: vscode.TreeItem): vscode.ProviderResult<vscode.TreeItem[]> {
-      if (element) {
-        return [];
-      }
-      const strings = getRuntimeStrings();
-      const createItem = (
-        id: string,
-        label: string,
-        icon: string,
-        command: string,
-        tooltip?: string
-      ): vscode.TreeItem => {
-        const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-        item.id = id;
-        item.iconPath = new vscode.ThemeIcon(icon);
-        item.command = {
-          command,
-          title: label
-        };
-        item.tooltip = tooltip;
-        return item;
-      };
-
-      const items: vscode.TreeItem[] = [
-        createItem('chatbuddy.model-config.open', strings.openModelConfig, 'hubot', 'chatbuddy.openModelConfig', strings.modelConfigDescription),
-        createItem(
-          'chatbuddy.default-models.open',
-          strings.openDefaultModels,
-          'symbol-constant',
-          'chatbuddy.openDefaultModels',
-          strings.defaultModelsDescription
-        ),
-        createItem(
-          'chatbuddy.mcp.open',
-          strings.openMcp || strings.mcpTitle || 'MCP',
-          'plug',
-          'chatbuddy.openMcp',
-          strings.mcpDescription
-        ),
-        createItem('chatbuddy.settings.open', strings.openSettings, 'settings-gear', 'chatbuddy.openSettings', strings.settingsDescription),
-        createItem(
-          'chatbuddy.about.open',
-          strings.openAbout || strings.aboutTitle || 'About',
-          'info',
-          'chatbuddy.openAbout',
-          strings.aboutDescription
-        )
-      ];
-      for (let index = items.length; index < MIN_SETTINGS_VIEW_ROWS; index += 1) {
-        const spacer = new vscode.TreeItem(' ', vscode.TreeItemCollapsibleState.None);
-        spacer.id = `chatbuddy.settings.spacer.${index}`;
-        spacer.contextValue = 'chatbuddy.view.spacer';
-        items.push(spacer);
-      }
-      return items;
-    }
-  };
-
-  return { emitter, provider };
-}
-
-// ─── Data action handlers ───────────────────────────────────────────────────
-
-function clearAssistantSearchFilters(
-  assistantsTreeProvider: AssistantsTreeProvider,
-  recycleBinTreeProvider: AssistantsTreeProvider
-): void {
-  assistantsTreeProvider.clearSearchKeyword();
-  recycleBinTreeProvider.clearSearchKeyword();
-}
-
-function createDataActionHandlers(args: {
-  repository: ChatStateRepository;
-  chatController: ChatController;
-  getAssistantsTreeProvider: () => AssistantsTreeProvider;
-  getRecycleBinTreeProvider: () => AssistantsTreeProvider;
-  refreshAll: () => void;
-  updateTreeMessage: () => void;
-  getRuntimeStrings: () => Record<string, string>;
-}): {
-  handleResetData: () => Promise<boolean>;
-  handleExportData: () => Promise<DataActionResult | undefined>;
-  handleImportData: () => Promise<DataActionResult | undefined>;
-  handleImportLegacyData: () => Promise<DataActionResult | undefined>;
-} {
-  const {
-    repository,
-    chatController,
-    getAssistantsTreeProvider,
-    getRecycleBinTreeProvider,
-    refreshAll,
-    updateTreeMessage,
-    getRuntimeStrings
-  } = args;
-
-  return {
-    handleResetData: async () => {
-      const strings = getRuntimeStrings();
-      const firstConfirm = await vscode.window.showWarningMessage(
-        strings.confirmResetData,
-        { modal: true },
-        strings.resetAction
-      );
-      if (firstConfirm !== strings.resetAction) {
-        return false;
-      }
-
-      const secondConfirm = await vscode.window.showWarningMessage(
-        strings.confirmResetDataSecond ?? strings.confirmResetData,
-        { modal: true },
-        strings.resetAction
-      );
-      if (secondConfirm !== strings.resetAction) {
-        return false;
-      }
-
-      chatController.stopGeneration('manual');
-      await repository.resetState();
-      chatController.applySettings(repository.getSettings());
-      chatController.openAssistantChat();
-      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
-      refreshAll();
-      updateTreeMessage();
-      return true;
-    },
-    handleExportData: async () => {
-      const strings = getRuntimeStrings();
-      const fileName = buildBackupFileName();
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-      const defaultUri = workspaceRoot
-        ? vscode.Uri.joinPath(workspaceRoot, fileName)
-        : vscode.Uri.file(path.join(os.homedir(), fileName));
-      const uri = await vscode.window.showSaveDialog({
-        saveLabel: strings.exportDataAction,
-        filters: {
-          ZIP: ['zip']
-        },
-        defaultUri
-      });
-      if (!uri) {
-        return undefined;
-      }
-      const backup = repository.exportBackupData();
-      const archive = createBackupArchive(backup);
-      await vscode.workspace.fs.writeFile(uri, Buffer.from(archive));
-      return {
-        notice: formatString(strings.exportDataDone, { path: uri.fsPath }),
-        tone: 'success'
-      };
-    },
-    handleImportData: async () => {
-      const strings = getRuntimeStrings();
-      const picked = await vscode.window.showOpenDialog({
-        canSelectMany: false,
-        openLabel: strings.importDataAction,
-        filters: {
-          ZIP: ['zip']
-        }
-      });
-      const target = picked?.[0];
-      if (!target) {
-        return undefined;
-      }
-      const confirmed = await vscode.window.showWarningMessage(
-        strings.confirmImportData,
-        { modal: true },
-        strings.importDataAction
-      );
-      if (confirmed !== strings.importDataAction) {
-        return undefined;
-      }
-      let parsed: unknown;
-      try {
-        const raw = await vscode.workspace.fs.readFile(target);
-        if (!isZipArchive(raw)) {
-          throw new Error('Expected ZIP backup archive');
-        }
-        parsed = extractBackupPayloadFromArchive(raw);
-      } catch (err) {
-        warn('Failed to parse backup file:', err);
-        return {
-          notice: strings.importDataInvalid,
-          tone: 'error'
-        };
-      }
-
-      try {
-        chatController.stopGeneration('manual');
-        await repository.importBackupData(parsed);
-      } catch (err) {
-        warn('Failed to import backup data:', err);
-        return {
-          notice: strings.importDataInvalid,
-          tone: 'error'
-        };
-      }
-
-      chatController.applySettings(repository.getSettings());
-      chatController.openAssistantChat();
-      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
-      refreshAll();
-      updateTreeMessage();
-      return {
-        notice: strings.importDataDone,
-        tone: 'success'
-      };
-    },
-    handleImportLegacyData: async () => {
-      const strings = getRuntimeStrings();
-      const picked = await vscode.window.showOpenDialog({
-        canSelectMany: false,
-        openLabel: strings.importLegacyDataAction,
-        filters: {
-          JSON: ['json']
-        }
-      });
-      const target = picked?.[0];
-      if (!target) {
-        return undefined;
-      }
-      const confirmed = await vscode.window.showWarningMessage(
-        strings.confirmImportLegacyData,
-        { modal: true },
-        strings.importLegacyDataAction
-      );
-      if (confirmed !== strings.importLegacyDataAction) {
-        return undefined;
-      }
-
-      let parsed: unknown;
-      try {
-        const raw = await vscode.workspace.fs.readFile(target);
-        if (isZipArchive(raw)) {
-          throw new Error('Legacy JSON import does not accept ZIP archives');
-        }
-        parsed = JSON.parse(Buffer.from(raw).toString('utf8'));
-      } catch (err) {
-        warn('Failed to parse legacy backup file:', err);
-        return {
-          notice: strings.importLegacyDataInvalid,
-          tone: 'error'
-        };
-      }
-
-      try {
-        chatController.stopGeneration('manual');
-        await repository.importBackupData(parsed);
-      } catch (err) {
-        warn('Failed to import legacy backup data:', err);
-        return {
-          notice: strings.importLegacyDataInvalid,
-          tone: 'error'
-        };
-      }
-
-      chatController.applySettings(repository.getSettings());
-      chatController.openAssistantChat();
-      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
-      refreshAll();
-      updateTreeMessage();
-      return {
-        notice: strings.importLegacyDataDone,
-        tone: 'success'
-      };
-    }
-  };
-}
-
-// ─── Panel controllers ──────────────────────────────────────────────────────
-
-function createPanelControllers(args: {
-  repository: ChatStateRepository;
-  providerClient: OpenAICompatibleClient;
-  mcpRuntime: McpRuntime;
-  chatController: ChatController;
-  assistantsTreeProvider: AssistantsTreeProvider;
-  assistantsTreeView: vscode.TreeView<unknown>;
-  applySettingsAndRefresh: (settings: ChatBuddySettings) => void;
-  handleResetData: () => Promise<boolean>;
-  handleExportData: () => Promise<DataActionResult | undefined>;
-  handleImportData: () => Promise<DataActionResult | undefined>;
-  handleImportLegacyData: () => Promise<DataActionResult | undefined>;
-  refreshAll: () => void;
-  updateTreeMessage: () => void;
-  getRuntimeStrings: () => Record<string, string>;
-}): PanelControllers {
-  const {
-    repository,
-    providerClient,
-    mcpRuntime,
-    chatController,
-    assistantsTreeProvider,
-    assistantsTreeView,
-    applySettingsAndRefresh,
-    handleResetData,
-    handleExportData,
-    handleImportData,
-    handleImportLegacyData,
-    refreshAll,
-    updateTreeMessage,
-    getRuntimeStrings
-  } = args;
-
-  const settingsCenterPanelController = new SettingsCenterPanelController(
-    repository,
-    providerClient,
-    mcpRuntime,
-    applySettingsAndRefresh,
-    handleResetData,
-    handleExportData,
-    handleImportData,
-    handleImportLegacyData
-  );
-
-  const assistantEditorPanelController = new AssistantEditorPanelController(
-    repository,
-    (assistantId, patch) => {
-      repository.updateAssistant(assistantId, patch);
-      chatController.openAssistantChat(assistantId);
-      refreshAll();
-    },
-    (patch) => {
-      const strings = getRuntimeStrings();
-      const created = repository.createAssistant({
-        name: patch.name?.trim() || strings.assistantRole,
-        groupId: patch.groupId || DEFAULT_GROUP_ID
-      });
-      repository.updateAssistant(created.id, patch);
-      chatController.openAssistantChat(created.id);
-      refreshAll();
-      updateTreeMessage();
-      const targetNode = assistantsTreeProvider.findAssistantNode(created.id);
-      if (targetNode) {
-        void assistantsTreeView.reveal(targetNode, {
-          select: true,
-          focus: false,
-          expand: true
-        });
-      }
-      return created.id;
-    }
-  );
-
-  return {
-    settingsCenterPanelController,
-    assistantEditorPanelController
-  };
-}
-
-// ─── Command registration ───────────────────────────────────────────────────
-
-function registerCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  return [
-    ...registerSettingsCommands(ctx),
-    ...registerNavigationCommands(ctx),
-    ...registerAssistantTreeCommands(ctx),
-    ...registerAssistantManagementCommands(ctx),
-    ...registerSessionCommands(ctx),
-    ...registerLocaleAwareMenuAliasCommands()
-  ];
-}
-
-// ─── Extension lifecycle ────────────────────────────────────────────────────
+import { PanelControllers } from './extension/activationTypes';
+import { createDataActionHandlers } from './extension/dataActions';
+import { createPanelControllers } from './extension/panelControllers';
+import { createTreeProviders, createTreeViews, createSettingsTreeDataSource } from './extension/treeViews';
+import { registerCommands } from './extension/commands';
+import { getBackupIntervalMs, runScheduledBackup } from './chatbuddy/localBackup';
 
 export async function activate(context: vscode.ExtensionContext) {
   // Global unhandled rejection handler — prevents silent crashes in production.
@@ -486,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // - Canceled: panel disposal, extension deactivation, abort controllers
   // - AbortError: standard fetch/web API abort
   // - Channel has been closed: webview disposed while message in flight
-  process.on('unhandledRejection', (reason: unknown) => {
+  const unhandledRejectionHandler = (reason: unknown) => {
     if (reason instanceof Error) {
       const msg = reason.message || '';
       const name = reason.name || '';
@@ -495,6 +33,12 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }
     warn('Unhandled promise rejection:', reason);
+  };
+  process.on('unhandledRejection', unhandledRejectionHandler);
+  context.subscriptions.push({
+    dispose: () => {
+      process.off('unhandledRejection', unhandledRejectionHandler);
+    }
   });
 
   const repository = new ChatStateRepository(context);
@@ -567,6 +111,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Prune MCP connections for servers that were removed or disabled
     const activeServerIds = new Set(settings.mcp.servers.map((s) => s.id));
     void mcpRuntime.pruneConnections(activeServerIds);
+    restartBackupTimer(settings);
     refreshAll();
     updateTreeMessage();
   };
@@ -618,6 +163,23 @@ export async function activate(context: vscode.ExtensionContext) {
   updateTreeMessage();
   updateViewHeadings();
 
+  // Local backup auto-timer
+  let backupTimer: ReturnType<typeof setInterval> | undefined;
+  const restartBackupTimer = (settings?: ChatBuddySettings) => {
+    if (backupTimer !== undefined) {
+      clearInterval(backupTimer);
+      backupTimer = undefined;
+    }
+    const current = settings || repository.getSettings();
+    const intervalMs = getBackupIntervalMs(current.localBackup);
+    if (intervalMs > 0) {
+      backupTimer = setInterval(() => {
+        void runScheduledBackup(repository, current.localBackup);
+      }, intervalMs);
+    }
+  };
+  restartBackupTimer();
+
   context.subscriptions.push(
     assistantsTreeView,
     sessionsTreeView,
@@ -639,10 +201,12 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
     { dispose: () => { chatController.dispose(); } },
     { dispose: () => { void mcpRuntime.dispose(); } },
-    { dispose: () => { void repository.close(); } }
+    { dispose: () => { void repository.close(); } },
+    { dispose: () => { if (backupTimer !== undefined) { clearInterval(backupTimer); } } }
   );
 }
 
 export function deactivate(): void {
   // Resources are cleaned up via context.subscriptions dispose
+  // Backup timer cleanup handled via context.subscriptions below
 }

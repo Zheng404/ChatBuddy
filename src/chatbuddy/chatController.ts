@@ -174,7 +174,7 @@ export class ChatController {
   }
 
   private getRuntimeStrings(): Record<string, string> {
-    return getStrings(this.getLocale()) as unknown as Record<string, string>;
+    return getStrings(this.getLocale());
   }
 
   private getPayloadBaseState(): PayloadBaseCache['state'] {
@@ -364,8 +364,17 @@ export class ChatController {
     this.postState();
   }
 
+  /** Checks if an error is benign and should be silently ignored. */
+  private isBenignError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const name = error.name || '';
+      const msg = error.message || '';
+      return name === 'Canceled' || name === 'AbortError' || msg === 'Channel has been closed';
+    }
+    return false;
+  }
+
   private async handleWebviewMessage(message: WebviewInboundMessage, context?: PanelMessageContext): Promise<void> {
-    try {
     if (context?.panel) {
       this.panelManager.setActivePanel(context.panel);
     }
@@ -376,43 +385,41 @@ export class ChatController {
       }
     }
 
-    await routeChatControllerWebviewMessage({
-      message,
-      context,
-      repository: this.repository,
-      getLocale: () => this.getLocale(),
-      hasPendingToolContinuation: Boolean(this.pendingToolContinuation),
-      handleReady: (targetContext) => this.handlePanelReady(targetContext),
-      postError: (errorMessage, targetContext) => this.postError(errorMessage, targetContext),
-      postState: (errorMessage, targetContext) => this.postState(errorMessage, targetContext),
-      createSessionForAssistant: (assistantId) => this.createSessionForAssistant(assistantId),
-      ensureSession: (assistantId) => this.ensureSession(assistantId),
-      sessionTempModelRefBySession: this.sessionTempModelRefBySession,
-      setStreamingEnabled: (enabled) => {
-        this.streamingEnabled = enabled;
-      },
-      regenerateReply: (targetContext) => this.regenerateReply(targetContext),
-      regenerateFromMessage: (messageId, targetContext) => this.regenerateFromMessage(messageId, targetContext),
-      copyMessage: (messageId) => this.copyMessage(messageId),
-      deleteMessage: (messageId) => this.deleteMessage(messageId),
-      editMessage: (messageId, newContent, regenerate) => this.editMessage(messageId, newContent, regenerate),
-      clearSession: () => this.clearSession(),
-      sendMessage: (content, images, targetContext) => this.sendMessage(content, images, targetContext),
-      continuePendingToolCalls: (targetContext) => this.continuePendingToolCalls(targetContext),
-      cancelPendingToolCalls: (targetContext) => this.cancelPendingToolCalls(targetContext),
-      listMcpResources: (targetContext) => this.listMcpResources(targetContext),
-      listMcpPrompts: (targetContext) => this.listMcpPrompts(targetContext),
-      insertMcpResource: (serverId, uri, targetContext) => this.insertMcpResource(serverId, uri, targetContext),
-      insertMcpPrompt: (serverId, name, args, targetContext) =>
-        this.insertMcpPrompt(serverId, name, args, targetContext),
-      stopGeneration: (reason) => this.stopGeneration(reason),
-      confirmDangerousAction: (confirmMessage, actionLabel) => this.confirmDangerousAction(confirmMessage, actionLabel)
-    });
+    try {
+      await routeChatControllerWebviewMessage({
+        message,
+        context,
+        repository: this.repository,
+        getLocale: () => this.getLocale(),
+        hasPendingToolContinuation: Boolean(this.pendingToolContinuation),
+        handleReady: (targetContext) => this.handlePanelReady(targetContext),
+        postError: (errorMessage, targetContext) => this.postError(errorMessage, targetContext),
+        postState: (errorMessage, targetContext) => this.postState(errorMessage, targetContext),
+        createSessionForAssistant: (assistantId) => this.createSessionForAssistant(assistantId),
+        ensureSession: (assistantId) => this.ensureSession(assistantId),
+        sessionTempModelRefBySession: this.sessionTempModelRefBySession,
+        setStreamingEnabled: (enabled) => {
+          this.streamingEnabled = enabled;
+        },
+        regenerateReply: (targetContext) => this.regenerateReply(targetContext),
+        regenerateFromMessage: (messageId, targetContext) => this.regenerateFromMessage(messageId, targetContext),
+        copyMessage: (messageId) => this.copyMessage(messageId),
+        deleteMessage: (messageId) => this.deleteMessage(messageId),
+        editMessage: (messageId, newContent, regenerate) => this.editMessage(messageId, newContent, regenerate),
+        clearSession: () => this.clearSession(),
+        sendMessage: (content, images, targetContext) => this.sendMessage(content, images, targetContext),
+        continuePendingToolCalls: (targetContext) => this.continuePendingToolCalls(targetContext),
+        cancelPendingToolCalls: (targetContext) => this.cancelPendingToolCalls(targetContext),
+        listMcpResources: (targetContext) => this.listMcpResources(targetContext),
+        listMcpPrompts: (targetContext) => this.listMcpPrompts(targetContext),
+        insertMcpResource: (serverId, uri, targetContext) => this.insertMcpResource(serverId, uri, targetContext),
+        insertMcpPrompt: (serverId, name, args, targetContext) =>
+          this.insertMcpPrompt(serverId, name, args, targetContext),
+        stopGeneration: (reason) => this.stopGeneration(reason),
+        confirmDangerousAction: (confirmMessage, actionLabel) => this.confirmDangerousAction(confirmMessage, actionLabel)
+      });
     } catch (error) {
-      // Silently catch Canceled/abort errors from panel disposal or generation stop.
-      // These are expected when the user closes a panel or stops generation mid-stream.
-      const name = error instanceof Error ? error.name : '';
-      if (name !== 'Canceled' && name !== 'AbortError') {
+      if (!this.isBenignError(error)) {
         warn('Unhandled webview message error:', error);
       }
     }

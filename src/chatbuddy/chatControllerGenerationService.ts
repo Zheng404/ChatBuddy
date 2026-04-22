@@ -493,7 +493,7 @@ export class ChatGenerationService {
 
     try {
       const contextMessages = session.messages
-        .slice(-6)
+        .slice(-TITLE_GENERATION.RECENT_MESSAGES)
         .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content }));
 
       const result = await this.deps.providerClient.chat(

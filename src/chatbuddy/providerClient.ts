@@ -9,7 +9,7 @@
  */
 import { getStrings } from './i18n';
 import { createModelRef, getModelDisplayLabel, parseModelRef } from './modelCatalog';
-import { TIMEOUT } from './constants';
+import { PROVIDER_LIMITS, TIMEOUT } from './constants';
 import {
   AssistantProfile,
   ChatBuddySettings,
@@ -81,8 +81,8 @@ async function ensureSuccess(response: Response, locale: RuntimeLocale): Promise
   const text = await response.text();
   const fallback =
     locale === 'zh-CN'
-      ? `请求失败（${response.status}）：${text.slice(0, 160)}`
-      : `Request failed (${response.status}): ${text.slice(0, 160)}`;
+      ? `请求失败（${response.status}）：${text.slice(0, PROVIDER_LIMITS.ERROR_RESPONSE_TRUNCATE_LENGTH)}`
+      : `Request failed (${response.status}): ${text.slice(0, PROVIDER_LIMITS.ERROR_RESPONSE_TRUNCATE_LENGTH)}`;
   throw new HttpError(response.status, toErrorMessage(response.status, fallback, locale));
 }
 
@@ -112,8 +112,8 @@ export function resolveProviderConfig(
       settings.temperature
     ),
     topP: clamp(assistant.topP ?? settings.topP, 0, 1, settings.topP),
-    maxTokens: clamp(assistant.maxTokens ?? settings.maxTokens, 0, 65535, settings.maxTokens),
-    contextCount: clamp(assistant.contextCount ?? 16, 0, Number.MAX_SAFE_INTEGER, 16),
+    maxTokens: clamp(assistant.maxTokens ?? settings.maxTokens, 0, PROVIDER_LIMITS.MAX_TOKENS, settings.maxTokens),
+    contextCount: clamp(assistant.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, Number.MAX_SAFE_INTEGER, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
     presencePenalty: clamp(
       assistant.presencePenalty ?? settings.presencePenalty,
       -2,
@@ -165,8 +165,8 @@ export function resolveModelBindingConfig(
     modelLabel: model ? getModelDisplayLabel(model.id, provider?.name ?? providerId) : modelRef,
     temperature: clamp(overrides?.temperature ?? settings.temperature, 0, 2, settings.temperature),
     topP: clamp(overrides?.topP ?? settings.topP, 0, 1, settings.topP),
-    maxTokens: clamp(overrides?.maxTokens ?? settings.maxTokens, 0, 65535, settings.maxTokens),
-    contextCount: clamp(overrides?.contextCount ?? 16, 0, Number.MAX_SAFE_INTEGER, 16),
+    maxTokens: clamp(overrides?.maxTokens ?? settings.maxTokens, 0, PROVIDER_LIMITS.MAX_TOKENS, settings.maxTokens),
+    contextCount: clamp(overrides?.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, Number.MAX_SAFE_INTEGER, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
     presencePenalty: clamp(
       overrides?.presencePenalty ?? settings.presencePenalty,
       -2,
@@ -232,9 +232,9 @@ export class OpenAICompatibleClient {
       apiType: provider.apiType,
       apiKey: provider.apiKey.trim(),
       baseUrl: provider.baseUrl.trim(),
-      modelId: provider.modelId?.trim() || 'gpt-4o-mini',
-      modelRef: createModelRef(provider.id, provider.modelId?.trim() || 'gpt-4o-mini'),
-      modelLabel: provider.modelId?.trim() || 'gpt-4o-mini',
+      modelId: provider.modelId?.trim() || PROVIDER_LIMITS.DEFAULT_TEST_MODEL,
+      modelRef: createModelRef(provider.id, provider.modelId?.trim() || PROVIDER_LIMITS.DEFAULT_TEST_MODEL),
+      modelLabel: provider.modelId?.trim() || PROVIDER_LIMITS.DEFAULT_TEST_MODEL,
       temperature: 0,
       topP: 1,
       maxTokens: 1,

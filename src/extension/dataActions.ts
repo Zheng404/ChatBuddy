@@ -1,0 +1,220 @@
+/**
+ * 数据操作处理器（导入/导出/重置）。
+ */
+import * as vscode from 'vscode';
+import * as os from 'os';
+import * as path from 'path';
+
+import { AssistantsTreeProvider } from '../chatbuddy/assistantsView';
+import { ChatController } from '../chatbuddy/chatController';
+import { createBackupArchive, extractBackupPayloadFromArchive, isZipArchive } from '../chatbuddy/backupArchive';
+import { formatString } from '../chatbuddy/i18n';
+import { ChatStateRepository } from '../chatbuddy/stateRepository';
+import { warn } from '../chatbuddy/utils';
+import { DataActionResult } from './activationTypes';
+import { buildBackupFileName } from './shared';
+
+export function clearAssistantSearchFilters(
+  assistantsTreeProvider: AssistantsTreeProvider,
+  recycleBinTreeProvider: AssistantsTreeProvider
+): void {
+  assistantsTreeProvider.clearSearchKeyword();
+  recycleBinTreeProvider.clearSearchKeyword();
+}
+
+export function createDataActionHandlers(args: {
+  repository: ChatStateRepository;
+  chatController: ChatController;
+  getAssistantsTreeProvider: () => AssistantsTreeProvider;
+  getRecycleBinTreeProvider: () => AssistantsTreeProvider;
+  refreshAll: () => void;
+  updateTreeMessage: () => void;
+  getRuntimeStrings: () => Record<string, string>;
+}): {
+  handleResetData: () => Promise<boolean>;
+  handleExportData: () => Promise<DataActionResult | undefined>;
+  handleImportData: () => Promise<DataActionResult | undefined>;
+  handleImportLegacyData: () => Promise<DataActionResult | undefined>;
+} {
+  const {
+    repository,
+    chatController,
+    getAssistantsTreeProvider,
+    getRecycleBinTreeProvider,
+    refreshAll,
+    updateTreeMessage,
+    getRuntimeStrings
+  } = args;
+
+  return {
+    handleResetData: async () => {
+      const strings = getRuntimeStrings();
+      const firstConfirm = await vscode.window.showWarningMessage(
+        strings.confirmResetData,
+        { modal: true },
+        strings.resetAction
+      );
+      if (firstConfirm !== strings.resetAction) {
+        return false;
+      }
+
+      const secondConfirm = await vscode.window.showWarningMessage(
+        strings.confirmResetDataSecond ?? strings.confirmResetData,
+        { modal: true },
+        strings.resetAction
+      );
+      if (secondConfirm !== strings.resetAction) {
+        return false;
+      }
+
+      chatController.stopGeneration('manual');
+      await repository.resetState();
+      chatController.applySettings(repository.getSettings());
+      chatController.openAssistantChat();
+      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
+      refreshAll();
+      updateTreeMessage();
+      return true;
+    },
+    handleExportData: async () => {
+      const strings = getRuntimeStrings();
+      const fileName = buildBackupFileName();
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+      const defaultUri = workspaceRoot
+        ? vscode.Uri.joinPath(workspaceRoot, fileName)
+        : vscode.Uri.file(path.join(os.homedir(), fileName));
+      const uri = await vscode.window.showSaveDialog({
+        saveLabel: strings.exportDataAction,
+        filters: {
+          ZIP: ['zip']
+        },
+        defaultUri
+      });
+      if (!uri) {
+        return undefined;
+      }
+      const backup = repository.exportBackupData();
+      const archive = createBackupArchive(backup);
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(archive));
+      return {
+        notice: formatString(strings.exportDataDone, { path: uri.fsPath }),
+        tone: 'success'
+      };
+    },
+    handleImportData: async () => {
+      const strings = getRuntimeStrings();
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: strings.importDataAction,
+        filters: {
+          ZIP: ['zip']
+        }
+      });
+      const target = picked?.[0];
+      if (!target) {
+        return undefined;
+      }
+      const confirmed = await vscode.window.showWarningMessage(
+        strings.confirmImportData,
+        { modal: true },
+        strings.importDataAction
+      );
+      if (confirmed !== strings.importDataAction) {
+        return undefined;
+      }
+      let parsed: unknown;
+      try {
+        const raw = await vscode.workspace.fs.readFile(target);
+        if (!isZipArchive(raw)) {
+          throw new Error('Expected ZIP backup archive');
+        }
+        parsed = extractBackupPayloadFromArchive(raw);
+      } catch (err) {
+        warn('Failed to parse backup file:', err);
+        return {
+          notice: strings.importDataInvalid,
+          tone: 'error'
+        };
+      }
+
+      try {
+        chatController.stopGeneration('manual');
+        await repository.importBackupData(parsed);
+      } catch (err) {
+        warn('Failed to import backup data:', err);
+        return {
+          notice: strings.importDataInvalid,
+          tone: 'error'
+        };
+      }
+
+      chatController.applySettings(repository.getSettings());
+      chatController.openAssistantChat();
+      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
+      refreshAll();
+      updateTreeMessage();
+      return {
+        notice: strings.importDataDone,
+        tone: 'success'
+      };
+    },
+    handleImportLegacyData: async () => {
+      const strings = getRuntimeStrings();
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: strings.importLegacyDataAction,
+        filters: {
+          JSON: ['json']
+        }
+      });
+      const target = picked?.[0];
+      if (!target) {
+        return undefined;
+      }
+      const confirmed = await vscode.window.showWarningMessage(
+        strings.confirmImportLegacyData,
+        { modal: true },
+        strings.importLegacyDataAction
+      );
+      if (confirmed !== strings.importLegacyDataAction) {
+        return undefined;
+      }
+
+      let parsed: unknown;
+      try {
+        const raw = await vscode.workspace.fs.readFile(target);
+        if (isZipArchive(raw)) {
+          throw new Error('Legacy JSON import does not accept ZIP archives');
+        }
+        parsed = JSON.parse(Buffer.from(raw).toString('utf8'));
+      } catch (err) {
+        warn('Failed to parse legacy backup file:', err);
+        return {
+          notice: strings.importLegacyDataInvalid,
+          tone: 'error'
+        };
+      }
+
+      try {
+        chatController.stopGeneration('manual');
+        await repository.importBackupData(parsed);
+      } catch (err) {
+        warn('Failed to import legacy backup data:', err);
+        return {
+          notice: strings.importLegacyDataInvalid,
+          tone: 'error'
+        };
+      }
+
+      chatController.applySettings(repository.getSettings());
+      chatController.openAssistantChat();
+      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
+      refreshAll();
+      updateTreeMessage();
+      return {
+        notice: strings.importLegacyDataDone,
+        tone: 'success'
+      };
+    }
+  };
+}

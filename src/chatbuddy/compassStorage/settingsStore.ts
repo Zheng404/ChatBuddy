@@ -253,7 +253,8 @@ function toPersistedStateLiteForStorage(
           ? settings.locale
           : base.settings.locale,
       sendShortcut: settings.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
-      chatTabMode: settings.chatTabMode === 'multi' ? 'multi' : 'single'
+      chatTabMode: settings.chatTabMode === 'multi' ? 'multi' : 'single',
+      localBackup: settings.localBackup ?? base.settings.localBackup
     }
   };
 }
@@ -284,7 +285,8 @@ export function persistedStateLiteToStructuredStateDocument(state: PersistedStat
       streamingDefault: state.settings.streamingDefault,
       locale: state.settings.locale,
       sendShortcut: state.settings.sendShortcut,
-      chatTabMode: state.settings.chatTabMode
+      chatTabMode: state.settings.chatTabMode,
+      localBackup: state.settings.localBackup
     },
     settingsModelConfig: {
       providers: state.settings.providers.map(stripProviderSecret)

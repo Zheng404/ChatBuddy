@@ -70,6 +70,7 @@ export type StructuredSettingsGeneralFile = Pick<
   | 'locale'
   | 'sendShortcut'
   | 'chatTabMode'
+  | 'localBackup'
 >;
 
 export type StructuredSettingsModelConfigFile = {

@@ -4,7 +4,7 @@
  * 提供初始状态的工厂函数、数据导入时的清理和规范化逻辑，
  * 确保加载的数据符合预期的结构和约束。
  */
-import { DEFAULT_GROUP_ID, DELETED_GROUP_ID } from './constants';
+import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, LOCAL_BACKUP, MCP_LIMITS, PROVIDER_LIMITS } from './constants';
 import {
   createEmptyDefaultModels,
   createModelRef,
@@ -58,7 +58,14 @@ export const DEFAULT_SETTINGS: ChatBuddySettings = {
   streamingDefault: true,
   locale: 'auto',
   sendShortcut: 'enter',
-  chatTabMode: 'single' as const
+  chatTabMode: 'single' as const,
+  localBackup: {
+    enabled: false,
+    directory: '',
+    intervalHours: LOCAL_BACKUP.DEFAULT_INTERVAL_HOURS,
+    maxCount: LOCAL_BACKUP.DEFAULT_MAX_COUNT,
+    maxAgeDays: LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS
+  }
 };
 
 // ─── Normalize ───────────────────────────────────────────────────────────────
@@ -175,7 +182,7 @@ export function sanitizeMcpSettings(raw: unknown): McpSettings {
     maxToolRounds: clamp(
       typeof source.maxToolRounds === 'number' ? source.maxToolRounds : DEFAULT_SETTINGS.mcp.maxToolRounds,
       1,
-      20,
+      MCP_LIMITS.MAX_TOOL_ROUNDS,
       DEFAULT_SETTINGS.mcp.maxToolRounds
     )
   };
@@ -252,7 +259,7 @@ export function sanitizeSettings(raw: unknown): ChatBuddySettings {
     mcp,
     temperature: clamp(saved.temperature ?? DEFAULT_SETTINGS.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
     topP: clamp(saved.topP ?? DEFAULT_SETTINGS.topP, 0, 1, DEFAULT_SETTINGS.topP),
-    maxTokens: clamp(saved.maxTokens ?? DEFAULT_SETTINGS.maxTokens, 0, 65535, DEFAULT_SETTINGS.maxTokens),
+    maxTokens: clamp(saved.maxTokens ?? DEFAULT_SETTINGS.maxTokens, 0, PROVIDER_LIMITS.MAX_TOKENS, DEFAULT_SETTINGS.maxTokens),
     presencePenalty: clamp(
       saved.presencePenalty ?? DEFAULT_SETTINGS.presencePenalty,
       -2,
@@ -273,7 +280,34 @@ export function sanitizeSettings(raw: unknown): ChatBuddySettings {
         ? saved.locale
         : DEFAULT_SETTINGS.locale,
     sendShortcut: saved.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter',
-    chatTabMode: saved.chatTabMode === 'multi' ? 'multi' : 'single'
+    chatTabMode: saved.chatTabMode === 'multi' ? 'multi' : 'single',
+    localBackup: sanitizeLocalBackupSettings(saved.localBackup)
+  };
+}
+
+export function sanitizeLocalBackupSettings(raw: unknown): import('./types').LocalBackupSettings {
+  const source = raw && typeof raw === 'object' ? (raw as Partial<import('./types').LocalBackupSettings>) : {};
+  return {
+    enabled: source.enabled === true,
+    directory: typeof source.directory === 'string' ? source.directory.trim() : '',
+    intervalHours: clamp(
+      typeof source.intervalHours === 'number' ? source.intervalHours : LOCAL_BACKUP.DEFAULT_INTERVAL_HOURS,
+      LOCAL_BACKUP.MIN_INTERVAL_HOURS,
+      8760,
+      LOCAL_BACKUP.DEFAULT_INTERVAL_HOURS
+    ),
+    maxCount: clamp(
+      typeof source.maxCount === 'number' ? source.maxCount : LOCAL_BACKUP.DEFAULT_MAX_COUNT,
+      0,
+      1000,
+      LOCAL_BACKUP.DEFAULT_MAX_COUNT
+    ),
+    maxAgeDays: clamp(
+      typeof source.maxAgeDays === 'number' ? source.maxAgeDays : LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS,
+      0,
+      3650,
+      LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS
+    )
   };
 }
 
@@ -396,8 +430,8 @@ export function sanitizeAssistant(
     modelRef: currentModelRef,
     temperature: clamp(source.temperature ?? settings.temperature, 0, 2, settings.temperature),
     topP: clamp(source.topP ?? settings.topP, 0, 1, settings.topP),
-    maxTokens: clamp(source.maxTokens ?? 0, 0, 65535, 0),
-    contextCount: clamp(source.contextCount ?? 16, 0, MAX_CONTEXT_COUNT, 16),
+    maxTokens: clamp(source.maxTokens ?? 0, 0, PROVIDER_LIMITS.MAX_TOKENS, 0),
+    contextCount: clamp(source.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, MAX_CONTEXT_COUNT, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
     presencePenalty: clamp(source.presencePenalty ?? settings.presencePenalty, -2, 2, settings.presencePenalty),
     frequencyPenalty: clamp(source.frequencyPenalty ?? settings.frequencyPenalty, -2, 2, settings.frequencyPenalty),
     streaming: typeof source.streaming === 'boolean' ? source.streaming : settings.streamingDefault,

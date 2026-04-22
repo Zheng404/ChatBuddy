@@ -14,14 +14,6 @@ export function getGeneralJs(): string {
         dom.chatTabModeSectionTitle.textContent = strings.chatTabModeSection || '';
 
         dom.chatTabModeHelp.textContent = strings.chatTabModeHelp || '';
-        dom.dataTransferSectionTitle.textContent = strings.dataTransferSectionTitle || '';
-        dom.dataTransferDescription.textContent = strings.dataTransferDescription || '';
-        dom.dangerSectionTitle.textContent = strings.dangerSectionTitle || '';
-        dom.resetDataDescription.textContent = strings.resetDataDescription || '';
-        dom.exportBtn.textContent = strings.exportDataAction || '';
-        dom.importBtn.textContent = strings.importDataAction || '';
-        dom.importLegacyBtn.textContent = strings.importLegacyDataAction || '';
-        dom.resetBtn.textContent = strings.resetDataAction || '';
       }
 
       function renderSelectOptions(select, options) {

@@ -24,6 +24,13 @@ import {
   SQLITE_MIGRATION_SUPPORT_REMOVAL_VERSION
 } from './compassStorage/migrator';
 import {
+  cleanExpiredBackups,
+  createLocalBackup,
+  deleteLocalBackup,
+  listLocalBackups,
+  restoreLocalBackup
+} from './localBackup';
+import {
   ChatBuddyLocaleSetting,
   ChatBuddySettings,
   ChatSendShortcut,
@@ -36,7 +43,7 @@ import {
 } from './types';
 import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp, toErrorMessage, warn } from './utils';
 
-export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'mcp' | 'about';
+export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'dataManagement' | 'mcp' | 'about';
 
 type SettingsActionResult = {
   notice: string;
@@ -100,7 +107,13 @@ type SettingsCenterMessage =
         serverId: string;
         serverName: string;
       };
-    };
+    }
+  | { type: 'browseBackupDir' }
+  | { type: 'saveLocalBackupSettings'; payload: import('./types').LocalBackupSettings }
+  | { type: 'triggerLocalBackup' }
+  | { type: 'restoreLocalBackup'; payload: { fileName: string } }
+  | { type: 'deleteLocalBackup'; payload: { fileName: string } }
+  | { type: 'refreshBackupList' };
 
 type SettingsCenterState = {
   strings: RuntimeStrings;
@@ -129,6 +142,7 @@ type SettingsCenterState = {
   changelogMarkdown: string;
   notice?: string;
   noticeTone?: 'success' | 'error' | 'info';
+  backupFiles: import('./types').BackupFileEntry[];
 };
 
 type SettingsCenterOutbound =
@@ -167,13 +181,17 @@ type SettingsCenterOutbound =
         prompts: Array<{ name: string; description?: string }>;
         error?: string;
       }>;
-    };
+    }
+  | { type: 'backupDirSelected'; payload: { dir: string } }
+  | { type: 'backupList'; payload: { items: import('./types').BackupFileEntry[] } }
+  | { type: 'backupOperationResult'; payload: { success: boolean; message: string } };
 
 function normalizeSection(section: SettingsCenterSection | string | undefined): SettingsCenterSection {
   if (
     section === 'modelConfig' ||
     section === 'defaultModels' ||
     section === 'general' ||
+    section === 'dataManagement' ||
     section === 'mcp' ||
     section === 'about'
   ) {
@@ -639,6 +657,81 @@ export class SettingsCenterPanelController {
       } catch {
         this.postState(this.getStrings().unknownError, 'error');
       }
+      return;
+    }
+
+    if (message.type === 'browseBackupDir') {
+      const result = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        title: this.getStrings().backupDirBrowseTitle
+      });
+      if (result?.[0]) {
+        this.postMessage({ type: 'backupDirSelected', payload: { dir: result[0].fsPath } });
+      }
+      return;
+    }
+
+    if (message.type === 'saveLocalBackupSettings') {
+      const current = this.repository.getSettings();
+      this.onSave({ ...current, localBackup: message.payload });
+      this.postState(this.getStrings().backupSettingsSaved, 'success');
+      return;
+    }
+
+    if (message.type === 'triggerLocalBackup') {
+      try {
+        const settings = this.repository.getSettings().localBackup;
+        if (!settings.directory) {
+          this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: this.getStrings().backupDirNotSet } });
+          return;
+        }
+        const _fileName = await createLocalBackup(this.repository, settings.directory);
+        await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
+        const items = await listLocalBackups(settings.directory);
+        this.postMessage({ type: 'backupList', payload: { items } });
+        this.postMessage({ type: 'backupOperationResult', payload: { success: true, message: this.getStrings().backupCreated } });
+      } catch (err) {
+        this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, this.getStrings().unknownError) } });
+      }
+      return;
+    }
+
+    if (message.type === 'restoreLocalBackup') {
+      try {
+        const settings = this.repository.getSettings().localBackup;
+        await restoreLocalBackup(this.repository, settings.directory, message.payload.fileName);
+        this.postMessage({ type: 'backupOperationResult', payload: { success: true, message: this.getStrings().backupRestored } });
+        this.postState(this.getStrings().backupRestored, 'success');
+      } catch (err) {
+        this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, this.getStrings().unknownError) } });
+      }
+      return;
+    }
+
+    if (message.type === 'deleteLocalBackup') {
+      try {
+        const settings = this.repository.getSettings().localBackup;
+        await deleteLocalBackup(settings.directory, message.payload.fileName);
+        const items = await listLocalBackups(settings.directory);
+        this.postMessage({ type: 'backupList', payload: { items } });
+        this.postMessage({ type: 'backupOperationResult', payload: { success: true, message: this.getStrings().backupDeleted } });
+      } catch (err) {
+        this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, this.getStrings().unknownError) } });
+      }
+      return;
+    }
+
+    if (message.type === 'refreshBackupList') {
+      try {
+        const settings = this.repository.getSettings().localBackup;
+        const items = settings.directory ? await listLocalBackups(settings.directory) : [];
+        this.postMessage({ type: 'backupList', payload: { items } });
+      } catch {
+        this.postMessage({ type: 'backupList', payload: { items: [] } });
+      }
+      return;
     }
   }
 
@@ -733,7 +826,8 @@ export class SettingsCenterPanelController {
         about: this.loadPackageMetadata(),
         changelogMarkdown: this.loadChangelogPreview(),
         notice,
-        noticeTone: notice ? noticeTone : undefined
+        noticeTone: notice ? noticeTone : undefined,
+        backupFiles: []
       }
     });
   }
@@ -866,6 +960,10 @@ export class SettingsCenterPanelController {
             <button class="nav-item" id="navMcp" type="button" data-section="mcp">
               <span class="nav-item-icon"><span class="codicon codicon-plug"></span></span>
               <span class="nav-item-title" id="navMcpTitle"></span>
+            </button>
+            <button class="nav-item" id="navDataManagement" type="button" data-section="dataManagement">
+              <span class="nav-item-icon"><span class="codicon codicon-database"></span></span>
+              <span class="nav-item-title" id="navDataManagementTitle"></span>
             </button>
             <button class="nav-item" id="navGeneral" type="button" data-section="general">
               <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
@@ -1041,16 +1139,73 @@ export class SettingsCenterPanelController {
                 </div>
                 <div class="help" id="chatTabModeHelp"></div>
               </section>
+            </div>
+          </section>
 
-              <section class="section-card">
-                <h2 class="section-title" id="dataTransferSectionTitle"></h2>
-                <div class="help" id="dataTransferDescription"></div>
-                <div class="data-actions">
-                  <button class="btn-secondary" id="exportBtn" type="button"></button>
-                  <button class="btn-secondary" id="importBtn" type="button"></button>
-                  <button class="btn-secondary" id="importLegacyBtn" type="button"></button>
+          <section class="settings-pane" id="paneDataManagement" data-section="dataManagement">
+            <div class="section-grid">
+              <div class="data-tab-container">
+                <div class="editor-tabs" id="dataTabs">
+                  <button class="editor-tab active" id="dataTabTransfer" data-tab="transfer"></button>
+                  <button class="editor-tab" id="dataTabLocal" data-tab="local"></button>
                 </div>
-              </section>
+
+                <div class="editor-pane active" data-tab="transfer">
+                  <div class="help" id="dataTransferDescription"></div>
+                  <div class="data-actions">
+                    <button class="btn-secondary" id="exportBtn" type="button"></button>
+                    <button class="btn-secondary" id="importBtn" type="button"></button>
+                    <button class="btn-secondary" id="importLegacyBtn" type="button"></button>
+                  </div>
+                </div>
+
+                <div class="editor-pane" data-tab="local">
+                  <section class="section-card">
+                    <div class="field">
+                      <label id="backupDirLabel"></label>
+                      <div class="field-input-with-action">
+                        <input id="backupDirInput" type="text" readonly />
+                        <button class="field-action" id="browseBackupDirBtn" type="button">
+                          <span class="codicon codicon-folder-opened"></span>
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="section-card">
+                    <h2 class="section-title" id="autoBackupSectionTitle"></h2>
+                    <div class="field-toggle-row">
+                      <input id="autoBackupToggle" type="checkbox" />
+                      <label id="autoBackupLabel"></label>
+                    </div>
+                    <div class="field">
+                      <label id="intervalLabel"></label>
+                      <input id="intervalInput" type="number" min="1" />
+                    </div>
+                    <div class="field">
+                      <label id="maxCountLabel"></label>
+                      <input id="maxCountInput" type="number" min="0" />
+                    </div>
+                    <div class="field">
+                      <label id="maxAgeLabel"></label>
+                      <input id="maxAgeInput" type="number" min="0" />
+                    </div>
+                  </section>
+
+                  <section class="section-card">
+                    <h2 class="section-title" id="manualBackupTitle"></h2>
+                    <div class="panel-actions">
+                      <button class="btn-secondary" id="triggerBackupBtn" type="button"></button>
+                      <button class="btn-secondary" id="refreshBackupListBtn" type="button"></button>
+                    </div>
+                  </section>
+
+                  <section class="section-card">
+                    <h2 class="section-title" id="backupHistoryTitle"></h2>
+                    <div id="backupListContainer"></div>
+                  </section>
+                </div>
+              </div>
 
               <section class="section-card">
                 <h2 class="section-title" id="dangerSectionTitle"></h2>
