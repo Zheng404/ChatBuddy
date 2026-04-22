@@ -8,6 +8,7 @@
 node_modules
 out
 *.vsix
+*.zip
 .github-release-notes.md
 
 # OS / temp files

@@ -13,6 +13,12 @@ out/test/**
 .codex
 .claude
 .serena
+*.zip
+
+# CI / docs / scripts (not needed at runtime)
+.github/workflows/**
+docs/**
+scripts/**
 
 # Exclude all katex/mermaid files, then re-include only what's needed
 node_modules/katex/**
@@ -33,3 +39,21 @@ node_modules/cytoscape-fcose/demo/**
 node_modules/cytoscape/dist/cytoscape.umd.js
 node_modules/cytoscape/dist/cytoscape.cjs.js
 node_modules/cytoscape/dist/cytoscape.esm.mjs
+
+# Prune unnecessary files from all node_modules
+**/*.d.mts
+**/*.d.ts
+**/*.d.cts
+**/*.spec.js
+**/*.test.js
+**/node_modules/**/test/**
+**/node_modules/**/tests/**
+**/node_modules/**/tests-examples/**
+**/node_modules/**/.github/**
+**/node_modules/**/CHANGELOG*
+**/node_modules/**/README*
+**/node_modules/**/LICENSE*
+**/node_modules/**/CODE_OF_CONDUCT*
+**/node_modules/**/CONTRIBUTING*
+**/node_modules/**/.eslint*
+**/node_modules/**/.prettier*

@@ -818,12 +818,17 @@ export class SettingsCenterPanelController {
     if (typeof this.changelogMarkdownCache === 'string') {
       return this.changelogMarkdownCache;
     }
-    const changelogPath = path.resolve(__dirname, '../../CHANGELOG.md');
-    try {
-      this.changelogMarkdownCache = fs.readFileSync(changelogPath, 'utf-8');
-    } catch {
-      this.changelogMarkdownCache = '';
+    const extRoot = path.resolve(__dirname, '../..');
+    const candidates = ['CHANGELOG.md', 'changelog.md'];
+    for (const name of candidates) {
+      try {
+        this.changelogMarkdownCache = fs.readFileSync(path.join(extRoot, name), 'utf-8');
+        return this.changelogMarkdownCache;
+      } catch {
+        // try next candidate
+      }
     }
+    this.changelogMarkdownCache = '';
     return this.changelogMarkdownCache;
   }
 
