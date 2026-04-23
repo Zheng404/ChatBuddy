@@ -12,6 +12,7 @@
  * 5. 写入新的迁移标记
  */
 import * as fs from 'fs';
+import * as path from 'path';
 
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 
@@ -95,12 +96,20 @@ export class CompassMigrator {
     }
 
     if (await fileExists(this.context.paths.legacyDbPath)) {
-      await this.loadFromLegacySqlite(this.context.paths.legacyDbPath);
-      await this.persistStores();
-      await this.assertCompassSnapshot(true, 'Legacy sqlite payload could not be persisted safely');
-      await this.cleanupLegacySqliteIfPresent();
-      await this.writeMarker('sqlite', this.context.paths.legacyDbPath);
-      return;
+      try {
+        await this.loadFromLegacySqlite(this.context.paths.legacyDbPath);
+        await this.persistStores();
+        await this.assertCompassSnapshot(true, 'Legacy sqlite payload could not be persisted safely');
+        await this.cleanupLegacySqliteIfPresent();
+        await this.writeMarker('sqlite', this.context.paths.legacyDbPath);
+        return;
+      } catch (e) {
+        error(`Legacy sqlite migration failed at ${this.context.paths.legacyDbPath}:`, e);
+        throw new Error(
+          `Failed to migrate legacy sqlite data: ${e instanceof Error ? e.message : String(e)}. ` +
+          `Your original sqlite file has been preserved.`
+        );
+      }
     }
 
     if (this.context.sessionStore.hasData() || this.context.kvStore.hasData() || this.context.settingsStore.hasAnyData()) {
@@ -201,23 +210,58 @@ export class CompassMigrator {
   }
 
   private async loadFromLegacySqlite(dbPath: string): Promise<void> {
-    const SQL = await this.getSqlJs();
-    const data = await fs.promises.readFile(dbPath);
-    const db = new SQL.Database(new Uint8Array(data));
+    let SQL: SqlJsStatic;
+    try {
+      SQL = await this.getSqlJs();
+    } catch (e) {
+      error('Failed to initialize sql.js for legacy migration:', e);
+      throw new Error(`Cannot initialize sql.js: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    let db: Database;
+    try {
+      const data = await fs.promises.readFile(dbPath);
+      db = new SQL.Database(new Uint8Array(data));
+    } catch (e) {
+      error(`Failed to read legacy sqlite database at ${dbPath}:`, e);
+      throw new Error(`Cannot read legacy sqlite database: ${e instanceof Error ? e.message : String(e)}`);
+    }
 
     try {
+      const tables = this.queryAll(
+        db,
+        "SELECT name FROM sqlite_master WHERE type='table'"
+      );
+      const tableNames = new Set(tables.map((t) => String(t.name ?? '')));
+      const requiredTables = ['sessions_meta', 'messages', 'kv'];
+      const missingTables = requiredTables.filter((t) => !tableNames.has(t));
+      if (missingTables.length > 0) {
+        throw new Error(
+          `Legacy sqlite database is missing required tables: ${missingTables.join(', ')}. ` +
+          `Found tables: ${Array.from(tableNames).join(', ') || '(none)'}`
+        );
+      }
+
+      const sessionColumns = this.getTableColumns(db, 'sessions_meta');
+      const sessionSelectColumns = ['id', 'assistant_id', 'title', 'created_at', 'updated_at', 'message_count']
+        .concat(sessionColumns.includes('title_source') ? ['title_source'] : [])
+        .concat(sessionColumns.includes('preview') ? ['preview'] : [])
+        .join(', ');
       const sessionRows = this.queryAll(
         db,
-        `SELECT id, assistant_id, title, title_source, created_at, updated_at, message_count, preview
-           FROM sessions_meta
-          ORDER BY created_at ASC, id ASC`
+        `SELECT ${sessionSelectColumns} FROM sessions_meta ORDER BY created_at ASC, id ASC`
       );
 
+      const messageColumns = this.getTableColumns(db, 'messages');
+      const messageSelectColumns = ['session_id', 'id', 'role', 'content', 'ts', 'seq']
+        .concat(messageColumns.includes('model') ? ['model'] : [])
+        .concat(messageColumns.includes('reasoning') ? ['reasoning'] : [])
+        .concat(messageColumns.includes('tool_rounds') ? ['tool_rounds'] : [])
+        .concat(messageColumns.includes('images') ? ['images'] : [])
+        .join(', ');
       const messageRows = this.queryAll(
         db,
-        `SELECT session_id, id, role, content, reasoning, model, ts, seq, tool_rounds, images
-           FROM messages
-          ORDER BY session_id ASC, seq ASC`
+        `SELECT ${messageSelectColumns} FROM messages ORDER BY session_id ASC, seq ASC`
       );
 
       const kvRows = this.queryAll(db, 'SELECT key, value FROM kv');
@@ -264,10 +308,21 @@ export class CompassMigrator {
     return rows;
   }
 
+  private getTableColumns(db: Database, tableName: string): string[] {
+    const rows = this.queryAll(db, `PRAGMA table_info(${tableName})`);
+    return rows.map((row) => String(row.name ?? ''));
+  }
+
   private async getSqlJs(): Promise<SqlJsStatic> {
     if (!CompassMigrator.sqlJsPromise) {
       CompassMigrator.sqlJsPromise = initSqlJs({
-        locateFile: (file: string) => require.resolve(`sql.js/dist/${file}`)
+        locateFile: (file: string) => {
+          try {
+            return require.resolve(`sql.js/dist/${file}`);
+          } catch {
+            return path.join(__dirname, '../../../node_modules/sql.js/dist', file);
+          }
+        }
       });
     }
     return CompassMigrator.sqlJsPromise;

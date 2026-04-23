@@ -40,7 +40,15 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   const repository = new ChatStateRepository(context);
-  await repository.initialize();
+  try {
+    await repository.initialize();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    warn('ChatStateRepository initialization failed:', msg);
+    void vscode.window.showErrorMessage(
+      `ChatBuddy initialization failed: ${msg}. Some features may be unavailable.`
+    );
+  }
   const providerClient = new OpenAICompatibleClient();
   const mcpRuntime = new McpRuntime();
   const chatController = new ChatController(repository, providerClient, mcpRuntime, context.extensionUri);
