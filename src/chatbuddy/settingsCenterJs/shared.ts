@@ -238,6 +238,21 @@ ${getHtmlEscaperScript()}
         return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'dataManagement' || section === 'mcp' || section === 'about' ? section : 'general';
       }
 
+      function openModal(modalEl, focusEl) {
+        if (!modalEl) { return; }
+        modalEl.classList.add('visible');
+        modalEl.setAttribute('aria-hidden', 'false');
+        if (focusEl && typeof focusEl.focus === 'function') {
+          focusEl.focus();
+        }
+      }
+
+      function closeModal(modalEl) {
+        if (!modalEl) { return; }
+        modalEl.classList.remove('visible');
+        modalEl.setAttribute('aria-hidden', 'true');
+      }
+
       function renderNav() {
         const strings = runtimeState.strings || {};
         dom.navHeading.textContent = strings.settingsViewTitle || '';

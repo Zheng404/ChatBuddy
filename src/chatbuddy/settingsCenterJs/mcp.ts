@@ -140,9 +140,7 @@ export function getMcpJs(): string {
         dom.mcpModalCancelBtn.textContent = strings.cancelAction || 'Cancel';
         dom.mcpModalSaveBtn.textContent = strings.saveAction || 'Save';
         renderMcpModalFields();
-        dom.mcpServerModal.classList.add('visible');
-        dom.mcpServerModal.setAttribute('aria-hidden', 'false');
-        dom.mcpModalName.focus();
+        openModal(dom.mcpServerModal, dom.mcpModalName);
       }
 
       function renderMcpModalFields() {
@@ -311,8 +309,7 @@ export function getMcpJs(): string {
       }
 
       function closeMcpServerModal() {
-        dom.mcpServerModal.classList.remove('visible');
-        dom.mcpServerModal.setAttribute('aria-hidden', 'true');
+        closeModal(dom.mcpServerModal);
         mcpModalDraft = null;
         mcpModalEditIdx = -1;
       }

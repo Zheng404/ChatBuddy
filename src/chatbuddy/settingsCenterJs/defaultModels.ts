@@ -72,14 +72,11 @@ export function getDefaultModelsJs(defaultTitleSummaryPrompt: string): string {
       function openTitleSummaryPromptModal() {
         const defaults = (runtimeState.settings && runtimeState.settings.defaultModels) || {};
         dom.titleSummaryPromptModalTextarea.value = defaults.titleSummaryPrompt || ${escapedPrompt};
-        dom.titleSummaryPromptModal.classList.add('visible');
-        dom.titleSummaryPromptModal.setAttribute('aria-hidden', 'false');
-        dom.titleSummaryPromptModalTextarea.focus();
+        openModal(dom.titleSummaryPromptModal, dom.titleSummaryPromptModalTextarea);
       }
 
       function closeTitleSummaryPromptModal() {
-        dom.titleSummaryPromptModal.classList.remove('visible');
-        dom.titleSummaryPromptModal.setAttribute('aria-hidden', 'true');
+        closeModal(dom.titleSummaryPromptModal);
       }
 `;
 }
