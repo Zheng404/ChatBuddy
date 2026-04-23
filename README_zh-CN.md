@@ -70,16 +70,24 @@ ChatBuddy 是一款**通用 OpenAI 兼容 API 客户端**。只要 API 端点实
 
 <table>
   <tr>
-    <td width="50%"><b>模型配置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Model%20Config.png" width="100%"></td>
+    <td width="50%"><b>聊天界面</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Assistant.png" width="100%"></td>
+    <td width="50%"><b>服务商配置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Provider%20Setup.png" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>模型管理</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Model%20Management.png" width="100%"></td>
     <td width="50%"><b>默认模型</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Default%20Models.png" width="100%"></td>
   </tr>
   <tr>
-    <td width="50%"><b>MCP 配置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/MCP%20Config.png" width="100%"></td>
+    <td width="50%"><b>MCP 设置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/MCP%20Settings.png" width="100%"></td>
     <td width="50%"><b>助手配置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Assistant%20Profile.png" width="100%"></td>
   </tr>
   <tr>
+    <td width="50%"><b>数据管理</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Data%20Management.png" width="100%"></td>
+    <td width="50%"><b>本地备份</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Local%20Backup.png" width="100%"></td>
+  </tr>
+  <tr>
     <td width="50%"><b>其他设置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Other%20Settings.png" width="100%"></td>
-    <td width="50%"><b>聊天会话</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Sessions.png" width="100%"></td>
+    <td width="50%"></td>
   </tr>
 </table>
 

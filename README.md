@@ -70,16 +70,24 @@ ChatBuddy is a **generic OpenAI-compatible API client**. It works with any API e
 
 <table>
   <tr>
-    <td width="50%"><b>Model Config</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Model%20Config.png" width="100%"></td>
+    <td width="50%"><b>Chat Interface</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Assistant.png" width="100%"></td>
+    <td width="50%"><b>Provider Setup</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Provider%20Setup.png" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>Model Management</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Model%20Management.png" width="100%"></td>
     <td width="50%"><b>Default Models</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Default%20Models.png" width="100%"></td>
   </tr>
   <tr>
-    <td width="50%"><b>MCP Config</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/MCP%20Config.png" width="100%"></td>
+    <td width="50%"><b>MCP Settings</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/MCP%20Settings.png" width="100%"></td>
     <td width="50%"><b>Assistant Profile</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Assistant%20Profile.png" width="100%"></td>
   </tr>
   <tr>
+    <td width="50%"><b>Data Management</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Data%20Management.png" width="100%"></td>
+    <td width="50%"><b>Local Backup</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Local%20Backup.png" width="100%"></td>
+  </tr>
+  <tr>
     <td width="50%"><b>Other Settings</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Other%20Settings.png" width="100%"></td>
-    <td width="50%"><b>Sessions</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Sessions.png" width="100%"></td>
+    <td width="50%"></td>
   </tr>
 </table>
 
