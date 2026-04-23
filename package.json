@@ -825,7 +825,7 @@
   "devDependencies": {
     "@types/node": "^20.19.37",
     "@types/sql.js": "^1.4.11",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "1.85.0",
     "@typescript-eslint/eslint-plugin": "^8.59.0",
     "@typescript-eslint/parser": "^8.59.0",
     "@vscode/vsce": "^3.9.1",
@@ -835,7 +835,6 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "@cfworker/json-schema": "^4.1.1",
     "@modelcontextprotocol/client": "^2.0.0-alpha.2",
     "katex": "^0.16.45",
     "mermaid": "^11.14.0",

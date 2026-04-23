@@ -21,11 +21,11 @@ import type {
 // ─── Resolve helpers ─────────────────────────────────────────────────────────
 
 export function resolveUntitledSessionTitle(locale: ChatBuddySettings['locale'] | undefined): string {
-  return (!locale || locale === 'zh-CN') ? '新会话' : 'New Chat';
+  return (!locale || locale === 'zh-CN') ? '新会话' : 'New Session';
 }
 
 export function resolveDefaultAssistantName(locale: ChatBuddySettings['locale'] | undefined): string {
-  return (!locale || locale === 'zh-CN') ? '新的助手' : 'New Assistant';
+  return (!locale || locale === 'zh-CN') ? '新建助手' : 'New Assistant';
 }
 
 export function normalizeTitleSource(session: { title: string; titleSource?: string }, untitledTitle: string): 'default' | 'generated' | 'custom' {

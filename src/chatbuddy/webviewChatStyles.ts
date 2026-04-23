@@ -10,6 +10,7 @@
  */
 import { SHARED_WEBVIEW_BASE } from './webviewBaseTheme';
 import { SHARED_TOAST_STYLE } from './toastTheme';
+import { SHARED_FORM_STYLE } from './webviewFormTheme';
 import { getWebviewChatBaseCss } from './webviewChatBaseCss';
 import { getWebviewChatMarkdownCss } from './webviewChatMarkdownCss';
 import { getWebviewChatComposerCss } from './webviewChatComposerCss';
@@ -23,6 +24,7 @@ import { getWebviewChatSearchModalCss } from './webviewChatSearchModalCss';
 export function getChatPanelCss(): string {
   return `
 ${SHARED_WEBVIEW_BASE}
+${SHARED_FORM_STYLE}
 ${getWebviewChatBaseCss()}
 ${getWebviewChatMarkdownCss()}
 ${getWebviewChatComposerCss()}

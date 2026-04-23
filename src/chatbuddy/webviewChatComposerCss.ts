@@ -99,31 +99,18 @@ export function getWebviewChatComposerCss(): string {
         gap: 8px;
       }
 
-      .action-btn {
-        border: 1px solid transparent;
+      .send-group .btn-primary,
+      .send-group .btn-secondary {
         border-radius: 10px;
         padding: 8px 12px;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
         gap: 8px;
       }
 
-      .action-btn.primary {
-        background: var(--button-bg);
-        color: var(--button-fg);
+      .send-group .btn-secondary {
+        border-color: transparent;
       }
 
-      .action-btn.primary:hover {
-        background: var(--button-hover);
-      }
-
-      .action-btn.secondary {
-        background: transparent;
-        color: inherit;
-      }
-
-      .action-btn.secondary:hover {
+      .send-group .btn-secondary:hover {
         background: var(--toolbar-hover);
       }
 

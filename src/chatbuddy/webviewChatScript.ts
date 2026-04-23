@@ -89,6 +89,26 @@ export function getChatScript(args: { nonce: string }): string {
         readOnlyReason: ''
       };
 
+      // Global error boundary: report unhandled errors to extension host
+      window.addEventListener('error', function(e) {
+        console.error('[ChatBuddy] unhandled error:', e.error);
+        if (vscode && typeof vscode.postMessage === 'function') {
+          vscode.postMessage({
+            type: 'error',
+            payload: { message: e.message || 'Unknown error', source: 'window.onerror' }
+          });
+        }
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error('[ChatBuddy] unhandled rejection:', e.reason);
+        if (vscode && typeof vscode.postMessage === 'function') {
+          vscode.postMessage({
+            type: 'error',
+            payload: { message: String(e.reason || 'Unknown rejection'), source: 'unhandledrejection' }
+          });
+        }
+      });
+
       const renderSigs = {
         messages: '',
         composer: ''

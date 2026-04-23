@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -27,9 +30,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Test
+        run: npm run test:unit
+
       - name: Security audit
         run: npm audit --audit-level=high --omit=dev
-        continue-on-error: true
 
       - name: Get build info
         id: build_info
@@ -49,9 +60,6 @@ jobs:
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
-
-      - name: Compile extension
-        run: npm run compile
 
       - name: Package VSIX with SHA suffix
         run: |

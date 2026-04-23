@@ -42,8 +42,8 @@ export function getChatBodyHtml(): string {
                   <input type="checkbox" id="streamingToggle" />
                   <span id="streamingLabel"></span>
                 </label>
-                <button class="action-btn secondary" id="stopBtn" type="button"></button>
-                <button class="action-btn primary" id="sendBtn" type="button"></button>
+                <button class="btn-secondary" id="stopBtn" type="button"></button>
+                <button class="btn-primary" id="sendBtn" type="button"></button>
               </div>
             </div>
           </div>
@@ -68,8 +68,8 @@ ${TOAST_CONTAINER_HTML}
         <div class="raw-modal-body">
           <div class="confirm-copy" id="toolContinuationDescription"></div>
           <div class="confirm-actions">
-            <button class="action-btn secondary" id="toolContinuationCancelBtn" type="button"></button>
-            <button class="action-btn primary" id="toolContinuationContinueBtn" type="button"></button>
+            <button class="btn-secondary" id="toolContinuationCancelBtn" type="button"></button>
+            <button class="btn-primary" id="toolContinuationContinueBtn" type="button"></button>
           </div>
         </div>
       </div>

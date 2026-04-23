@@ -13,6 +13,9 @@ export const SHARED_FORM_STYLE = `
         color: var(--button-fg);
         cursor: pointer;
         white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
 
       .btn-primary:hover {
@@ -27,6 +30,9 @@ export const SHARED_FORM_STYLE = `
         color: var(--fg);
         cursor: pointer;
         white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
 
       .btn-secondary:hover {
@@ -41,6 +47,9 @@ export const SHARED_FORM_STYLE = `
         color: var(--vscode-inputValidation-errorForeground, var(--fg));
         cursor: pointer;
         white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
       }
 
       .btn-danger:hover {

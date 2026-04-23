@@ -164,14 +164,14 @@ export class ChatPanelManager {
     };
   }
 
-  private presentPanel(panel: vscode.WebviewPanel, title: string, iconPath: vscode.IconPath): void {
+  private presentPanel(panel: vscode.WebviewPanel, title: string, iconPath: ReturnType<typeof getPanelIconPath>): void {
     panel.title = title;
     panel.iconPath = iconPath;
   }
 
   private createChatPanel(
     panelTitle: string,
-    panelIcon: vscode.IconPath,
+    panelIcon: ReturnType<typeof getPanelIconPath>,
     context: { assistantId?: string } = {}
   ): vscode.WebviewPanel {
     const panel = vscode.window.createWebviewPanel(

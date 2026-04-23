@@ -91,7 +91,7 @@ function extractSymbolSvg(symbolId: string, color: string): vscode.Uri | undefin
   return uri;
 }
 
-export function getPanelIconPath(iconId: string): vscode.IconPath {
+export function getPanelIconPath(iconId: string): vscode.Uri | { light: vscode.Uri; dark: vscode.Uri } {
   const light = extractSymbolSvg(iconId, '#424242');
   const dark = extractSymbolSvg(iconId, '#c5c5c5');
   if (light && dark) {
@@ -108,5 +108,5 @@ export function getPanelIconPath(iconId: string): vscode.IconPath {
       dark: fallbackDark
     };
   }
-  return new vscode.ThemeIcon('account');
+  throw new Error('Failed to resolve panel icon for: ' + iconId);
 }
