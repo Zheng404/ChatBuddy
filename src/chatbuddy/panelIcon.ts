@@ -108,5 +108,8 @@ export function getPanelIconPath(iconId: string): vscode.Uri | { light: vscode.U
       dark: fallbackDark
     };
   }
-  throw new Error('Failed to resolve panel icon for: ' + iconId);
+  // Fallback for environments without VS Code codicons (e.g. CI)
+  const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#888"/></svg>`;
+  const uri = toDataUri(fallbackSvg);
+  return { light: uri, dark: uri };
 }
