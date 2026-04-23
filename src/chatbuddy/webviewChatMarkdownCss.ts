@@ -114,6 +114,9 @@ export function getWebviewChatMarkdownCss(): string {
         max-width: 100%;
         height: auto;
       }
+      .message-text .mermaid-error {
+        color: #e57373;
+      }
 
       .message-text .markdown-table-wrap,
       .reasoning-content .markdown-table-wrap {

@@ -19,7 +19,7 @@ export function getChatWebviewHtml(webview: vscode.Webview, extensionUri: vscode
     webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'node_modules', subpath));
   const katexCssUri = nodeModulesUri('katex/dist/katex.min.css');
   const katexJsUri = nodeModulesUri('katex/dist/katex.min.js');
-  const mermaidJsUri = nodeModulesUri('mermaid/dist/mermaid.min.js');
+  const mermaidEsmUri = nodeModulesUri('mermaid/dist/mermaid.esm.min.mjs');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -35,10 +35,12 @@ export function getChatWebviewHtml(webview: vscode.Webview, extensionUri: vscode
   <body>
     ${getChatBodyHtml()}
     <script nonce="${nonce}" src="${katexJsUri}"></script>
-    ${getChatScript({
-      nonce,
-      mermaidScriptUri: mermaidJsUri.toString()
-    })}
+    <script type="module" nonce="${nonce}">
+      import mermaid from '${mermaidEsmUri}';
+      mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+      window.mermaid = mermaid;
+    </script>
+    ${getChatScript({ nonce })}
   </body>
 </html>`;
 }

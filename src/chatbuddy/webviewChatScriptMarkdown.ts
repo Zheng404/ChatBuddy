@@ -430,52 +430,83 @@ export function getChatMarkdownRendererScript(args: {
         return ((red + green + blue) / 3) < 136;
       }
 
-      function ensureMermaidInitialized() {
-        if (mermaidInitialized || typeof mermaid === 'undefined') {
-          return mermaidInitialized;
+      function getMermaidInstance() {
+        if (typeof mermaid !== 'undefined' && typeof mermaid.initialize === 'function') {
+          return mermaid;
         }
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: isMermaidDarkTheme() ? 'dark' : 'default',
-          securityLevel: 'loose'
-        });
-        mermaidInitialized = true;
-        return true;
+        if (typeof window !== 'undefined' && window.__mermaid) {
+          return window.__mermaid;
+        }
+        return undefined;
+      }
+
+      function ensureMermaidInitialized() {
+        if (mermaidInitialized) {
+          return true;
+        }
+        var m = getMermaidInstance();
+        if (!m) {
+          return false;
+        }
+        try {
+          m.initialize({
+            startOnLoad: false,
+            theme: isMermaidDarkTheme() ? 'dark' : 'default',
+            securityLevel: 'loose'
+          });
+          mermaidInitialized = true;
+          return true;
+        } catch (err) {
+          console.error('[Mermaid] initialize failed:', err);
+          return false;
+        }
       }
 
       function ensureMermaidReady() {
-        if (typeof mermaid !== 'undefined') {
-          return Promise.resolve(ensureMermaidInitialized());
-        }
         if (mermaidLoadPromise) {
           return mermaidLoadPromise;
         }
-        if (!MERMAID_SCRIPT_URI) {
-          return Promise.resolve(false);
-        }
+        // ESM module loaded via <script type="module">; poll until ready
         mermaidLoadPromise = new Promise(function(resolve) {
-          var script = document.createElement('script');
-          script.src = MERMAID_SCRIPT_URI;
-          script.onload = function() {
-            mermaidLoadPromise = undefined;
-            resolve(ensureMermaidInitialized());
-          };
-          script.onerror = function() {
-            mermaidLoadPromise = Promise.resolve(false);
-            resolve(false);
-          };
-          document.head.appendChild(script);
+          var attempts = 0;
+          var maxAttempts = 100; // 10 seconds
+          var interval = setInterval(function() {
+            attempts++;
+            var m = getMermaidInstance();
+            if (m) {
+              clearInterval(interval);
+              var ready = ensureMermaidInitialized();
+              if (!ready) {
+                console.error('[Mermaid] instance found but initialization failed');
+              }
+              resolve(ready);
+            } else if (attempts >= maxAttempts) {
+              clearInterval(interval);
+              console.error('[Mermaid] timeout waiting for ESM module after 10s');
+              resolve(false);
+            }
+          }, 100);
         });
         return mermaidLoadPromise;
       }
 
-      function replaceMermaidWithCode(el) {
+      function replaceMermaidWithCode(el, errorMessage) {
         if (!el) {
           return;
         }
-        var pre = document.createElement('pre');
-        pre.textContent = el.textContent || '';
-        el.replaceWith(pre);
+        var code = el.textContent || '';
+        var wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+        var errorLabel = '';
+        if (errorMessage) {
+          errorLabel = '<span class="code-block-lang mermaid-error">Mermaid ⚠ ' + escapeHtml(String(errorMessage)) + '</span>';
+        } else {
+          errorLabel = '<span class="code-block-lang mermaid-error">Mermaid</span>';
+        }
+        wrapper.innerHTML = errorLabel +
+          '<button class="code-block-copy" type="button" title="Copy"><span class="codicon codicon-copy"></span></button>' +
+          '<pre><code class="lang-mermaid">' + escapeHtml(code) + '</code></pre>';
+        el.replaceWith(wrapper);
       }
 
       function processMermaidQueue() {
@@ -483,27 +514,61 @@ export function getChatMarkdownRendererScript(args: {
         mermaidRendering = true;
         var el = mermaidRenderQueue.shift();
         ensureMermaidReady().then(function(ready) {
-          if (!ready || typeof mermaid === 'undefined') {
-            replaceMermaidWithCode(el);
+          if (!ready) {
+            console.error('[Mermaid] not ready, skipping render');
+            replaceMermaidWithCode(el, 'Load failed');
+            mermaidRendering = false;
+            processMermaidQueue();
+            return;
+          }
+          var m = getMermaidInstance();
+          if (!m || typeof m.render !== 'function') {
+            console.error('[Mermaid] render function not available');
+            replaceMermaidWithCode(el, 'Unavailable');
             mermaidRendering = false;
             processMermaidQueue();
             return;
           }
           var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+          var text = (el.textContent || '').trim();
+          if (!text) {
+            console.error('[Mermaid] empty diagram text');
+            replaceMermaidWithCode(el, 'Empty');
+            mermaidRendering = false;
+            processMermaidQueue();
+            return;
+          }
           try {
-            mermaid.render(id, el.textContent || '').then(function(result) {
+            m.render(id, text, el).then(function(result) {
+              if (!result || !result.svg) {
+                console.error('[Mermaid] render returned empty result for diagram:', text.slice(0, 100));
+                replaceMermaidWithCode(el, 'Empty result');
+                mermaidRendering = false;
+                processMermaidQueue();
+                return;
+              }
               el.innerHTML = result.svg;
+              // Bind interactive functions (click events, tooltips, etc.)
+              if (result.bindFunctions && typeof result.bindFunctions === 'function') {
+                try {
+                  result.bindFunctions(el);
+                } catch (bindErr) {
+                  console.error('[Mermaid] bindFunctions failed:', bindErr);
+                }
+              }
               el.setAttribute('data-rendered', 'true');
               el.removeAttribute('data-mermaid');
               mermaidRendering = false;
               processMermaidQueue();
-            }).catch(function() {
-              replaceMermaidWithCode(el);
+            }).catch(function(err) {
+              console.error('[Mermaid] render rejected:', err);
+              replaceMermaidWithCode(el, 'Render error');
               mermaidRendering = false;
               processMermaidQueue();
             });
           } catch (e) {
-            replaceMermaidWithCode(el);
+            console.error('[Mermaid] render threw:', e);
+            replaceMermaidWithCode(el, 'Exception');
             mermaidRendering = false;
             processMermaidQueue();
           }

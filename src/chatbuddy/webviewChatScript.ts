@@ -14,12 +14,11 @@ const LATEX_DISPLAY_BLOCK_PATTERN = String.raw`/\\\[([\s\S]+?)\\\]/g`;
 const LATEX_INLINE_BLOCK_PATTERN = String.raw`/\\\(([\s\S]+?)\\\)/g`;
 const LATEX_ENV_BLOCK_PATTERN = String.raw`/\\begin\{(equation\*?|align\*?|gather\*?|aligned|cases|split|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|cd|CD|darray)\}([\s\S]+?)\\end\{\1\}/g`;
 
-export function getChatScript(args: { nonce: string; mermaidScriptUri: string }): string {
-  const { nonce, mermaidScriptUri } = args;
+export function getChatScript(args: { nonce: string }): string {
+  const { nonce } = args;
   return `
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
-      const MERMAID_SCRIPT_URI = ${JSON.stringify(mermaidScriptUri)};
 
       const icons = {
         send: '<span class="codicon codicon-send"></span>',
