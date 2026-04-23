@@ -4,240 +4,51 @@
  * 管理 MCP 服务器的连接生命周期，支持 stdio、SSE、streamableHttp 三种传输方式。
  * 提供工具发现与调用、资源读取、Prompt 获取等功能。
  *
- * `@modelcontextprotocol/client` 为 ESM-only，通过动态 `import()` 在运行时加载。
+ * 类型定义 → mcpTypes.ts
+ * 工具函数 → mcpUtils.ts
  */
-import {
+import type {
   AssistantProfile,
   ChatBuddySettings,
   McpPromptArgument,
   McpPromptEntry,
   McpResourceEntry,
   McpServerProfile,
-  McpServerSummary,
-  ProviderToolDefinition
+  McpServerSummary
 } from './types';
 import { toErrorMessage } from './utils';
+import type {
+  McpClient,
+  McpPrompt,
+  McpResource,
+  McpTool,
+  ManagedConnection,
+  McpToolBinding
+} from './mcpTypes';
+import {
+  CLIENT_INFO,
+  collectPaginated,
+  getEnabledServers,
+  getInheritedEnv,
+  loadMcpModule,
+  normalizeToolName,
+  stringifyPromptMessages,
+  stringifyResourceContents,
+  stringifyToolResult,
+  toRecord,
+  validateStdioLaunchConfig
+} from './mcpUtils';
 
-type McpClient = {
-  close(): Promise<void>;
-  connect(transport: unknown): Promise<void>;
-  listTools(params?: { cursor?: string }): Promise<{ tools?: McpTool[]; nextCursor?: string }>;
-  callTool(
-    params: { name: string; arguments?: Record<string, unknown> },
-    options?: { timeout?: number }
-  ): Promise<{
-    content?: Array<{ type?: string; text?: string }>;
-    structuredContent?: unknown;
-    isError?: boolean;
-  }>;
-  listResources(params?: { cursor?: string }): Promise<{ resources?: McpResource[]; nextCursor?: string }>;
-  readResource(
-    params: { uri: string },
-    options?: { timeout?: number }
-  ): Promise<{ contents?: Array<{ uri?: string; text?: string; mimeType?: string; blob?: string }> }>;
-  listPrompts(params?: { cursor?: string }): Promise<{ prompts?: McpPrompt[]; nextCursor?: string }>;
-  getPrompt(
-    params: { name: string; arguments?: Record<string, string> },
-    options?: { timeout?: number }
-  ): Promise<{ messages?: Array<{ role: string; content?: { type?: string; text?: string } }> }>;
-};
-
-type McpTransport = {
-  close(): Promise<void>;
-};
-
-type McpTool = {
-  name?: string;
-  description?: string;
-  inputSchema?: unknown;
-};
-
-type McpResource = {
-  uri?: string;
-  name?: string;
-  description?: string;
-  mimeType?: string;
-};
-
-type McpPrompt = {
-  name?: string;
-  description?: string;
-  arguments?: Array<{
-    name?: string;
-    description?: string;
-    required?: boolean;
-  }>;
-};
-
-type McpModule = {
-  Client: new (clientInfo: { name: string; version: string }) => McpClient;
-  SSEClientTransport: new (url: URL, options?: { requestInit?: { headers: Record<string, string> } }) => McpTransport;
-  StdioClientTransport: new (options: {
-    command: string;
-    args?: string[];
-    cwd?: string;
-    env?: Record<string, string>;
-  }) => McpTransport;
-  StreamableHTTPClientTransport: new (
-    url: URL,
-    options?: { requestInit?: { headers: Record<string, string> } }
-  ) => McpTransport;
-};
-
-type ManagedConnection = {
-  client: McpClient;
-  transport: McpTransport;
-  server: McpServerProfile;
-};
-
-export type McpToolBinding = {
-  providerTool: ProviderToolDefinition;
-  serverId: string;
-  toolName: string;
-};
-
-const CLIENT_INFO = { name: 'chatbuddy', version: '0.0.4' };
-
-let cachedMcpModule: Promise<McpModule> | undefined;
-
-async function loadMcpModule(): Promise<McpModule> {
-  if (!cachedMcpModule) {
-    // @modelcontextprotocol/client is ESM-only; dynamic import() resolves at runtime
-    cachedMcpModule = import('@modelcontextprotocol/client') as Promise<McpModule>;
-  }
-  return cachedMcpModule;
-}
-
-function toRecord(entries: Array<{ key: string; value: string }>): Record<string, string> {
-  return Object.fromEntries(
-    entries
-      .map((entry) => [entry.key.trim(), entry.value] as const)
-      .filter(([key]) => key.length > 0)
-  );
-}
-
-function hasInvalidProcessText(value: string): boolean {
-  return value.includes('\0') || value.includes('\r') || value.includes('\n');
-}
-
-function validateStdioLaunchConfig(server: McpServerProfile): { command: string; args: string[] } {
-  const command = server.command.trim();
-  if (!command) {
-    throw new Error(`MCP server ${server.name} is missing command.`);
-  }
-  if (hasInvalidProcessText(command)) {
-    throw new Error(`MCP server ${server.name} command contains invalid control characters.`);
-  }
-  if (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string' || hasInvalidProcessText(arg))) {
-    throw new Error(`MCP server ${server.name} args must be an array of plain strings.`);
-  }
-  return {
-    command,
-    args: server.args
-  };
-}
-
-function getEnabledServers(settings: ChatBuddySettings, assistant: AssistantProfile): McpServerProfile[] {
-  const enabledIds = new Set(assistant.enabledMcpServerIds);
-  return settings.mcp.servers.filter((server) => server.enabled && enabledIds.has(server.id));
-}
-
-function toTransportLabel(transport: McpServerProfile['transport']): string {
-  switch (transport) {
-    case 'streamableHttp':
-      return 'HTTP';
-    case 'sse':
-      return 'SSE';
-    default:
-      return 'stdio';
-  }
-}
-
-async function collectPaginated<T>(
-  loader: (cursor?: string) => Promise<{ items: T[]; nextCursor?: string }>
-): Promise<T[]> {
-  const result: T[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await loader(cursor);
-    result.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor);
-  return result;
-}
-
-function getInheritedEnv(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-  );
-}
-
-function stringifyToolResult(result: {
-  content?: Array<{ type?: string; text?: string }>;
-  structuredContent?: unknown;
-  isError?: boolean;
-}): string {
-  const chunks: string[] = [];
-  for (const item of result.content ?? []) {
-    if (item?.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
-      chunks.push(item.text.trim());
-    }
-  }
-  if (chunks.length > 0) {
-    return chunks.join('\n\n');
-  }
-  if (result.structuredContent !== undefined) {
-    return JSON.stringify(result.structuredContent, null, 2);
-  }
-  if (result.isError) {
-    return 'Tool execution failed.';
-  }
-  return 'Tool completed with no textual output.';
-}
-
-function stringifyResourceContents(contents: Array<{ uri?: string; text?: string; mimeType?: string; blob?: string }>): string {
-  const chunks: string[] = [];
-  for (const item of contents) {
-    if (typeof item.text === 'string' && item.text.trim()) {
-      chunks.push(item.text.trim());
-      continue;
-    }
-    if (typeof item.blob === 'string' && item.blob.trim()) {
-      chunks.push(item.blob.trim());
-    }
-  }
-  return chunks.join('\n\n').trim();
-}
-
-function stringifyPromptMessages(messages: Array<{ role: string; content?: { type?: string; text?: string } }>): string {
-  return messages
-    .map((message) => {
-      const text = message.content?.type === 'text' ? message.content.text ?? '' : '';
-      const role = String(message.role || 'prompt').trim();
-      return text.trim() ? `${role}:\n${text.trim()}` : '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-function normalizeToolName(serverId: string, name: string): string {
-  return `${serverId}__${name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
-export type McpProbeResult = {
-  success: boolean;
-  tools: Array<{ name: string; description: string }>;
-  resources: Array<{ name: string; uri: string; description?: string }>;
-  prompts: Array<{ name: string; description?: string }>;
-  error?: string;
-};
+export type { McpToolBinding, McpProbeResult } from './mcpTypes';
+export { describeAssistantMcpServers, buildRemotePassthroughTools } from './mcpUtils';
 
 export class McpRuntime {
-  private readonly connections = new Map<string, Promise<ManagedConnection>>();
+  private readonly connections = new Map<string, { promise: Promise<ManagedConnection>; createdAt: number }>();
   private toolBindingsCache = new Map<string, { bindings: McpToolBinding[]; expiresAt: number }>();
   private static readonly TOOL_BINDINGS_TTL_MS = 60_000;
+  private static readonly CONNECTION_TTL_MS = 30 * 60 * 1000; // 30分钟
 
-  public async probeServer(server: McpServerProfile): Promise<McpProbeResult> {
+  public async probeServer(server: McpServerProfile): Promise<import('./mcpTypes').McpProbeResult> {
     let connection: ManagedConnection | undefined;
     try {
       const { Client } = await loadMcpModule();
@@ -250,7 +61,7 @@ export class McpRuntime {
         return { items: response.tools ?? [], nextCursor: response.nextCursor };
       });
 
-      let resources: McpProbeResult['resources'] = [];
+      let resources: import('./mcpTypes').McpProbeResult['resources'] = [];
       try {
         const resourceList = await collectPaginated<McpResource>(async (cursor) => {
           const response = await client.listResources(cursor ? { cursor } : undefined);
@@ -267,7 +78,7 @@ export class McpRuntime {
         // Server may not support resources.
       }
 
-      let prompts: McpProbeResult['prompts'] = [];
+      let prompts: import('./mcpTypes').McpProbeResult['prompts'] = [];
       try {
         const promptList = await collectPaginated<McpPrompt>(async (cursor) => {
           const response = await client.listPrompts(cursor ? { cursor } : undefined);
@@ -328,12 +139,12 @@ export class McpRuntime {
 
   public async dispose(): Promise<void> {
     this.toolBindingsCache.clear();
-    const pending = [...this.connections.values()];
+    const entries = [...this.connections.values()];
     this.connections.clear();
     await Promise.all(
-      pending.map(async (connectionPromise) => {
+      entries.map(async (entry) => {
         try {
-          const connection = await connectionPromise;
+          const connection = await entry.promise;
           await connection.transport.close();
           await connection.client.close();
         } catch {
@@ -344,13 +155,16 @@ export class McpRuntime {
   }
 
   /**
-   * Remove connections for servers that are no longer active.
+   * Remove connections for servers that are no longer active or have exceeded TTL.
    * Call this after settings update to clean up stale connections.
    */
   public async pruneConnections(activeServerIds: ReadonlySet<string>): Promise<void> {
     const staleIds: string[] = [];
-    for (const serverId of this.connections.keys()) {
+    const now = Date.now();
+    for (const [serverId, entry] of this.connections.entries()) {
       if (!activeServerIds.has(serverId)) {
+        staleIds.push(serverId);
+      } else if (now - entry.createdAt > McpRuntime.CONNECTION_TTL_MS) {
         staleIds.push(serverId);
       }
     }
@@ -358,11 +172,11 @@ export class McpRuntime {
       return;
     }
     for (const serverId of staleIds) {
-      const connectionPromise = this.connections.get(serverId);
+      const entry = this.connections.get(serverId);
       this.connections.delete(serverId);
-      if (connectionPromise) {
+      if (entry) {
         try {
-          const connection = await connectionPromise;
+          const connection = await entry.promise;
           await connection.transport.close();
           await connection.client.close();
         } catch {
@@ -374,6 +188,18 @@ export class McpRuntime {
     this.toolBindingsCache.clear();
   }
 
+  /**
+   * Invalidate cached tool bindings for a specific assistant.
+   * Call this when MCP server assignments change for an assistant.
+   */
+  public invalidateToolBindings(assistantId?: string): void {
+    if (assistantId) {
+      this.toolBindingsCache.delete(assistantId);
+    } else {
+      this.toolBindingsCache.clear();
+    }
+  }
+
   public async listToolBindings(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpToolBinding[]> {
     const cacheKey = assistant.id;
     const now = Date.now();
@@ -382,36 +208,40 @@ export class McpRuntime {
       return cached.bindings;
     }
 
-    const bindings: McpToolBinding[] = [];
-    for (const server of getEnabledServers(settings, assistant)) {
-      const connection = await this.getConnection(server);
-      const tools = await collectPaginated<McpTool>(async (cursor) => {
-        const response = await connection.client.listTools(cursor ? { cursor } : undefined);
-        return {
-          items: response.tools ?? [],
-          nextCursor: response.nextCursor
-        };
-      });
-      for (const tool of tools) {
-        const toolName = typeof tool.name === 'string' ? tool.name.trim() : '';
-        if (!toolName) {
-          continue;
-        }
-        bindings.push({
-          serverId: server.id,
-          toolName,
-          providerTool: {
-            type: 'function',
-            function: {
-              name: normalizeToolName(server.id, toolName),
-              description: [server.name, tool.description].filter(Boolean).join(' · '),
-              parameters:
-                tool.inputSchema && typeof tool.inputSchema === 'object'
-                  ? (tool.inputSchema as Record<string, unknown>)
-                  : { type: 'object', properties: {} }
-            }
-          }
+    const servers = getEnabledServers(settings, assistant);
+    const results = await Promise.allSettled(
+      servers.map(async (server) => {
+        const connection = await this.getConnection(server);
+        const tools = await collectPaginated<McpTool>(async (cursor) => {
+          const response = await connection.client.listTools(cursor ? { cursor } : undefined);
+          return {
+            items: response.tools ?? [],
+            nextCursor: response.nextCursor
+          };
         });
+        return tools
+          .filter((tool) => typeof tool.name === 'string' && tool.name.trim())
+          .map((tool) => ({
+            serverId: server.id,
+            toolName: tool.name!.trim(),
+            providerTool: {
+              type: 'function' as const,
+              function: {
+                name: normalizeToolName(server.id, tool.name!.trim()),
+                description: [server.name, tool.description].filter(Boolean).join(' · '),
+                parameters:
+                  tool.inputSchema && typeof tool.inputSchema === 'object'
+                    ? (tool.inputSchema as Record<string, unknown>)
+                    : { type: 'object', properties: {} }
+              }
+            }
+          }));
+      })
+    );
+    const bindings: McpToolBinding[] = [];
+    for (const item of results) {
+      if (item.status === 'fulfilled') {
+        bindings.push(...item.value);
       }
     }
     this.toolBindingsCache.set(cacheKey, {
@@ -453,29 +283,33 @@ export class McpRuntime {
   }
 
   public async listResources(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpResourceEntry[]> {
-    const result: McpResourceEntry[] = [];
-    for (const server of getEnabledServers(settings, assistant)) {
-      const connection = await this.getConnection(server);
-      const resources = await collectPaginated<McpResource>(async (cursor) => {
-        const response = await connection.client.listResources(cursor ? { cursor } : undefined);
-        return {
-          items: response.resources ?? [],
-          nextCursor: response.nextCursor
-        };
-      });
-      for (const resource of resources) {
-        const uri = typeof resource.uri === 'string' ? resource.uri.trim() : '';
-        if (!uri) {
-          continue;
-        }
-        result.push({
-          serverId: server.id,
-          serverName: server.name,
-          uri,
-          name: typeof resource.name === 'string' && resource.name.trim() ? resource.name.trim() : uri,
-          description: typeof resource.description === 'string' ? resource.description.trim() : undefined,
-          mimeType: typeof resource.mimeType === 'string' ? resource.mimeType.trim() : undefined
+    const servers = getEnabledServers(settings, assistant);
+    const results = await Promise.allSettled(
+      servers.map(async (server) => {
+        const connection = await this.getConnection(server);
+        const resources = await collectPaginated<McpResource>(async (cursor) => {
+          const response = await connection.client.listResources(cursor ? { cursor } : undefined);
+          return {
+            items: response.resources ?? [],
+            nextCursor: response.nextCursor
+          };
         });
+        return resources
+          .filter((resource) => typeof resource.uri === 'string' && resource.uri.trim())
+          .map((resource) => ({
+            serverId: server.id,
+            serverName: server.name,
+            uri: resource.uri!.trim(),
+            name: typeof resource.name === 'string' && resource.name.trim() ? resource.name.trim() : resource.uri!.trim(),
+            description: typeof resource.description === 'string' ? resource.description.trim() : undefined,
+            mimeType: typeof resource.mimeType === 'string' ? resource.mimeType.trim() : undefined
+          }));
+      })
+    );
+    const result: McpResourceEntry[] = [];
+    for (const item of results) {
+      if (item.status === 'fulfilled') {
+        result.push(...item.value);
       }
     }
     return result.sort((left, right) => left.name.localeCompare(right.name, 'en'));
@@ -494,30 +328,34 @@ export class McpRuntime {
   }
 
   public async listPrompts(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpPromptEntry[]> {
-    const result: McpPromptEntry[] = [];
-    for (const server of getEnabledServers(settings, assistant)) {
-      const connection = await this.getConnection(server);
-      const prompts = await collectPaginated<McpPrompt>(async (cursor) => {
-        const response = await connection.client.listPrompts(cursor ? { cursor } : undefined);
-        return {
-          items: response.prompts ?? [],
-          nextCursor: response.nextCursor
-        };
-      });
-      for (const prompt of prompts) {
-        const name = typeof prompt.name === 'string' ? prompt.name.trim() : '';
-        if (!name) {
-          continue;
-        }
-        result.push({
-          serverId: server.id,
-          serverName: server.name,
-          name,
-          description: typeof prompt.description === 'string' ? prompt.description.trim() : undefined,
-          arguments: Array.isArray(prompt.arguments)
-            ? prompt.arguments.map((arg) => this.toPromptArgument(arg))
-            : []
+    const servers = getEnabledServers(settings, assistant);
+    const results = await Promise.allSettled(
+      servers.map(async (server) => {
+        const connection = await this.getConnection(server);
+        const prompts = await collectPaginated<McpPrompt>(async (cursor) => {
+          const response = await connection.client.listPrompts(cursor ? { cursor } : undefined);
+          return {
+            items: response.prompts ?? [],
+            nextCursor: response.nextCursor
+          };
         });
+        return prompts
+          .filter((prompt) => typeof prompt.name === 'string' && prompt.name.trim())
+          .map((prompt) => ({
+            serverId: server.id,
+            serverName: server.name,
+            name: prompt.name!.trim(),
+            description: typeof prompt.description === 'string' ? prompt.description.trim() : undefined,
+            arguments: Array.isArray(prompt.arguments)
+              ? prompt.arguments.map((arg) => this.toPromptArgument(arg))
+              : []
+          }));
+      })
+    );
+    const result: McpPromptEntry[] = [];
+    for (const item of results) {
+      if (item.status === 'fulfilled') {
+        result.push(...item.value);
       }
     }
     return result.sort((left, right) => left.name.localeCompare(right.name, 'en'));
@@ -546,17 +384,38 @@ export class McpRuntime {
 
   private async getConnection(server: McpServerProfile): Promise<ManagedConnection> {
     const existing = this.connections.get(server.id);
+    if (existing && Date.now() - existing.createdAt <= McpRuntime.CONNECTION_TTL_MS) {
+      return existing.promise;
+    }
+    // TTL 过期或首次连接：清理旧条目（如有）并创建新连接
     if (existing) {
-      return existing;
+      this.connections.delete(server.id);
+      this.closeConnectionGracefully(existing.promise);
     }
     const pending = this.createConnection(server);
-    this.connections.set(server.id, pending);
+    this.connections.set(server.id, { promise: pending, createdAt: Date.now() });
     try {
       return await pending;
     } catch (error) {
       this.connections.delete(server.id);
       throw error;
     }
+  }
+
+  private closeConnectionGracefully(promise: Promise<ManagedConnection>): void {
+    promise.then(
+      async (connection) => {
+        try {
+          await connection.transport.close();
+          await connection.client.close();
+        } catch {
+          // Ignore shutdown failures.
+        }
+      },
+      () => {
+        // Connection failed — nothing to clean up.
+      }
+    );
   }
 
   private async createConnection(server: McpServerProfile): Promise<ManagedConnection> {
@@ -605,7 +464,8 @@ export class McpRuntime {
       const transport = new StreamableHTTPClientTransport(url, { requestInit });
       await serverClient.connect(transport);
       return transport;
-    } catch (error) {
+    } catch {
+      // Streamable HTTP failed; fall back to SSE transport.
       const transport = new SSEClientTransport(url, { requestInit });
       await serverClient.connect(transport);
       return transport;
@@ -650,38 +510,4 @@ export class McpRuntime {
       required: argument.required !== false
     };
   }
-}
-
-export function describeAssistantMcpServers(
-  settings: ChatBuddySettings,
-  assistant?: AssistantProfile
-): string {
-  if (!assistant) {
-    return '';
-  }
-  return getEnabledServers(settings, assistant)
-    .map((server) => `${server.name} (${toTransportLabel(server.transport)})`)
-    .join(', ');
-}
-
-export function buildRemotePassthroughTools(
-  settings: ChatBuddySettings,
-  assistant: AssistantProfile,
-  allowRemotePassthrough: boolean
-): Array<{ serverId: string; tool: ProviderToolDefinition }> {
-  if (!allowRemotePassthrough) {
-    return [];
-  }
-  return getEnabledServers(settings, assistant)
-    .filter((server) => server.transport !== 'stdio' && server.remotePassthroughEnabled && server.url.trim())
-    .map((server) => ({
-      serverId: server.id,
-      tool: {
-        type: 'mcp' as const,
-        server_label: server.name,
-        server_url: server.url.trim(),
-        headers: server.headers.length > 0 ? toRecord(server.headers) : undefined,
-        require_approval: 'never' as const
-      }
-    }));
 }

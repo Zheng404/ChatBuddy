@@ -1,0 +1,492 @@
+/**
+ * 设置中心消息处理器。
+ *
+ * 从 settingsCenterPanel 的 handleMessage 方法中提取，
+ * 通过依赖注入接口解耦与控制器实例的直接绑定。
+ */
+import * as vscode from 'vscode';
+
+import { formatString } from './i18n';
+import { parseModelRef } from './modelCatalog';
+import { McpRuntime } from './mcpRuntime';
+import { OpenAICompatibleClient } from './providerClient';
+import { ChatStateRepository } from './stateRepository';
+import {
+  cleanExpiredBackups,
+  createLocalBackup,
+  deleteLocalBackup,
+  listLocalBackups,
+  restoreLocalBackup
+} from './localBackup';
+import type { ChatBuddySettings, McpServerProfile, RuntimeLocale, RuntimeStrings } from './types';
+import { normalizeProvider, toErrorMessage } from './utils';
+import type {
+  SettingsActionResult,
+  SettingsCenterMessage,
+  SettingsCenterOutbound
+} from './settingsTypes';
+import { normalizeMcpServers, normalizeMcpToolRounds } from './settingsTypes';
+
+// ─── 依赖注入接口 ────────────────────────────────────────────────────
+
+export interface SettingsMessageHandlerDeps {
+  readonly repository: ChatStateRepository;
+  readonly providerClient: OpenAICompatibleClient;
+  readonly mcpRuntime: McpRuntime;
+  readonly onSave: (settings: ChatBuddySettings) => void;
+  readonly onReset: () => Promise<boolean> | boolean;
+  readonly onExportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
+  readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
+  readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
+  getLocale(): RuntimeLocale;
+  getStrings(): RuntimeStrings;
+  postState(notice?: string, tone?: 'success' | 'error' | 'info'): void;
+  postMessage(message: SettingsCenterOutbound): void;
+  probeAllMcpServers(): Promise<void>;
+  probeSingleMcpServer(server: McpServerProfile): Promise<void>;
+}
+
+// ─── 消息处理器 ──────────────────────────────────────────────────────
+
+export async function handleSettingsMessage(
+  message: SettingsCenterMessage,
+  deps: SettingsMessageHandlerDeps
+): Promise<void> {
+  if (message.type === 'ready') {
+    deps.postState();
+    return;
+  }
+
+  if (message.type === 'switchSection') {
+    // Note: activeSection 更新由调用方处理
+    return;
+  }
+
+  if (message.type === 'saveLocale') {
+    const next = { ...deps.repository.getSettings(), locale: message.payload.locale };
+    deps.onSave(next);
+    deps.postState(deps.getStrings().localeSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'saveSendShortcut') {
+    const sendShortcut = message.payload.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter';
+    const next: ChatBuddySettings = { ...deps.repository.getSettings(), sendShortcut };
+    deps.onSave(next);
+    deps.postState(deps.getStrings().sendShortcutSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'saveChatTabMode') {
+    const chatTabMode = message.payload.chatTabMode === 'multi' ? 'multi' : 'single';
+    const next: ChatBuddySettings = { ...deps.repository.getSettings(), chatTabMode };
+    deps.onSave(next);
+    deps.postState(deps.getStrings().chatTabModeSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'saveDefaultAssistant') {
+    const current = deps.repository.getSettings();
+    deps.onSave({
+      ...current,
+      defaultModels: {
+        ...current.defaultModels,
+        assistant: parseModelRef(message.payload.assistant.trim())
+      }
+    });
+    deps.postState(deps.getStrings().defaultAssistantModelSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'saveDefaultTitleSummary') {
+    const current = deps.repository.getSettings();
+    deps.onSave({
+      ...current,
+      defaultModels: {
+        ...current.defaultModels,
+        titleSummary: parseModelRef(message.payload.titleSummary.trim()) || undefined
+      }
+    });
+    deps.postState(deps.getStrings().defaultTitleSummaryModelSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'saveTitleSummaryPrompt') {
+    const current = deps.repository.getSettings();
+    deps.onSave({
+      ...current,
+      defaultModels: {
+        ...current.defaultModels,
+        titleSummaryPrompt: message.payload.titleSummaryPrompt.trim() || undefined
+      }
+    });
+    deps.postState(deps.getStrings().defaultTitleSummaryPromptSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'saveMcpServers') {
+    const current = deps.repository.getSettings();
+    deps.onSave(normalizeMcpServers(message.payload, current));
+    deps.postState(deps.getStrings().mcpSettingsSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'saveMcpToolRounds') {
+    const current = deps.repository.getSettings();
+    const next = normalizeMcpToolRounds(message.payload, current);
+    deps.onSave(next);
+    deps.postState(deps.getStrings().mcpSettingsSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'probeMcpServers') {
+    void deps.probeAllMcpServers().catch(() => {});
+    return;
+  }
+
+  if (message.type === 'testMcpServer') {
+    void deps.probeSingleMcpServer(message.payload.server).catch(() => {});
+    return;
+  }
+
+  if (message.type === 'saveProvider') {
+    const provider = normalizeProvider(message.payload.provider);
+    const silent = message.payload.silent === true;
+    const current = deps.repository.getSettings();
+    const nextProviders = current.providers.map((item) => (item.id === provider.id ? provider : item));
+    const providerExists = nextProviders.some((item) => item.id === provider.id);
+    if (!providerExists) {
+      nextProviders.push(provider);
+    }
+    deps.onSave({
+      ...current,
+      providers: nextProviders
+    });
+    deps.postState(silent ? undefined : deps.getStrings().providerSaved, silent ? 'info' : 'success');
+    return;
+  }
+
+  if (message.type === 'toggleProviderEnabled') {
+    const providerId = message.payload.providerId.trim();
+    if (!providerId) {
+      deps.postState(deps.getStrings().providerIdRequired, 'error');
+      return;
+    }
+
+    const current = deps.repository.getSettings();
+    const target = current.providers.find((item) => item.id === providerId);
+    if (!target) {
+      deps.postState();
+      return;
+    }
+
+    const strings = deps.getStrings();
+    const enabled = !!message.payload.enabled;
+    if (target.enabled === enabled) {
+      deps.postState();
+      return;
+    }
+
+    if (!enabled) {
+      const confirmDisable = await vscode.window.showWarningMessage(
+        formatString(strings.confirmDisableProvider, { name: target.name || providerId }),
+        { modal: true },
+        strings.disableProviderAction
+      );
+      if (confirmDisable !== strings.disableProviderAction) {
+        return;
+      }
+    }
+
+    deps.onSave({
+      ...current,
+      providers: current.providers.map((item) => (item.id === providerId ? { ...item, enabled } : item))
+    });
+    deps.postState(
+      enabled
+        ? formatString(strings.providerEnabledApplied, { name: target.name || providerId })
+        : formatString(strings.providerDisabledApplied, { name: target.name || providerId }),
+      'success'
+    );
+    return;
+  }
+
+  if (message.type === 'deleteProvider') {
+    const providerId = message.payload.providerId.trim();
+    const providerName = message.payload.providerName.trim();
+    const strings = deps.getStrings();
+    if (!providerId) {
+      deps.postState(strings.providerIdRequired, 'error');
+      return;
+    }
+
+    const confirmDelete = await vscode.window.showWarningMessage(
+      formatString(strings.confirmDeleteProvider, {
+        name: providerName || providerId
+      }),
+      { modal: true },
+      strings.deleteProviderAction
+    );
+    if (confirmDelete !== strings.deleteProviderAction) {
+      return;
+    }
+
+    const current = deps.repository.getSettings();
+    const nextProviders = current.providers.filter((item) => item.id !== providerId);
+    if (nextProviders.length === current.providers.length) {
+      deps.postState();
+      return;
+    }
+
+    deps.onSave({
+      ...current,
+      providers: nextProviders
+    });
+    deps.postState(deps.getStrings().providerDeleted, 'success');
+    return;
+  }
+
+  if (message.type === 'deleteMcpServer') {
+    const serverId = message.payload.serverId.trim();
+    const serverName = message.payload.serverName.trim();
+    const strings = deps.getStrings();
+    if (!serverId) {
+      deps.postState(strings.mcpServerIdRequired || 'Server ID is required', 'error');
+      return;
+    }
+
+    const confirmDelete = await vscode.window.showWarningMessage(
+      formatString(strings.mcpDeleteConfirm || 'Are you sure you want to delete server "{name}"?', {
+        name: serverName || serverId
+      }),
+      { modal: true },
+      strings.mcpDeleteServerAction || 'Delete'
+    );
+    if (confirmDelete !== (strings.mcpDeleteServerAction || 'Delete')) {
+      return;
+    }
+
+    const current = deps.repository.getSettings();
+    const nextServers = current.mcp.servers.filter((item) => item.id !== serverId);
+    if (nextServers.length === current.mcp.servers.length) {
+      deps.postState();
+      return;
+    }
+
+    deps.onSave({
+      ...current,
+      mcp: {
+        ...current.mcp,
+        servers: nextServers
+      }
+    });
+    deps.postState(strings.mcpServerDeleted || 'MCP server deleted', 'success');
+    return;
+  }
+
+  if (message.type === 'testConnection') {
+    const provider = normalizeProvider(message.payload.provider);
+    const strings = deps.getStrings();
+    const modelId = message.payload.modelId.trim();
+    if (!modelId) {
+      deps.postMessage({
+        type: 'connectionResult',
+        payload: {
+          providerId: provider.id,
+          success: false,
+          message: strings.providerTestModelRequired
+        }
+      });
+      return;
+    }
+
+    try {
+      await deps.providerClient.testConnection(
+        {
+          id: provider.id,
+          kind: provider.kind,
+          name: provider.name,
+          apiType: provider.apiType,
+          apiKey: provider.apiKey,
+          baseUrl: provider.baseUrl,
+          modelId
+        },
+        deps.getLocale()
+      );
+      deps.postMessage({
+        type: 'connectionResult',
+        payload: {
+          providerId: provider.id,
+          success: true,
+          message: strings.providerConnectionSuccess
+        }
+      });
+    } catch (error) {
+      deps.postMessage({
+        type: 'connectionResult',
+        payload: {
+          providerId: provider.id,
+          success: false,
+          message: toErrorMessage(error, strings.unknownError)
+        }
+      });
+    }
+    return;
+  }
+
+  if (message.type === 'fetchModels') {
+    const provider = normalizeProvider(message.payload);
+    const strings = deps.getStrings();
+    try {
+      const models = await deps.providerClient.fetchModels(
+        {
+          id: provider.id,
+          kind: provider.kind,
+          name: provider.name,
+          apiType: provider.apiType,
+          apiKey: provider.apiKey,
+          baseUrl: provider.baseUrl
+        },
+        deps.getLocale()
+      );
+      deps.postMessage({
+        type: 'modelsFetched',
+        payload: {
+          providerId: provider.id,
+          models,
+          success: true,
+          message: strings.providerModelsFetched
+        }
+      });
+    } catch (error) {
+      deps.postMessage({
+        type: 'modelsFetched',
+        payload: {
+          providerId: provider.id,
+          models: provider.models,
+          success: false,
+          message: toErrorMessage(error, strings.unknownError)
+        }
+      });
+    }
+    return;
+  }
+
+  if (message.type === 'reset') {
+    const confirmed = await deps.onReset();
+    if (confirmed) {
+      deps.postState(deps.getStrings().resetDataDone, 'success');
+    }
+    return;
+  }
+
+  if (message.type === 'exportData') {
+    try {
+      const result = await deps.onExportData();
+      if (result?.notice) {
+        deps.postState(result.notice, result.tone ?? 'success');
+      }
+    } catch {
+      deps.postState(deps.getStrings().unknownError, 'error');
+    }
+    return;
+  }
+
+  if (message.type === 'importData') {
+    try {
+      const result = await deps.onImportData();
+      if (result?.notice) {
+        deps.postState(result.notice, result.tone ?? 'success');
+      }
+    } catch {
+      deps.postState(deps.getStrings().unknownError, 'error');
+    }
+    return;
+  }
+
+  if (message.type === 'importLegacyData') {
+    try {
+      const result = await deps.onImportLegacyData();
+      if (result?.notice) {
+        deps.postState(result.notice, result.tone ?? 'success');
+      }
+    } catch {
+      deps.postState(deps.getStrings().unknownError, 'error');
+    }
+    return;
+  }
+
+  if (message.type === 'browseBackupDir') {
+    const result = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      title: deps.getStrings().backupDirBrowseTitle
+    });
+    if (result?.[0]) {
+      deps.postMessage({ type: 'backupDirSelected', payload: { dir: result[0].fsPath } });
+    }
+    return;
+  }
+
+  if (message.type === 'saveLocalBackupSettings') {
+    const current = deps.repository.getSettings();
+    deps.onSave({ ...current, localBackup: message.payload });
+    deps.postState(deps.getStrings().backupSettingsSaved, 'success');
+    return;
+  }
+
+  if (message.type === 'triggerLocalBackup') {
+    try {
+      const settings = deps.repository.getSettings().localBackup;
+      if (!settings.directory) {
+        deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupDirNotSet } });
+        return;
+      }
+      await createLocalBackup(deps.repository, settings.directory);
+      await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
+      const items = await listLocalBackups(settings.directory);
+      deps.postMessage({ type: 'backupList', payload: { items } });
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupCreated } });
+    } catch (err) {
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
+    }
+    return;
+  }
+
+  if (message.type === 'restoreLocalBackup') {
+    try {
+      const settings = deps.repository.getSettings().localBackup;
+      await restoreLocalBackup(deps.repository, settings.directory, message.payload.fileName);
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupRestored } });
+      deps.postState(deps.getStrings().backupRestored, 'success');
+    } catch (err) {
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
+    }
+    return;
+  }
+
+  if (message.type === 'deleteLocalBackup') {
+    try {
+      const settings = deps.repository.getSettings().localBackup;
+      await deleteLocalBackup(settings.directory, message.payload.fileName);
+      const items = await listLocalBackups(settings.directory);
+      deps.postMessage({ type: 'backupList', payload: { items } });
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupDeleted } });
+    } catch (err) {
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
+    }
+    return;
+  }
+
+  if (message.type === 'refreshBackupList') {
+    try {
+      const settings = deps.repository.getSettings().localBackup;
+      const items = settings.directory ? await listLocalBackups(settings.directory) : [];
+      deps.postMessage({ type: 'backupList', payload: { items } });
+    } catch {
+      deps.postMessage({ type: 'backupList', payload: { items: [] } });
+    }
+    return;
+  }
+}

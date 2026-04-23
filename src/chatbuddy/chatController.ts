@@ -26,7 +26,7 @@ import {
 import { routeChatControllerWebviewMessage } from './chatControllerWebviewRouter';
 import { McpRuntime } from './mcpRuntime';
 import { getDefaultSessionTitle, getStrings } from './i18n';
-import { OpenAICompatibleClient, ProviderChatResult } from './providerClient';
+import { OpenAICompatibleClient } from './providerClient';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository } from './stateRepository';
 import { getChatWebviewHtml } from './webview';
@@ -35,29 +35,27 @@ import {
   ChatStatePayload,
   ChatBuddySettings,
   ProviderModelOption,
-  ProviderConfig,
   RuntimeLocale,
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
-import { getLocaleFromSettings, toErrorMessage, warn } from './utils';
+import { getLocaleFromSettings, warn } from './utils';
 import { STREAM_STATE_POST_INTERVAL_MS } from './streamAccumulator';
+import { ChatStateCache } from './chatControllerStateCache';
+import {
+  listMcpResources,
+  listMcpPrompts,
+  insertMcpResource,
+  insertMcpPrompt,
+  type McpOperationDeps
+} from './chatControllerMcpOperations';
 
 export type PanelMessageContext = ToolOrchestratorPanelContext;
 
-type PayloadBaseCache = {
-  state: ReturnType<ChatStateRepository['getState']>;
-  version: number;
-  expiresAt: number;
-  assistantId: string;
-  selectedAssistant: import('./types').AssistantProfile | undefined;
-  sessions: import('./types').ChatSessionSummary[];
-  selectedSession: import('./types').ChatSessionDetail | undefined;
-};
-
 export class ChatController {
   private streamStatePostTimers = new WeakMap<vscode.WebviewPanel, ReturnType<typeof setTimeout>>();
-  private payloadBaseCache: PayloadBaseCache | undefined;
+  private readonly stateCache: ChatStateCache;
+  private readonly mcpDeps: McpOperationDeps;
   private streamingEnabled: boolean;
   private isGenerating = false;
   private pendingToolContinuation: PendingToolContinuation | undefined;
@@ -69,18 +67,6 @@ export class ChatController {
   private readonly toolOrchestrator: ToolCallOrchestrator;
   private readonly generationService: ChatGenerationService;
   private readonly panelManager: ChatPanelManager;
-
-  private get panel(): vscode.WebviewPanel | undefined {
-    return this.panelManager.getActivePanel();
-  }
-
-  private set panel(panel: vscode.WebviewPanel | undefined) {
-    this.panelManager.setActivePanel(panel);
-  }
-
-  private get panelsByAssistantId(): Map<string, vscode.WebviewPanel> {
-    return this.panelManager.getPanelsByAssistantId();
-  }
 
   constructor(
     private readonly repository: ChatStateRepository,
@@ -167,6 +153,14 @@ export class ChatController {
       flushScheduledStreamStatePost: (context) => this.flushScheduledStreamStatePost(context),
       confirmDangerousAction: (message, actionLabel) => this.confirmDangerousAction(message, actionLabel)
     });
+    this.stateCache = new ChatStateCache(this.repository, STREAM_STATE_POST_INTERVAL_MS);
+    this.mcpDeps = {
+      repository: this.repository,
+      mcpRuntime: this.mcpRuntime,
+      getLocale: () => this.getLocale(),
+      postMessage: (message, context) => this.postMessage(message, context),
+      postError: (message, context) => this.postError(message, context)
+    };
   }
 
   private getLocale(): RuntimeLocale {
@@ -175,54 +169,6 @@ export class ChatController {
 
   private getRuntimeStrings(): Record<string, string> {
     return getStrings(this.getLocale());
-  }
-
-  private getPayloadBaseState(): PayloadBaseCache['state'] {
-    const currentVersion = this.repository.getVersion();
-    const cached = this.payloadBaseCache;
-    if (cached && cached.version === currentVersion && cached.expiresAt > Date.now()) {
-      return cached.state;
-    }
-    if (!this.isGenerating) {
-      this.payloadBaseCache = undefined;
-      return this.repository.getState();
-    }
-    const state = this.repository.getState();
-    // Also cache sessions data during streaming to avoid repeated SQLite queries
-    const assistant =
-      this.repository.getSelectedAssistant();
-    const assistantId = assistant?.id || '';
-    const sessions = assistant ? this.repository.getSessionsForAssistant(assistant.id) : [];
-    const selectedSession = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
-    this.payloadBaseCache = {
-      state,
-      version: currentVersion,
-      expiresAt: Date.now() + STREAM_STATE_POST_INTERVAL_MS,
-      assistantId,
-      selectedAssistant: assistant,
-      sessions,
-      selectedSession
-    };
-    return state;
-  }
-
-  private getCachedSessions(assistantId: string): {
-    assistant: import('./types').AssistantProfile | undefined;
-    sessions: import('./types').ChatSessionSummary[];
-    selectedSession: import('./types').ChatSessionDetail | undefined;
-  } {
-    const cached = this.payloadBaseCache;
-    if (cached && cached.assistantId === assistantId && cached.expiresAt > Date.now()) {
-      return {
-        assistant: cached.selectedAssistant,
-        sessions: cached.sessions,
-        selectedSession: cached.selectedSession
-      };
-    }
-    const assistant = this.repository.getSelectedAssistant();
-    const sessions = assistant ? this.repository.getSessionsForAssistant(assistant.id) : [];
-    const selectedSession = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
-    return { assistant, sessions, selectedSession };
   }
 
   private getStateTargetPanel(context?: PanelMessageContext): vscode.WebviewPanel | undefined {
@@ -353,6 +299,22 @@ export class ChatController {
 
   public dispose(): void {
     this.stopGeneration('manual');
+    this.stateCache.clear();
+    // 兜底清理：防止面板销毁回调未触发时定时器泄漏
+    const panels = [
+      this.panelManager.getActivePanel(),
+      ...this.panelManager.getPanelsByAssistantId().values()
+    ];
+    for (const panel of panels) {
+      if (!panel) {
+        continue;
+      }
+      const handle = this.streamStatePostTimers.get(panel);
+      if (handle) {
+        clearTimeout(handle);
+        this.streamStatePostTimers.delete(panel);
+      }
+    }
     this.panelManager.dispose();
   }
 
@@ -494,60 +456,15 @@ export class ChatController {
   }
 
   private async listMcpResources(context?: PanelMessageContext): Promise<void> {
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant || assistant.isDeleted) {
-      return;
-    }
-    const settings = this.repository.getSettings();
-    try {
-      const items = await this.mcpRuntime.listResources(settings, assistant);
-      this.postMessage({
-        type: 'mcpResources',
-        payload: {
-          items
-        }
-      }, context);
-    } catch (error) {
-      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
-    }
+    return listMcpResources(this.mcpDeps, context);
   }
 
   private async listMcpPrompts(context?: PanelMessageContext): Promise<void> {
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant || assistant.isDeleted) {
-      return;
-    }
-    const settings = this.repository.getSettings();
-    try {
-      const items = await this.mcpRuntime.listPrompts(settings, assistant);
-      this.postMessage({
-        type: 'mcpPrompts',
-        payload: {
-          items
-        }
-      }, context);
-    } catch (error) {
-      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
-    }
+    return listMcpPrompts(this.mcpDeps, context);
   }
 
   private async insertMcpResource(serverId: string, uri: string, context?: PanelMessageContext): Promise<void> {
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant || assistant.isDeleted) {
-      return;
-    }
-    const settings = this.repository.getSettings();
-    try {
-      const content = await this.mcpRuntime.readResource(settings, assistant, serverId, uri);
-      this.postMessage({
-        type: 'mcpInsert',
-        payload: {
-          content
-        }
-      }, context);
-    } catch (error) {
-      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
-    }
+    return insertMcpResource(this.mcpDeps, serverId, uri, context);
   }
 
   private async insertMcpPrompt(
@@ -556,65 +473,7 @@ export class ChatController {
     args: Record<string, string>,
     context?: PanelMessageContext
   ): Promise<void> {
-    const assistant = this.repository.getSelectedAssistant();
-    if (!assistant || assistant.isDeleted) {
-      return;
-    }
-    const settings = this.repository.getSettings();
-    try {
-      const content = await this.mcpRuntime.getPrompt(settings, assistant, serverId, name, args);
-      this.postMessage({
-        type: 'mcpInsert',
-        payload: {
-          content
-        }
-      }, context);
-    } catch (error) {
-      this.postError(toErrorMessage(error, getStrings(this.getLocale()).unknownError), context);
-    }
-  }
-
-  private providerSupportsToolCalling(
-    modelRef: string,
-    config: Pick<ProviderConfig, 'apiType' | 'providerKind'>
-  ): boolean {
-    return this.toolOrchestrator.providerSupportsToolCalling(modelRef, config);
-  }
-
-  private async buildProviderTools(
-    settings: ChatBuddySettings,
-    assistant: import('./types').AssistantProfile,
-    resolved: ReturnType<ChatController['resolveEffectiveProviderConfig']>
-  ) {
-    return this.toolOrchestrator.buildProviderTools(settings, assistant, resolved.config);
-  }
-
-  private applyProviderResultToAssistantMessage(
-    assistantId: string,
-    sessionId: string,
-    assistantMessageId: string,
-    result: ProviderChatResult,
-    modelLabel: string,
-    options?: {
-      fallbackContent?: string;
-      toolRounds?: import('./types').ChatToolRound[];
-    }
-  ): void {
-    this.toolOrchestrator.applyProviderResultToAssistantMessage(
-      assistantId,
-      sessionId,
-      assistantMessageId,
-      result,
-      modelLabel,
-      options
-    );
-  }
-
-  private async runToolCallingBatch(
-    pending: PendingToolContinuation,
-    context?: PanelMessageContext
-  ): Promise<'completed' | 'paused'> {
-    return this.toolOrchestrator.runToolCallingBatch(pending, context);
+    return insertMcpPrompt(this.mcpDeps, serverId, name, args, context);
   }
 
   private async continuePendingToolCalls(context?: PanelMessageContext): Promise<void> {
@@ -627,11 +486,11 @@ export class ChatController {
 
   private buildPayload(error?: string, assistantIdOverride?: string): ChatStatePayload {
     const locale = this.getLocale();
-    const raw = this.getPayloadBaseState();
+    const raw = this.stateCache.getBaseState(this.isGenerating);
     const assistant =
       (assistantIdOverride ? this.repository.getAssistantById(assistantIdOverride) : undefined) ??
       this.repository.getSelectedAssistant();
-    const { sessions, selectedSession } = this.getCachedSessions(assistant?.id || '');
+    const { sessions, selectedSession } = this.stateCache.getCachedSessions(assistant?.id || '');
 
     syncSessionScopedState({
       assistantId: assistant?.id,

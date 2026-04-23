@@ -380,10 +380,6 @@ export class ChatStateRepository {
     return this.storage.searchSessionIdsByContent(assistantId, keyword);
   }
 
-  private getLatestSessionForAssistantRaw(assistantId: string): ChatSessionSummary | undefined {
-    return this.sessionStateService.getLatestSessionForAssistantRaw(assistantId);
-  }
-
   public getSelectedSession(assistantId?: string): ChatSessionDetail | undefined {
     return this.sessionStateService.getSelectedSession(assistantId);
   }

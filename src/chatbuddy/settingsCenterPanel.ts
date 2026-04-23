@@ -3,227 +3,45 @@
  *
  * 管理设置中心的 WebViewPanel，包含模型配置、默认模型、MCP 设置、
  * 通用设置、公告和关于等多个页面。通过 `postMessage` 与 WebView 双向通信。
+ *
+ * 类型定义 → settingsTypes.ts
+ * 消息处理 → settingsMessageHandler.ts
+ * HTML 生成 → settingsHtmlGenerator.ts
  */
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { createModelRef, DEFAULT_TITLE_SUMMARY_PROMPT, getProviderModelOptions, parseModelRef } from './modelCatalog';
-import { getCodiconStyleText } from './codicon';
-import { formatString, getLanguageOptions, getStrings } from './i18n';
+import { getProviderModelOptions } from './modelCatalog';
+import { getLanguageOptions, getStrings } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { McpRuntime } from './mcpRuntime';
 import { OpenAICompatibleClient } from './providerClient';
 import { ChatStateRepository } from './stateRepository';
 import { mergeModelBindingsIntoProviders } from './stateHelpers';
-import { TOAST_CONTAINER_HTML, getToastScript } from './webviewShared';
-import { getSettingsCenterCss } from './settingsCenterStyles';
-import { getSettingsCenterJs } from './settingsCenterJs';
 import {
   SQLITE_MIGRATION_DEPRECATION_START_VERSION,
   SQLITE_MIGRATION_SUPPORT_REMOVAL_VERSION
 } from './compassStorage/migrator';
-import {
-  cleanExpiredBackups,
-  createLocalBackup,
-  deleteLocalBackup,
-  listLocalBackups,
-  restoreLocalBackup
-} from './localBackup';
-import {
-  ChatBuddyLocaleSetting,
+import type {
   ChatBuddySettings,
-  ChatSendShortcut,
-  ChatTabMode,
   McpServerProfile,
-  ProviderModelOption,
-  ProviderModelProfile,
-  ProviderProfile,
+  RuntimeLocale,
   RuntimeStrings
 } from './types';
-import { getNonce, getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, normalizeProvider, buildCsp, toErrorMessage, warn } from './utils';
+import { getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, warn } from './utils';
 
-export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'dataManagement' | 'mcp' | 'about';
+import type {
+  SettingsCenterSection,
+  SettingsActionResult,
+  SettingsCenterMessage,
+  SettingsCenterOutbound
+} from './settingsTypes';
+import { normalizeSection, toModelRef } from './settingsTypes';
+import { getSettingsCenterHtml } from './settingsHtmlGenerator';
+import { handleSettingsMessage, type SettingsMessageHandlerDeps } from './settingsMessageHandler';
 
-type SettingsActionResult = {
-  notice: string;
-  tone?: 'success' | 'error' | 'info';
-};
-
-type McpToolRoundsPayload = { maxToolRounds: number };
-
-type SettingsCenterMessage =
-  | { type: 'ready' }
-  | { type: 'switchSection'; section: SettingsCenterSection }
-  | { type: 'saveLocale'; payload: { locale: ChatBuddyLocaleSetting } }
-  | { type: 'saveSendShortcut'; payload: { sendShortcut: ChatSendShortcut } }
-  | { type: 'saveChatTabMode'; payload: { chatTabMode: ChatTabMode } }
-  | { type: 'saveDefaultAssistant'; payload: { assistant: string } }
-  | { type: 'saveDefaultTitleSummary'; payload: { titleSummary: string } }
-  | { type: 'saveTitleSummaryPrompt'; payload: { titleSummaryPrompt: string } }
-  | {
-      type: 'saveProvider';
-      payload: {
-        provider: ProviderProfile;
-        silent?: boolean;
-      };
-    }
-  | {
-      type: 'toggleProviderEnabled';
-      payload: {
-        providerId: string;
-        enabled: boolean;
-      };
-    }
-  | {
-      type: 'deleteProvider';
-      payload: {
-        providerId: string;
-        providerName: string;
-      };
-    }
-  | {
-      type: 'testConnection';
-      payload: {
-        provider: ProviderProfile;
-        modelId: string;
-      };
-    }
-  | {
-      type: 'fetchModels';
-      payload: ProviderProfile;
-    }
-  | { type: 'reset' }
-  | { type: 'exportData' }
-  | { type: 'importData' }
-  | { type: 'importLegacyData' }
-  | { type: 'saveMcpServers'; payload: McpServerProfile[] }
-  | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
-  | { type: 'probeMcpServers' }
-  | { type: 'testMcpServer'; payload: { server: McpServerProfile } }
-  | {
-      type: 'deleteMcpServer';
-      payload: {
-        serverId: string;
-        serverName: string;
-      };
-    }
-  | { type: 'browseBackupDir' }
-  | { type: 'saveLocalBackupSettings'; payload: import('./types').LocalBackupSettings }
-  | { type: 'triggerLocalBackup' }
-  | { type: 'restoreLocalBackup'; payload: { fileName: string } }
-  | { type: 'deleteLocalBackup'; payload: { fileName: string } }
-  | { type: 'refreshBackupList' };
-
-type SettingsCenterState = {
-  strings: RuntimeStrings;
-  activeSection: SettingsCenterSection;
-  languageOptions: ReadonlyArray<{ value: ChatBuddyLocaleSetting; label: string }>;
-  sendShortcutOptions: ReadonlyArray<{ value: ChatSendShortcut; label: string }>;
-  chatTabModeOptions: ReadonlyArray<{ value: ChatTabMode; label: string }>;
-  settings: ChatBuddySettings;
-  modelOptions: ProviderModelOption[];
-  invalidDefaultSelection: string;
-  bulletin: {
-    deprecationStartVersion: string;
-    removalVersion: string;
-  };
-  about: {
-    appName: string;
-    version: string;
-    author: string;
-    authorUrl: string;
-    publisher: string;
-    license: string;
-    repositoryUrl: string;
-    marketplaceUrl: string;
-    openVsxUrl: string;
-  };
-  changelogMarkdown: string;
-  notice?: string;
-  noticeTone?: 'success' | 'error' | 'info';
-  backupFiles: import('./types').BackupFileEntry[];
-};
-
-type SettingsCenterOutbound =
-  | {
-      type: 'state';
-      payload: SettingsCenterState;
-    }
-  | {
-      type: 'activateSection';
-      section: SettingsCenterSection;
-    }
-  | {
-      type: 'connectionResult';
-      payload: {
-        providerId: string;
-        success: boolean;
-        message: string;
-      };
-    }
-  | {
-      type: 'modelsFetched';
-      payload: {
-        providerId: string;
-        models: ProviderModelProfile[];
-        success: boolean;
-        message: string;
-      };
-    }
-  | {
-      type: 'mcpProbeResult';
-      payload: Array<{
-        serverId: string;
-        success: boolean;
-        tools: Array<{ name: string; description: string }>;
-        resources: Array<{ name: string; uri: string; description?: string }>;
-        prompts: Array<{ name: string; description?: string }>;
-        error?: string;
-      }>;
-    }
-  | { type: 'backupDirSelected'; payload: { dir: string } }
-  | { type: 'backupList'; payload: { items: import('./types').BackupFileEntry[] } }
-  | { type: 'backupOperationResult'; payload: { success: boolean; message: string } };
-
-function normalizeSection(section: SettingsCenterSection | string | undefined): SettingsCenterSection {
-  if (
-    section === 'modelConfig' ||
-    section === 'defaultModels' ||
-    section === 'general' ||
-    section === 'dataManagement' ||
-    section === 'mcp' ||
-    section === 'about'
-  ) {
-    return section;
-  }
-  return 'general';
-}
-
-function normalizeMcpServers(servers: McpServerProfile[], fallback: ChatBuddySettings): ChatBuddySettings {
-  return {
-    ...fallback,
-    mcp: {
-      ...fallback.mcp,
-      servers
-    }
-  };
-}
-
-function normalizeMcpToolRounds(input: McpToolRoundsPayload, fallback: ChatBuddySettings): ChatBuddySettings {
-  const raw = typeof input.maxToolRounds === 'number' ? input.maxToolRounds : 5;
-  return {
-    ...fallback,
-    mcp: {
-      ...fallback.mcp,
-      maxToolRounds: Math.max(1, Math.min(20, raw))
-    }
-  };
-}
-
-function toModelRef(value: ChatBuddySettings['defaultModels']['assistant']): string {
-  return value ? createModelRef(value.providerId, value.modelId) : '';
-}
+export type { SettingsCenterSection } from './settingsTypes';
 
 export class SettingsCenterPanelController {
   private panel: vscode.WebviewPanel | undefined;
@@ -243,6 +61,8 @@ export class SettingsCenterPanelController {
       }
     | undefined;
 
+  private readonly handlerDeps: SettingsMessageHandlerDeps;
+
   constructor(
     private readonly repository: ChatStateRepository,
     private readonly providerClient: OpenAICompatibleClient,
@@ -252,7 +72,24 @@ export class SettingsCenterPanelController {
     private readonly onExportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
     private readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
     private readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined
-  ) {}
+  ) {
+    this.handlerDeps = {
+      repository: this.repository,
+      providerClient: this.providerClient,
+      mcpRuntime: this.mcpRuntime,
+      onSave: this.onSave,
+      onReset: this.onReset,
+      onExportData: this.onExportData,
+      onImportData: this.onImportData,
+      onImportLegacyData: this.onImportLegacyData,
+      getLocale: () => this.getLocale(),
+      getStrings: () => this.getStrings(),
+      postState: (notice, tone) => this.postState(notice, tone),
+      postMessage: (msg) => this.postMessage(msg),
+      probeAllMcpServers: () => this.probeAllMcpServers(),
+      probeSingleMcpServer: (server) => this.probeSingleMcpServer(server)
+    };
+  }
 
   public openPanel(section: SettingsCenterSection = 'general'): void {
     this.activeSection = normalizeSection(section);
@@ -262,9 +99,14 @@ export class SettingsCenterPanelController {
         enableScripts: true,
         retainContextWhenHidden: true
       });
-      this.panel.webview.html = this.getHtml(this.panel.webview);
+      this.panel.webview.html = getSettingsCenterHtml(this.panel.webview);
       const messageListener = this.panel.webview.onDidReceiveMessage((message: SettingsCenterMessage) => {
-        this.handleMessage(message).catch((err) => {
+        if (message.type === 'switchSection') {
+          this.activeSection = normalizeSection(message.section);
+          this.updatePanelPresentation();
+          return;
+        }
+        handleSettingsMessage(message, this.handlerDeps).catch((err) => {
           const name = err instanceof Error ? err.name : '';
           if (name !== 'Canceled' && name !== 'AbortError') {
             warn('Settings center message error:', err);
@@ -293,449 +135,9 @@ export class SettingsCenterPanelController {
     this.postState();
   }
 
-  private async handleMessage(message: SettingsCenterMessage): Promise<void> {
-    if (message.type === 'ready') {
-      this.postState();
-      return;
-    }
+  // ─── 辅助方法 ─────────────────────────────────────────────────────
 
-    if (message.type === 'switchSection') {
-      this.activeSection = normalizeSection(message.section);
-      this.updatePanelPresentation();
-      return;
-    }
-
-    if (message.type === 'saveLocale') {
-      const next = { ...this.repository.getSettings(), locale: message.payload.locale };
-      this.onSave(next);
-      this.postState(this.getStrings().localeSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'saveSendShortcut') {
-      const sendShortcut: ChatSendShortcut = message.payload.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter';
-      const next: ChatBuddySettings = { ...this.repository.getSettings(), sendShortcut };
-      this.onSave(next);
-      this.postState(this.getStrings().sendShortcutSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'saveChatTabMode') {
-      const chatTabMode: ChatTabMode = message.payload.chatTabMode === 'multi' ? 'multi' : 'single';
-      const next: ChatBuddySettings = { ...this.repository.getSettings(), chatTabMode };
-      this.onSave(next);
-      this.postState(this.getStrings().chatTabModeSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'saveDefaultAssistant') {
-      const current = this.repository.getSettings();
-      this.onSave({
-        ...current,
-        defaultModels: {
-          ...current.defaultModels,
-          assistant: parseModelRef(message.payload.assistant.trim())
-        }
-      });
-      this.postState(this.getStrings().defaultAssistantModelSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'saveDefaultTitleSummary') {
-      const current = this.repository.getSettings();
-      this.onSave({
-        ...current,
-        defaultModels: {
-          ...current.defaultModels,
-          titleSummary: parseModelRef(message.payload.titleSummary.trim()) || undefined
-        }
-      });
-      this.postState(this.getStrings().defaultTitleSummaryModelSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'saveTitleSummaryPrompt') {
-      const current = this.repository.getSettings();
-      this.onSave({
-        ...current,
-        defaultModels: {
-          ...current.defaultModels,
-          titleSummaryPrompt: message.payload.titleSummaryPrompt.trim() || undefined
-        }
-      });
-      this.postState(this.getStrings().defaultTitleSummaryPromptSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'saveMcpServers') {
-      const current = this.repository.getSettings();
-      this.onSave(normalizeMcpServers(message.payload, current));
-      this.postState(this.getStrings().mcpSettingsSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'saveMcpToolRounds') {
-      const current = this.repository.getSettings();
-      const next = normalizeMcpToolRounds(message.payload, current);
-      this.onSave(next);
-      this.postState(this.getStrings().mcpSettingsSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'probeMcpServers') {
-      void this.probeAllMcpServers().catch(() => {});
-      return;
-    }
-
-    if (message.type === 'testMcpServer') {
-      const server = message.payload.server;
-      void this.probeSingleMcpServer(server).catch(() => {});
-      return;
-    }
-
-    if (message.type === 'saveProvider') {
-      const provider = normalizeProvider(message.payload.provider);
-      const silent = message.payload.silent === true;
-      const current = this.repository.getSettings();
-      const nextProviders = current.providers.map((item) => (item.id === provider.id ? provider : item));
-      const providerExists = nextProviders.some((item) => item.id === provider.id);
-      if (!providerExists) {
-        nextProviders.push(provider);
-      }
-      this.onSave({
-        ...current,
-        providers: nextProviders
-      });
-      this.postState(silent ? undefined : this.getStrings().providerSaved, silent ? 'info' : 'success');
-      return;
-    }
-
-    if (message.type === 'toggleProviderEnabled') {
-      const providerId = message.payload.providerId.trim();
-      if (!providerId) {
-        this.postState(this.getStrings().providerIdRequired, 'error');
-        return;
-      }
-
-      const current = this.repository.getSettings();
-      const target = current.providers.find((item) => item.id === providerId);
-      if (!target) {
-        this.postState();
-        return;
-      }
-
-      const strings = this.getStrings();
-      const enabled = !!message.payload.enabled;
-      if (target.enabled === enabled) {
-        this.postState();
-        return;
-      }
-
-      if (!enabled) {
-        const confirmDisable = await vscode.window.showWarningMessage(
-          formatString(strings.confirmDisableProvider, { name: target.name || providerId }),
-          { modal: true },
-          strings.disableProviderAction
-        );
-        if (confirmDisable !== strings.disableProviderAction) {
-          return;
-        }
-      }
-
-      this.onSave({
-        ...current,
-        providers: current.providers.map((item) => (item.id === providerId ? { ...item, enabled } : item))
-      });
-      this.postState(
-        enabled
-          ? formatString(strings.providerEnabledApplied, { name: target.name || providerId })
-          : formatString(strings.providerDisabledApplied, { name: target.name || providerId }),
-        'success'
-      );
-      return;
-    }
-
-    if (message.type === 'deleteProvider') {
-      const providerId = message.payload.providerId.trim();
-      const providerName = message.payload.providerName.trim();
-      const strings = this.getStrings();
-      if (!providerId) {
-        this.postState(strings.providerIdRequired, 'error');
-        return;
-      }
-
-      const confirmDelete = await vscode.window.showWarningMessage(
-        formatString(strings.confirmDeleteProvider, {
-          name: providerName || providerId
-        }),
-        { modal: true },
-        strings.deleteProviderAction
-      );
-      if (confirmDelete !== strings.deleteProviderAction) {
-        return;
-      }
-
-      const current = this.repository.getSettings();
-      const nextProviders = current.providers.filter((item) => item.id !== providerId);
-      if (nextProviders.length === current.providers.length) {
-        this.postState();
-        return;
-      }
-
-      this.onSave({
-        ...current,
-        providers: nextProviders
-      });
-      this.postState(this.getStrings().providerDeleted, 'success');
-      return;
-    }
-
-    if (message.type === 'deleteMcpServer') {
-      const serverId = message.payload.serverId.trim();
-      const serverName = message.payload.serverName.trim();
-      const strings = this.getStrings();
-      if (!serverId) {
-        this.postState(strings.mcpServerIdRequired || 'Server ID is required', 'error');
-        return;
-      }
-
-      const confirmDelete = await vscode.window.showWarningMessage(
-        formatString(strings.mcpDeleteConfirm || 'Are you sure you want to delete server "{name}"?', {
-          name: serverName || serverId
-        }),
-        { modal: true },
-        strings.mcpDeleteServerAction || 'Delete'
-      );
-      if (confirmDelete !== (strings.mcpDeleteServerAction || 'Delete')) {
-        return;
-      }
-
-      const current = this.repository.getSettings();
-      const nextServers = current.mcp.servers.filter((item) => item.id !== serverId);
-      if (nextServers.length === current.mcp.servers.length) {
-        this.postState();
-        return;
-      }
-
-      this.onSave({
-        ...current,
-        mcp: {
-          ...current.mcp,
-          servers: nextServers
-        }
-      });
-      this.postState(strings.mcpServerDeleted || 'MCP server deleted', 'success');
-      return;
-    }
-
-    if (message.type === 'testConnection') {
-      const provider = normalizeProvider(message.payload.provider);
-      const strings = this.getStrings();
-      const modelId = message.payload.modelId.trim();
-      if (!modelId) {
-        this.postMessage({
-          type: 'connectionResult',
-          payload: {
-            providerId: provider.id,
-            success: false,
-            message: strings.providerTestModelRequired
-          }
-        });
-        return;
-      }
-
-      try {
-        await this.providerClient.testConnection(
-          {
-            id: provider.id,
-            kind: provider.kind,
-            name: provider.name,
-            apiType: provider.apiType,
-            apiKey: provider.apiKey,
-            baseUrl: provider.baseUrl,
-            modelId
-          },
-          this.getLocale()
-        );
-        this.postMessage({
-          type: 'connectionResult',
-          payload: {
-            providerId: provider.id,
-            success: true,
-            message: strings.providerConnectionSuccess
-          }
-        });
-      } catch (error) {
-        this.postMessage({
-          type: 'connectionResult',
-          payload: {
-            providerId: provider.id,
-            success: false,
-            message: toErrorMessage(error, strings.unknownError)
-          }
-        });
-      }
-      return;
-    }
-
-    if (message.type === 'fetchModels') {
-      const provider = normalizeProvider(message.payload);
-      const strings = this.getStrings();
-      try {
-        const models = await this.providerClient.fetchModels(
-          {
-            id: provider.id,
-            kind: provider.kind,
-            name: provider.name,
-            apiType: provider.apiType,
-            apiKey: provider.apiKey,
-            baseUrl: provider.baseUrl
-          },
-          this.getLocale()
-        );
-        this.postMessage({
-          type: 'modelsFetched',
-          payload: {
-            providerId: provider.id,
-            models,
-            success: true,
-            message: strings.providerModelsFetched
-          }
-        });
-      } catch (error) {
-        this.postMessage({
-          type: 'modelsFetched',
-          payload: {
-            providerId: provider.id,
-            models: provider.models,
-            success: false,
-            message: toErrorMessage(error, strings.unknownError)
-          }
-        });
-      }
-      return;
-    }
-
-    if (message.type === 'reset') {
-      const confirmed = await this.onReset();
-      if (confirmed) {
-        this.postState(this.getStrings().resetDataDone, 'success');
-      }
-      return;
-    }
-
-    if (message.type === 'exportData') {
-      try {
-        const result = await this.onExportData();
-        if (result?.notice) {
-          this.postState(result.notice, result.tone ?? 'success');
-        }
-      } catch {
-        this.postState(this.getStrings().unknownError, 'error');
-      }
-      return;
-    }
-
-    if (message.type === 'importData') {
-      try {
-        const result = await this.onImportData();
-        if (result?.notice) {
-          this.postState(result.notice, result.tone ?? 'success');
-        }
-      } catch {
-        this.postState(this.getStrings().unknownError, 'error');
-      }
-      return;
-    }
-
-    if (message.type === 'importLegacyData') {
-      try {
-        const result = await this.onImportLegacyData();
-        if (result?.notice) {
-          this.postState(result.notice, result.tone ?? 'success');
-        }
-      } catch {
-        this.postState(this.getStrings().unknownError, 'error');
-      }
-      return;
-    }
-
-    if (message.type === 'browseBackupDir') {
-      const result = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        title: this.getStrings().backupDirBrowseTitle
-      });
-      if (result?.[0]) {
-        this.postMessage({ type: 'backupDirSelected', payload: { dir: result[0].fsPath } });
-      }
-      return;
-    }
-
-    if (message.type === 'saveLocalBackupSettings') {
-      const current = this.repository.getSettings();
-      this.onSave({ ...current, localBackup: message.payload });
-      this.postState(this.getStrings().backupSettingsSaved, 'success');
-      return;
-    }
-
-    if (message.type === 'triggerLocalBackup') {
-      try {
-        const settings = this.repository.getSettings().localBackup;
-        if (!settings.directory) {
-          this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: this.getStrings().backupDirNotSet } });
-          return;
-        }
-        const _fileName = await createLocalBackup(this.repository, settings.directory);
-        await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
-        const items = await listLocalBackups(settings.directory);
-        this.postMessage({ type: 'backupList', payload: { items } });
-        this.postMessage({ type: 'backupOperationResult', payload: { success: true, message: this.getStrings().backupCreated } });
-      } catch (err) {
-        this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, this.getStrings().unknownError) } });
-      }
-      return;
-    }
-
-    if (message.type === 'restoreLocalBackup') {
-      try {
-        const settings = this.repository.getSettings().localBackup;
-        await restoreLocalBackup(this.repository, settings.directory, message.payload.fileName);
-        this.postMessage({ type: 'backupOperationResult', payload: { success: true, message: this.getStrings().backupRestored } });
-        this.postState(this.getStrings().backupRestored, 'success');
-      } catch (err) {
-        this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, this.getStrings().unknownError) } });
-      }
-      return;
-    }
-
-    if (message.type === 'deleteLocalBackup') {
-      try {
-        const settings = this.repository.getSettings().localBackup;
-        await deleteLocalBackup(settings.directory, message.payload.fileName);
-        const items = await listLocalBackups(settings.directory);
-        this.postMessage({ type: 'backupList', payload: { items } });
-        this.postMessage({ type: 'backupOperationResult', payload: { success: true, message: this.getStrings().backupDeleted } });
-      } catch (err) {
-        this.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, this.getStrings().unknownError) } });
-      }
-      return;
-    }
-
-    if (message.type === 'refreshBackupList') {
-      try {
-        const settings = this.repository.getSettings().localBackup;
-        const items = settings.directory ? await listLocalBackups(settings.directory) : [];
-        this.postMessage({ type: 'backupList', payload: { items } });
-      } catch {
-        this.postMessage({ type: 'backupList', payload: { items: [] } });
-      }
-      return;
-    }
-  }
-
-  private getLocale() {
+  private getLocale(): RuntimeLocale {
     return getLocaleFromSettings(this.repository.getSettings());
   }
 
@@ -754,6 +156,8 @@ export class SettingsCenterPanelController {
   private postMessage(message: SettingsCenterOutbound): void {
     void this.panel?.webview.postMessage(message).then(undefined, () => {});
   }
+
+  // ─── MCP 探测 ──────────────────────────────────────────────────────
 
   private async probeAllMcpServers(): Promise<void> {
     const settings = this.repository.getSettings();
@@ -790,6 +194,8 @@ export class SettingsCenterPanelController {
       ]
     });
   }
+
+  // ─── 状态同步 ──────────────────────────────────────────────────────
 
   private postState(notice?: string, noticeTone: 'success' | 'error' | 'info' = 'info'): void {
     if (!this.panel) {
@@ -831,6 +237,8 @@ export class SettingsCenterPanelController {
       }
     });
   }
+
+  // ─── 元数据加载 ────────────────────────────────────────────────────
 
   private loadPackageMetadata(): {
     appName: string;
@@ -924,454 +332,5 @@ export class SettingsCenterPanelController {
     }
     this.changelogMarkdownCache = '';
     return this.changelogMarkdownCache;
-  }
-
-  private getHtml(webview: vscode.Webview): string {
-    const nonce = getNonce();
-    const csp = buildCsp(webview, nonce);
-    const codiconStyle = getCodiconStyleText();
-
-    return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="${csp}" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <style>${codiconStyle}</style>
-    <style>${getSettingsCenterCss()}</style>
-  </head>
-  <body>
-    <div class="shell">
-      <div class="frame">
-        <header class="settings-bar" id="settingsBar">
-          <h2 class="settings-bar-title" id="navHeading"></h2>
-          <button class="tab-arrow" id="tabArrowLeft" type="button">
-            <span class="codicon codicon-chevron-left"></span>
-          </button>
-          <nav class="settings-tabs" id="settingsTabs">
-            <button class="nav-item" id="navModelConfig" type="button" data-section="modelConfig">
-              <span class="nav-item-icon"><span class="codicon codicon-hubot"></span></span>
-              <span class="nav-item-title" id="navModelConfigTitle"></span>
-            </button>
-            <button class="nav-item" id="navDefaultModels" type="button" data-section="defaultModels">
-              <span class="nav-item-icon"><span class="codicon codicon-symbol-constant"></span></span>
-              <span class="nav-item-title" id="navDefaultModelsTitle"></span>
-            </button>
-            <button class="nav-item" id="navMcp" type="button" data-section="mcp">
-              <span class="nav-item-icon"><span class="codicon codicon-plug"></span></span>
-              <span class="nav-item-title" id="navMcpTitle"></span>
-            </button>
-            <button class="nav-item" id="navDataManagement" type="button" data-section="dataManagement">
-              <span class="nav-item-icon"><span class="codicon codicon-database"></span></span>
-              <span class="nav-item-title" id="navDataManagementTitle"></span>
-            </button>
-            <button class="nav-item" id="navGeneral" type="button" data-section="general">
-              <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
-              <span class="nav-item-title" id="navGeneralTitle"></span>
-            </button>
-            <button class="nav-item" id="navAbout" type="button" data-section="about">
-              <span class="nav-item-icon"><span class="codicon codicon-info"></span></span>
-              <span class="nav-item-title" id="navAboutTitle"></span>
-            </button>
-          </nav>
-          <button class="tab-arrow" id="tabArrowRight" type="button">
-            <span class="codicon codicon-chevron-right"></span>
-          </button>
-        </header>
-
-        <main class="settings-content">
-          <section class="settings-pane" id="paneModelConfig" data-section="modelConfig">
-            <div class="provider-workspace">
-              <aside class="provider-nav">
-                <div class="toolbar">
-                  <button class="btn-primary" id="addProviderBtn" type="button"></button>
-                </div>
-                <input id="providerSearch" class="provider-search" type="text" />
-                <div class="provider-list" id="providerList"></div>
-              </aside>
-
-              <div class="provider-empty" id="providerEmptyState">
-                <span class="codicon codicon-server"></span>
-                <p id="providerEmptyText"></p>
-              </div>
-
-              <section class="editor">
-                <div class="editor-tabs">
-                  <button class="editor-tab active" id="editorTabConfig" type="button" data-tab="config"></button>
-                  <button class="editor-tab" id="editorTabModels" type="button" data-tab="models"></button>
-                </div>
-                <div class="editor-pane active" data-tab="config">
-                  <section class="panel">
-                    <div class="panel-header">
-                      <div class="panel-header-left">
-                        <h2 class="panel-title" id="providerPanelTitle"></h2>
-                        <div class="provider-save-status" id="providerSaveStatus" aria-live="polite"></div>
-                      </div>
-                      <div class="panel-actions">
-                        <label class="provider-enabled-toggle" id="providerEnabledToggle">
-                          <input type="checkbox" id="providerEnabledCheckbox" />
-                          <span id="providerEnabledSwitchLabel"></span>
-                        </label>
-                        <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
-                        <button class="btn-primary" id="saveProviderBtn" type="button" hidden></button>
-                        <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
-                      </div>
-                    </div>
-                    <div class="field-grid">
-                      <div class="field full">
-                        <label for="providerName" id="providerNameLabel"></label>
-                        <input id="providerName" type="text" />
-                      </div>
-                      <div class="field full">
-                        <label for="apiType" id="apiTypeLabel"></label>
-                        <select id="apiType">
-                          <option value="chat_completions">chat/completions</option>
-                          <option value="responses">responses</option>
-                        </select>
-                      </div>
-                      <div class="field full">
-                        <label for="apiKey" id="apiKeyLabel"></label>
-                        <div class="field-input-with-action">
-                          <input id="apiKey" type="password" />
-                          <button class="field-action" id="toggleApiKeyVisibility" type="button" title="Toggle visibility">
-                            <span class="codicon codicon-eye"></span>
-                          </button>
-                        </div>
-                      </div>
-                      <div class="field full">
-                        <label for="baseUrl" id="baseUrlLabel"></label>
-                        <input id="baseUrl" type="text" />
-                      </div>
-                    </div>
-                  </section>
-                </div>
-                <div class="editor-pane" data-tab="models">
-                  <div class="model-sections">
-                    <section class="model-section-card">
-                      <div class="model-section-header">
-                        <h3 class="model-section-title" id="manualModelsTitle"></h3>
-                        <div class="model-section-actions">
-                          <button class="btn-secondary" id="addManualModelBtn" type="button"></button>
-                        </div>
-                      </div>
-                      <div class="models-grid" id="manualModelsList"></div>
-                    </section>
-                    <section class="model-section-card">
-                      <div class="model-section-header">
-                        <h3 class="model-section-title" id="fetchedModelsTitle"></h3>
-                        <div class="model-section-actions">
-                          <button class="btn-secondary" id="fetchModelsBtn" type="button"></button>
-                        </div>
-                      </div>
-                      <div class="models-grid" id="fetchedModelsList"></div>
-                    </section>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <section class="settings-pane" id="paneDefaultModels" data-section="defaultModels">
-            <section class="section-card">
-              <h2 class="section-title" id="defaultAssistantModelLabel"></h2>
-              <div class="field">
-                <select id="defaultAssistantModel"></select>
-                <div class="help" id="defaultAssistantModelHelp"></div>
-              </div>
-            </section>
-            <section class="section-card">
-              <h2 class="section-title" id="defaultTitleSummaryModelLabel"></h2>
-              <div class="field">
-                <div class="input-row">
-                  <select id="defaultTitleSummaryModel"></select>
-                  <button class="btn-secondary" id="editTitleSummaryPromptBtn" type="button"></button>
-                </div>
-                <div class="help" id="defaultTitleSummaryModelHelp"></div>
-              </div>
-            </section>
-          </section>
-
-          <section class="settings-pane" id="paneMcp" data-section="mcp">
-            <div class="section-grid">
-              <section class="section-card">
-                <h2 class="section-title" id="mcpMaxToolRoundsTitle"></h2>
-                <div class="field">
-                  <div class="input-row">
-                    <input id="mcpMaxToolRounds" type="number" min="1" max="20" />
-                    <button class="btn-primary" id="mcpSaveToolRoundsBtn" type="button"></button>
-                  </div>
-                  <div class="help" id="mcpMaxToolRoundsHelp"></div>
-                </div>
-              </section>
-
-              <section class="section-card">
-                <div class="header-row">
-                  <h2 class="section-title" id="mcpServersTitle"></h2>
-                  <button class="btn-primary" id="mcpAddServerBtn" type="button"></button>
-                </div>
-                <div id="mcpServerList"></div>
-              </section>
-            </div>
-          </section>
-
-          <section class="settings-pane" id="paneGeneral" data-section="general">
-            <div class="section-grid">
-              <section class="section-card">
-                <h2 class="section-title" id="languageSectionTitle"></h2>
-                <div class="field">
-                  <select id="locale"></select>
-                </div>
-                <div class="help" id="languageHelp"></div>
-              </section>
-
-              <section class="section-card">
-                <h2 class="section-title" id="sendShortcutSectionTitle"></h2>
-                <div class="field">
-                  <select id="sendShortcut"></select>
-                </div>
-                <div class="help" id="sendShortcutHelp"></div>
-              </section>
-
-              <section class="section-card">
-                <h2 class="section-title" id="chatTabModeSectionTitle"></h2>
-                <div class="field">
-                  <select id="chatTabMode"></select>
-                </div>
-                <div class="help" id="chatTabModeHelp"></div>
-              </section>
-            </div>
-          </section>
-
-          <section class="settings-pane" id="paneDataManagement" data-section="dataManagement">
-            <div class="section-grid">
-              <div class="data-tab-container">
-                <div class="editor-tabs" id="dataTabs">
-                  <button class="editor-tab active" id="dataTabTransfer" data-tab="transfer"></button>
-                  <button class="editor-tab" id="dataTabLocal" data-tab="local"></button>
-                </div>
-
-                <div class="editor-pane active" data-tab="transfer">
-                  <div class="help" id="dataTransferDescription"></div>
-                  <div class="data-actions">
-                    <button class="btn-secondary" id="exportBtn" type="button"></button>
-                    <button class="btn-secondary" id="importBtn" type="button"></button>
-                    <button class="btn-secondary" id="importLegacyBtn" type="button"></button>
-                  </div>
-                </div>
-
-                <div class="editor-pane" data-tab="local">
-                  <section class="section-card">
-                    <div class="field">
-                      <label id="backupDirLabel"></label>
-                      <div class="field-input-with-action">
-                        <input id="backupDirInput" type="text" readonly />
-                        <button class="field-action" id="browseBackupDirBtn" type="button">
-                          <span class="codicon codicon-folder-opened"></span>
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section class="section-card">
-                    <h2 class="section-title" id="autoBackupSectionTitle"></h2>
-                    <div class="field-toggle-row">
-                      <input id="autoBackupToggle" type="checkbox" />
-                      <label id="autoBackupLabel"></label>
-                    </div>
-                    <div class="field">
-                      <label id="intervalLabel"></label>
-                      <input id="intervalInput" type="number" min="1" />
-                    </div>
-                    <div class="field">
-                      <label id="maxCountLabel"></label>
-                      <input id="maxCountInput" type="number" min="0" />
-                    </div>
-                    <div class="field">
-                      <label id="maxAgeLabel"></label>
-                      <input id="maxAgeInput" type="number" min="0" />
-                    </div>
-                  </section>
-
-                  <section class="section-card">
-                    <h2 class="section-title" id="manualBackupTitle"></h2>
-                    <div class="panel-actions">
-                      <button class="btn-secondary" id="triggerBackupBtn" type="button"></button>
-                      <button class="btn-secondary" id="refreshBackupListBtn" type="button"></button>
-                    </div>
-                  </section>
-
-                  <section class="section-card">
-                    <h2 class="section-title" id="backupHistoryTitle"></h2>
-                    <div id="backupListContainer"></div>
-                  </section>
-                </div>
-              </div>
-
-              <section class="section-card">
-                <h2 class="section-title" id="dangerSectionTitle"></h2>
-                <div class="danger-copy" id="resetDataDescription"></div>
-                <div class="danger-actions">
-                  <button class="btn-danger" id="resetBtn" type="button"></button>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <section class="settings-pane" id="paneAbout" data-section="about">
-            <div class="section-grid about-layout">
-              <section class="section-card about-hero-card">
-                <div class="about-grid" id="aboutOverviewGrid"></div>
-                <div class="about-notice-shell">
-                  <div class="about-notice-grid">
-                    <section class="about-info-card">
-                      <div class="about-notice-header">
-                        <h2 class="section-title" id="noticeAnnouncementTitle"></h2>
-                        <p class="help" id="noticeAnnouncementDescription"></p>
-                      </div>
-                      <ul class="notice-list" id="noticeAnnouncementList"></ul>
-                    </section>
-                    <section class="about-info-card about-changelog-card">
-                      <div class="about-changelog-block">
-                        <h3 class="panel-title" id="noticeChangelogTitle"></h3>
-                        <div class="changelog-content changelog-markdown" id="noticeChangelogContent"></div>
-                      </div>
-                    </section>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </section>
-        </main>
-      </div>
-    </div>
-
-    <div class="modal-backdrop" id="testModelModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="testModelModalTitle">
-        <h3 class="modal-title" id="testModelModalTitle"></h3>
-        <p class="modal-copy" id="testModelModalDescription"></p>
-        <div class="field">
-          <label for="testModelModalSelect" id="testModelModalLabel"></label>
-          <select id="testModelModalSelect"></select>
-        </div>
-        <div class="panel-actions">
-          <button class="btn-secondary" id="cancelTestModelBtn" type="button"></button>
-          <button class="btn-primary" id="confirmTestModelBtn" type="button"></button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-backdrop" id="discardChangesModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="discardChangesModalTitle">
-        <h3 class="modal-title" id="discardChangesModalTitle"></h3>
-        <p class="modal-copy" id="discardChangesModalDescription"></p>
-        <div class="panel-actions">
-          <button class="btn-secondary" id="discardChangesStayBtn" type="button"></button>
-          <button class="btn-danger" id="discardChangesConfirmBtn" type="button"></button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-backdrop" id="fetchModelsModal" aria-hidden="true">
-      <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="fetchModelsModalTitle">
-        <div class="panel-header modal-header">
-          <div class="modal-header-copy">
-            <h3 class="modal-title" id="fetchModelsModalTitle"></h3>
-            <p class="modal-copy" id="fetchModelsModalDescription"></p>
-          </div>
-          <button class="btn-secondary" id="closeFetchModelsModalBtn" type="button"></button>
-        </div>
-        <input id="fetchModelsModalSearch" class="provider-search" type="text" />
-        <div class="fetch-models-list" id="fetchModelsModalList"></div>
-      </div>
-    </div>
-
-    <div class="modal-backdrop" id="manualModelModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="manualModelModalTitle">
-        <h3 class="modal-title" id="manualModelModalTitle"></h3>
-        <div class="field-grid">
-          <div class="field full">
-            <label for="manualModelId" id="manualModelIdLabel"></label>
-            <input id="manualModelId" type="text" />
-          </div>
-          <div class="field full">
-            <label for="manualModelName" id="manualModelNameLabel"></label>
-            <input id="manualModelName" type="text" />
-          </div>
-          <div class="field full">
-            <label for="manualModelKind" id="manualModelKindLabel"></label>
-            <select id="manualModelKind">
-              <option value="chat">Text</option>
-              <option value="image">Image</option>
-              <option value="video">Video</option>
-              <option value="audio">Audio</option>
-              <option value="embedding">Embedding</option>
-              <option value="rerank">Rerank</option>
-            </select>
-          </div>
-          <div class="field full">
-            <label id="manualModelCapabilitiesLabel"></label>
-            <div class="capability-checks" id="manualModelCapabilities">
-              <label class="cap-check"><input type="checkbox" data-cap="vision" /><span></span></label>
-              <label class="cap-check"><input type="checkbox" data-cap="reasoning" /><span></span></label>
-              <label class="cap-check"><input type="checkbox" data-cap="tools" /><span></span></label>
-              <label class="cap-check"><input type="checkbox" data-cap="webSearch" /><span></span></label>
-            </div>
-          </div>
-        </div>
-        <div class="panel-actions">
-          <button class="btn-secondary" id="cancelManualModelBtn" type="button"></button>
-          <button class="btn-primary" id="saveManualModelBtn" type="button"></button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-backdrop" id="mcpServerModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="mcpServerModalTitle">
-        <h3 class="modal-title" id="mcpServerModalTitle"></h3>
-        <p class="modal-copy" id="mcpServerModalDescription"></p>
-        <div class="field-grid">
-          <div class="field">
-            <label for="mcpModalName" id="mcpModalNameLabel"></label>
-            <input id="mcpModalName" type="text" />
-          </div>
-          <div class="field">
-            <label for="mcpModalTransport" id="mcpModalTransportLabel"></label>
-            <select id="mcpModalTransport">
-              <option value="stdio">stdio</option>
-              <option value="streamableHttp">streamableHttp</option>
-              <option value="sse">sse</option>
-            </select>
-          </div>
-          <div class="field full" id="mcpModalFields"></div>
-        </div>
-        <div class="panel-actions">
-          <button class="btn-secondary" id="mcpModalCancelBtn" type="button"></button>
-          <button class="btn-primary" id="mcpModalSaveBtn" type="button"></button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-backdrop" id="titleSummaryPromptModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true">
-        <h3 class="modal-title" id="titleSummaryPromptModalTitle"></h3>
-        <p class="modal-copy" id="titleSummaryPromptModalDescription"></p>
-        <div class="field">
-          <textarea id="titleSummaryPromptModalTextarea" rows="8"></textarea>
-        </div>
-        <div class="panel-actions">
-          <button class="btn-secondary" id="cancelTitleSummaryPromptBtn" type="button"></button>
-          <button class="btn-secondary" id="resetTitleSummaryPromptBtn" type="button"></button>
-          <button class="btn-primary" id="saveTitleSummaryPromptBtn" type="button"></button>
-        </div>
-      </div>
-    </div>
-
-${TOAST_CONTAINER_HTML}
-
-    <script nonce="${nonce}">
-      ${getSettingsCenterJs(getToastScript(), DEFAULT_TITLE_SUMMARY_PROMPT)}
-    </script>
-  </body>
-</html>`;
   }
 }

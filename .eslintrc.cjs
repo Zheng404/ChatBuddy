@@ -20,5 +20,15 @@ module.exports = {
         varsIgnorePattern: "^_",
       },
     ],
+    "@typescript-eslint/no-explicit-any": "warn",
+    "prefer-const": "error",
   },
+  overrides: [
+    {
+      files: ["src/test/**/*.ts"],
+      rules: {
+        "@typescript-eslint/no-require-imports": "off",
+      },
+    },
+  ],
 };

@@ -1,12 +1,10 @@
 import * as vscode from 'vscode';
 
-import { AssistantsTreeProvider } from './chatbuddy/assistantsView';
 import type { AssistantsTreeNode } from './chatbuddy/assistantsView';
 import { ChatController } from './chatbuddy/chatController';
 import { getStrings, resolveLocale } from './chatbuddy/i18n';
 import { McpRuntime } from './chatbuddy/mcpRuntime';
 import { OpenAICompatibleClient } from './chatbuddy/providerClient';
-import { SessionsTreeProvider } from './chatbuddy/sessionsView';
 import { warn } from './chatbuddy/utils';
 import { ChatStateRepository } from './chatbuddy/stateRepository';
 import { ChatBuddySettings } from './chatbuddy/types';

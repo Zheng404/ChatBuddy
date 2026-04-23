@@ -158,7 +158,7 @@ test('openAssistantChat reuses single-tab panel', () => {
     const controllerProxy = controller as unknown as {
       ensureSession: (assistantId: string) => void;
       postState: () => void;
-      panel?: FakePanel;
+      panelManager: { getActivePanel: () => FakePanel | undefined };
       openAssistantChat: () => void;
     };
     controllerProxy.ensureSession = () => undefined;
@@ -169,7 +169,7 @@ test('openAssistantChat reuses single-tab panel', () => {
 
     assert.equal(panels.length, 1);
     assert.equal(panels[0].revealCount, 1);
-    assert.equal(controllerProxy.panel, panels[0]);
+    assert.equal(controllerProxy.panelManager.getActivePanel(), panels[0]);
   } finally {
     if (originalCreatePanel) {
       (vscode.window as { createWebviewPanel: unknown }).createWebviewPanel = originalCreatePanel;
@@ -214,7 +214,7 @@ test('openAssistantChat creates separate panels in multi-tab mode', () => {
     const controllerProxy = controller as unknown as {
       ensureSession: (assistantId: string) => void;
       postState: () => void;
-      panelsByAssistantId: Map<string, FakePanel>;
+      panelManager: { getPanelsByAssistantId: () => Map<string, FakePanel> };
       openAssistantChat: (assistantId?: string) => void;
     };
     controllerProxy.ensureSession = () => undefined;
@@ -226,9 +226,10 @@ test('openAssistantChat creates separate panels in multi-tab mode', () => {
 
     assert.equal(panels.length, 2);
     assert.equal(panels[0].revealCount, 1);
-    assert.equal(controllerProxy.panelsByAssistantId.size, 2);
-    assert.equal(controllerProxy.panelsByAssistantId.get(assistantA.id), panels[0]);
-    assert.equal(controllerProxy.panelsByAssistantId.get(assistantB.id), panels[1]);
+    const panelsMap = controllerProxy.panelManager.getPanelsByAssistantId();
+    assert.equal(panelsMap.size, 2);
+    assert.equal(panelsMap.get(assistantA.id), panels[0]);
+    assert.equal(panelsMap.get(assistantB.id), panels[1]);
   } finally {
     if (originalCreatePanel) {
       (vscode.window as { createWebviewPanel: unknown }).createWebviewPanel = originalCreatePanel;

@@ -10,6 +10,10 @@ out
 *.vsix
 *.zip
 .github-release-notes.md
+tsconfig.tsbuildinfo
+
+# Test coverage reports
+coverage/
 
 # OS / temp files
 .DS_Store
