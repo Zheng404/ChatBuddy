@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
+## [0.3.1] - 2026-04-23
+
+### English
+
+#### Changed
+
+- Refactored large files across the codebase to improve maintainability and build performance.
+- Switched Mermaid diagram engine to ESM build for full diagram type support (including mindmap, quadrantChart, etc.).
+- Unified CSS design tokens for consistent theming across light and dark modes.
+- Cleaned up i18n strings by removing unused translation keys.
+- Enhanced CI workflow with additional quality checks.
+
+#### Fixed
+
+- Fixed TypeScript type compatibility issues under strict mode.
+- Restored `@cfworker/json-schema` dependency required by the MCP client.
+
+#### Documentation
+
+- Updated README screenshots to match the current UI.
+
+### 中文
+
+#### 变更
+
+- 项目级代码重构：拆分大文件以提升可维护性与构建性能。
+- Mermaid 图表引擎切换至 ESM 构建，完整支持所有图表类型（包括思维导图、象限图等）。
+- 统一 CSS 设计 token，提升明暗主题一致性。
+- 清理国际化字符串，移除未使用的翻译键。
+- 增强 CI 流程，增加额外质量检查。
+
+#### 修复
+
+- 修复 TypeScript 严格模式下的类型兼容问题。
+- 恢复 MCP 客户端所需的 `@cfworker/json-schema` 依赖。
+
+#### 文档
+
+- 更新 README 截图以匹配当前 UI。
+
 ## [0.3.0] - 2026-04-21
 
 ### English
