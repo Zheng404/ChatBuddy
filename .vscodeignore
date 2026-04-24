@@ -1,55 +1,161 @@
+# =============================================================================
+# ChatBuddy - VS Code Extension Package Ignore
+# =============================================================================
+# This file controls what gets included in the published .vsix package.
+# Only runtime essentials should be included; exclude all development files.
+#
+# IMPORTANT: Rules are applied in order. Later rules can override earlier ones.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Test Files (must be BEFORE include rules)
+# -----------------------------------------------------------------------------
+out/test/**
+**/*.spec.js
+**/*.test.js
+**/*.test.ts
+**/*.spec.ts
+coverage/
+*.test.ts.snap
+
+# -----------------------------------------------------------------------------
+# AI Assistant Tools (not needed in extension package)
+# -----------------------------------------------------------------------------
+.claude/
+.codex/
+.serena/
+
+# -----------------------------------------------------------------------------
+# Development & Build Configuration
+# -----------------------------------------------------------------------------
 .vscode/**
-.vscode-test/**
+.github/**
+scripts/**
+docs/**
+img/**/demo/**
+
+# -----------------------------------------------------------------------------
+# Source Code (use compiled output instead)
+# -----------------------------------------------------------------------------
 src/**
-img/**
+**/*.ts
+**/*.map
+
+# Include ONLY runtime JS files (excluding tests)
+!out/extension/**/*.js
+!out/chatbuddy/**/*.js
+# Note: out/test/ already excluded above
+
+# -----------------------------------------------------------------------------
+# Development Configuration Files
+# -----------------------------------------------------------------------------
 .gitignore
 .eslintrc.cjs
-**/tsconfig.json
-**/*.map
-**/*.ts
+.prettierrc
+.editorconfig
+tsconfig.json
+tsconfig.tsbuildinfo
+
+# -----------------------------------------------------------------------------
+# Package Manager Files
+# -----------------------------------------------------------------------------
 package-lock.json
-.github-release-notes.md
-out/test/**
-.codex
-.claude
-.serena
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# -----------------------------------------------------------------------------
+# Build Artifacts
+# -----------------------------------------------------------------------------
+*.vsix
 *.zip
+*.tgz
+.github-release-notes.md
 
-# CI / docs / scripts (not needed at runtime)
-.github/workflows/**
-docs/**
-scripts/**
+# -----------------------------------------------------------------------------
+# Documentation (exclude but keep LICENSE and nls files)
+# -----------------------------------------------------------------------------
+CHANGELOG.md
+README*.md
+!LICENSE
+!LICENSE.md
+!LICENSE.txt
+*.md
+!package.nls*.json
 
-# Exclude all katex/mermaid files, then re-include only what's needed
+# -----------------------------------------------------------------------------
+# Node Modules - Optimized Selection
+# -----------------------------------------------------------------------------
+# KaTeX: keep only minified dist
 node_modules/katex/**
 !node_modules/katex/dist/katex.min.js
 !node_modules/katex/dist/katex.min.css
 !node_modules/katex/dist/fonts/**
+
+# Mermaid: keep only minified dist
 node_modules/mermaid/**
 !node_modules/mermaid/dist/mermaid.min.js
 node_modules/@mermaid-js/**
-# Exclude debug/demo/unnecessary files from other dependencies
+
+# SQL.js: exclude debug and browser-specific builds
 node_modules/sql.js/dist/*-debug.*
 node_modules/sql.js/dist/*-memory-growth.*
 node_modules/sql.js/dist/sql-asm.js
 node_modules/sql.js/dist/worker.sql-asm.js
 node_modules/sql.js/dist/sql-wasm-browser-debug.wasm
 node_modules/sql.js/dist/sql-wasm-browser.wasm
+
+# D3 & dependencies: exclude test and source files
+node_modules/d3/**/src/**
+node_modules/d3-array/**/*.spec.*
+node_modules/d3-axis/**/*.spec.*
+node_modules/d3-brush/**/*.spec.*
+node_modules/d3-chord/**/*.spec.*
+node_modules/d3-color/**/*.spec.*
+node_modules/d3-contour/**/*.spec.*
+node_modules/d3-dispatch/**/*.spec.*
+node_modules/d3-drag/**/*.spec.*
+node_modules/d3-dsv/**/*.spec.*
+node_modules/d3-ease/**/*.spec.*
+node_modules/d3-fetch/**/*.spec.*
+node_modules/d3-force/**/*.spec.*
+node_modules/d3-format/**/*.spec.*
+node_modules/d3-geo/**/*.spec.*
+node_modules/d3-hierarchy/**/*.spec.*
+node_modules/d3-interpolate/**/*.spec.*
+node_modules/d3-path/**/*.spec.*
+node_modules/d3-polygon/**/*.spec.*
+node_modules/d3-quadtree/**/*.spec.*
+node_modules/d3-random/**/*.spec.*
+node_modules/d3-scale/**/*.spec.*
+node_modules/d3-scale-chromatic/**/*.spec.*
+node_modules/d3-selection/**/*.spec.*
+node_modules/d3-shape/**/*.spec.*
+node_modules/d3-time/**/*.spec.*
+node_modules/d3-time-format/**/*.spec.*
+node_modules/d3-timer/**/*.spec.*
+node_modules/d3-transition/**/*.spec.*
+node_modules/d3-zoom/**/*.spec.*
+
+# Cytoscape: exclude demo and duplicate builds
 node_modules/cytoscape-fcose/demo/**
 node_modules/cytoscape/dist/cytoscape.umd.js
 node_modules/cytoscape/dist/cytoscape.cjs.js
-node_modules/cytoscape/dist/cytoscape.esm.mjs
 
-# Prune unnecessary files from all node_modules
-**/*.d.mts
+# -----------------------------------------------------------------------------
+# Prune Unnecessary Files from All Dependencies
+# -----------------------------------------------------------------------------
 **/*.d.ts
+**/*.d.mts
 **/*.d.cts
-**/*.spec.js
-**/*.test.js
 **/node_modules/**/test/**
 **/node_modules/**/tests/**
 **/node_modules/**/tests-examples/**
 **/node_modules/**/.github/**
+**/node_modules/**/examples/**
+**/node_modules/**/demo/**
+**/node_modules/**/demos/**
+**/node_modules/**/docs/**
 **/node_modules/**/CHANGELOG*
 **/node_modules/**/README*
 **/node_modules/**/LICENSE*
@@ -57,3 +163,7 @@ node_modules/cytoscape/dist/cytoscape.esm.mjs
 **/node_modules/**/CONTRIBUTING*
 **/node_modules/**/.eslint*
 **/node_modules/**/.prettier*
+**/node_modules/**/.editorconfig*
+**/node_modules/**/tsconfig.json
+**/node_modules/**/jest.config.*
+**/node_modules/**/vitest.config.*
