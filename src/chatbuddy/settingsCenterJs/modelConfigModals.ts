@@ -220,5 +220,82 @@ export function getModelConfigModalsJs(): string {
         closeManualModelModal();
         renderAll();
       }
+
+      function openAddProviderModal() {
+        var strings = runtimeState.strings || {};
+        dom.addProviderModalTitle.textContent = strings.addProviderModalTitle || '';
+        dom.addProviderModalDescription.textContent = strings.addProviderModalDescription || '';
+        dom.cancelAddProviderBtn.textContent = strings.cancelAction || '';
+        renderProviderTemplateGrid();
+        openModal(dom.addProviderModal);
+      }
+
+      function closeAddProviderModal() {
+        closeModal(dom.addProviderModal);
+      }
+
+      function renderProviderTemplateGrid() {
+        var strings = runtimeState.strings || {};
+        var templateKeys = Object.keys(PROVIDER_TEMPLATES);
+        var html = '<div class="provider-template-card" data-template-key="custom" tabindex="0">'
+          + '<span class="provider-template-card-icon"><span class="codicon codicon-add"></span></span>'
+          + '<div class="provider-template-card-info">'
+          + '<div class="provider-template-card-header">'
+          + '<span class="provider-template-card-name">' + escapeHtml(strings.providerTemplateCustomChat || 'Custom (Chat Completions)') + '</span>'
+          + '</div>'
+          + '<div class="provider-template-card-description">' + escapeHtml(strings.providerTemplateCustomChatUrl || '') + '</div>'
+          + '</div>'
+          + '<div class="provider-template-card-preview">'
+          + '<span class="pill">chat/completions</span>'
+          + '</div>'
+          + '</div>'
+          + '<div class="provider-template-card" data-template-key="custom-responses" tabindex="0">'
+          + '<span class="provider-template-card-icon"><span class="codicon codicon-add"></span></span>'
+          + '<div class="provider-template-card-info">'
+          + '<div class="provider-template-card-header">'
+          + '<span class="provider-template-card-name">' + escapeHtml(strings.providerTemplateCustomResponses || 'Custom (Responses API)') + '</span>'
+          + '</div>'
+          + '<div class="provider-template-card-description">' + escapeHtml(strings.providerTemplateCustomResponsesUrl || '') + '</div>'
+          + '</div>'
+          + '<div class="provider-template-card-preview">'
+          + '<span class="pill">responses</span>'
+          + '</div>'
+          + '</div>'
+          + '<div class="provider-template-card" data-template-key="custom-gemini" tabindex="0">'
+          + '<span class="provider-template-card-icon"><span class="codicon codicon-add"></span></span>'
+          + '<div class="provider-template-card-info">'
+          + '<div class="provider-template-card-header">'
+          + '<span class="provider-template-card-name">' + escapeHtml(strings.providerTemplateCustomGemini || 'Custom (Gemini)') + '</span>'
+          + '</div>'
+          + '<div class="provider-template-card-description">' + escapeHtml(strings.providerTemplateCustomGeminiUrl || '') + '</div>'
+          + '</div>'
+          + '<div class="provider-template-card-preview">'
+          + '<span class="pill">gemini</span>'
+          + '</div>'
+          + '</div>';
+        for (var i = 0; i < templateKeys.length; i++) {
+          var key = templateKeys[i];
+          var t = PROVIDER_TEMPLATES[key];
+          var apiLabel = t.apiType === 'responses' ? 'responses' : t.apiType === 'gemini' ? 'gemini' : 'chat/completions';
+          html += '<div class="provider-template-card" data-template-key="' + escapeHtml(key) + '" tabindex="0">'
+            + '<div class="provider-template-card-info">'
+            + '<div class="provider-template-card-header">'
+            + '<span class="provider-template-card-name">' + escapeHtml(t.name) + '</span>'
+            + '</div>'
+            + '<div class="provider-template-card-description">' + escapeHtml(t.baseUrl || '') + '</div>'
+            + '</div>'
+            + '<div class="provider-template-card-preview">'
+            + '<span class="pill">' + escapeHtml(t.kind) + '</span>'
+            + '<span class="pill">' + escapeHtml(apiLabel) + '</span>'
+            + '</div>'
+            + '</div>';
+        }
+        dom.providerTemplateGrid.innerHTML = html;
+      }
+
+      function selectProviderTemplate(templateKey) {
+        closeAddProviderModal();
+        void addProvider(templateKey || undefined);
+      }
   `;
 }

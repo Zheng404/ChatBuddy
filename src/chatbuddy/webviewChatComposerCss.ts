@@ -99,6 +99,27 @@ export function getWebviewChatComposerCss(): string {
         gap: 8px;
       }
 
+      .send-group .btn-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 6px;
+        border-radius: 6px;
+      }
+
+      .send-group .btn-icon:hover {
+        background: var(--toolbar-hover);
+        color: var(--text);
+      }
+
+      .send-group .btn-icon .codicon {
+        font-size: 18px;
+      }
+
       .send-group .btn-primary,
       .send-group .btn-secondary {
         border-radius: 10px;

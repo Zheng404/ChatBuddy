@@ -43,6 +43,7 @@ export function getChatBodyHtml(): string {
                   <span id="streamingLabel"></span>
                 </label>
                 <button class="btn-secondary" id="stopBtn" type="button"></button>
+                <button class="btn-icon" id="searchBtn" type="button" title="Search (Ctrl+F)"><span class="codicon codicon-search"></span></button>
                 <button class="btn-primary" id="sendBtn" type="button"></button>
               </div>
             </div>

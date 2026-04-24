@@ -516,3 +516,105 @@ export function parseOllamaModels(data: unknown): ProviderModelProfile[] {
   }
   return result;
 }
+
+// ── Gemini Native API Response Parsing ─────────────────────────
+
+export function extractGeminiStreamDelta(data: unknown): StreamDeltaResult {
+  const result: StreamDeltaResult = { textDelta: '', reasoningDelta: '' };
+  const payload = toObject<{
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+          thought?: boolean;
+          functionCall?: { name?: string; args?: unknown; id?: string };
+        }>;
+      };
+    }>;
+  }>(data);
+
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) {
+    return result;
+  }
+
+  for (const part of parts) {
+    if (!part || typeof part !== 'object') {
+      continue;
+    }
+    if (part.thought === true && typeof part.text === 'string') {
+      result.reasoningDelta += part.text;
+    } else if (typeof part.text === 'string') {
+      result.textDelta += part.text;
+    }
+  }
+
+  return result;
+}
+
+function extractGeminiToolCallsFromParts(parts: unknown[]): ProviderToolCall[] {
+  if (!Array.isArray(parts)) {
+    return [];
+  }
+  return parts
+    .map((part) => {
+      if (!part || typeof part !== 'object') {
+        return undefined;
+      }
+      const fc = (part as Record<string, unknown>).functionCall;
+      if (!fc || typeof fc !== 'object') {
+        return undefined;
+      }
+      const name = toTrimmedString((fc as Record<string, unknown>).name);
+      if (!name) {
+        return undefined;
+      }
+      const args = (fc as Record<string, unknown>).args;
+      const id = toTrimmedString((fc as Record<string, unknown>).id) || `${name}-${Math.random().toString(36).slice(2, 8)}`;
+      return {
+        id,
+        name,
+        argumentsText: typeof args === 'string' ? args : JSON.stringify(args ?? {})
+      };
+    })
+    .filter((call): call is ProviderToolCall => Boolean(call));
+}
+
+export function parseGeminiChatResult(data: unknown): ProviderChatResult {
+  const payload = toObject<{
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+          thought?: boolean;
+          functionCall?: { name?: string; args?: unknown; id?: string };
+        }>;
+      };
+    }>;
+  }>(data);
+
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) {
+    return { text: '' };
+  }
+
+  const textChunks: string[] = [];
+  const reasoningChunks: string[] = [];
+
+  for (const part of parts) {
+    if (!part || typeof part !== 'object') {
+      continue;
+    }
+    if (part.thought === true && typeof part.text === 'string') {
+      reasoningChunks.push(part.text);
+    } else if (typeof part.text === 'string') {
+      textChunks.push(part.text);
+    }
+  }
+
+  return {
+    text: textChunks.join('') || '',
+    reasoning: reasoningChunks.join('') || undefined,
+    toolCalls: extractGeminiToolCallsFromParts(parts)
+  };
+}

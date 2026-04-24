@@ -22,14 +22,17 @@ import {
 import {
   extractChatCompletionResult,
   extractChatCompletionsStreamDelta,
+  extractGeminiStreamDelta,
   extractResponsesResult,
-  extractResponsesStreamEvent
+  extractResponsesStreamEvent,
+  parseGeminiChatResult
 } from './providerClientParsers';
 import { fetchProviderModels, isOllamaProvider } from './providerClientModelFetchers';
 import {
   createHeaders,
   normalizeBaseUrl,
   toChatCompletionBody,
+  toGeminiBody,
   toResponsesBody
 } from './providerClientRequestBuilders';
 import {
@@ -202,6 +205,9 @@ export class OpenAICompatibleClient {
     if (providerConfig.apiType === 'responses') {
       return this.responses(messages, providerConfig, locale, signal, options);
     }
+    if (providerConfig.apiType === 'gemini') {
+      return this.gemini(messages, providerConfig, locale, signal, options);
+    }
     return this.chatCompletions(messages, providerConfig, locale, signal, options);
   }
 
@@ -215,6 +221,10 @@ export class OpenAICompatibleClient {
   ): Promise<void> {
     if (providerConfig.apiType === 'responses') {
       await this.responsesStream(messages, providerConfig, handlers, locale, signal, options);
+      return;
+    }
+    if (providerConfig.apiType === 'gemini') {
+      await this.geminiStream(messages, providerConfig, handlers, locale, signal, options);
       return;
     }
     await this.chatCompletionsStream(messages, providerConfig, handlers, locale, signal, options);
@@ -458,6 +468,80 @@ export class OpenAICompatibleClient {
           handlers.onReasoningDelta?.(event.reasoningDelta);
         }
         return event.done;
+      },
+      handlers.onDone,
+      providerConfig.timeoutMs
+    );
+  }
+
+  private async postGeminiJson(
+    providerConfig: ProviderConfig,
+    endpoint: 'generateContent' | 'streamGenerateContent',
+    body: Record<string, unknown>,
+    locale: RuntimeLocale,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    const provider = this.toProviderConnectionInput(providerConfig);
+    const base = normalizeBaseUrl(providerConfig.baseUrl);
+    const url = endpoint === 'streamGenerateContent'
+      ? `${base}/models/${encodeURIComponent(providerConfig.modelId)}:streamGenerateContent?alt=sse`
+      : `${base}/models/${encodeURIComponent(providerConfig.modelId)}:generateContent`;
+    return retryWithBackoff(async () => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: createHeaders(provider),
+        body: JSON.stringify(body),
+        signal
+      });
+      await ensureSuccess(response, locale);
+      return response;
+    });
+  }
+
+  private async gemini(
+    messages: ProviderMessage[],
+    providerConfig: ProviderConfig,
+    locale: RuntimeLocale,
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
+  ): Promise<ProviderChatResult> {
+    const response = await this.postGeminiJson(
+      providerConfig,
+      'generateContent',
+      toGeminiBody(messages, providerConfig, false, options.tools ?? [], options.toolRounds ?? []),
+      locale,
+      signal
+    );
+    return parseGeminiChatResult(await response.json());
+  }
+
+  private async geminiStream(
+    messages: ProviderMessage[],
+    providerConfig: ProviderConfig,
+    handlers: StreamHandlers,
+    locale: RuntimeLocale,
+    signal?: AbortSignal,
+    options: ProviderRequestOptions = {}
+  ): Promise<void> {
+    const response = await this.postGeminiJson(
+      providerConfig,
+      'streamGenerateContent',
+      toGeminiBody(messages, providerConfig, true, options.tools ?? [], options.toolRounds ?? []),
+      locale,
+      signal
+    );
+    await this.consumeSseResponse(
+      response,
+      locale,
+      (payload) => {
+        const delta = extractGeminiStreamDelta(payload);
+        if (delta.textDelta) {
+          handlers.onDelta(delta.textDelta);
+        }
+        if (delta.reasoningDelta) {
+          handlers.onReasoningDelta?.(delta.reasoningDelta);
+        }
+        return false;
       },
       handlers.onDone,
       providerConfig.timeoutMs

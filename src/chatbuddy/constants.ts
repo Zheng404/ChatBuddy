@@ -29,7 +29,7 @@ export const PROVIDER_LIMITS = {
   /** Fallback model ID for connection testing. */
   DEFAULT_TEST_MODEL: 'gpt-4o-mini',
   /** Maximum length of error response preview in characters. */
-  ERROR_RESPONSE_TRUNCATE_LENGTH: 160,
+  ERROR_RESPONSE_TRUNCATE_LENGTH: 500,
 } as const;
 
 /** MCP tool calling constraints. */

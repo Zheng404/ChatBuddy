@@ -112,6 +112,7 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                         <select id="apiType">
                           <option value="chat_completions">chat/completions</option>
                           <option value="responses">responses</option>
+                          <option value="gemini">Gemini</option>
                         </select>
                       </div>
                       <div class="field full">
@@ -125,7 +126,7 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                       </div>
                       <div class="field full">
                         <label for="baseUrl" id="baseUrlLabel"></label>
-                        <input id="baseUrl" type="text" />
+                        <input id="baseUrl" type="text" placeholder="https://api.openai.com/v1" />
                       </div>
                     </div>
                   </section>
@@ -367,6 +368,10 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
         </div>
         <input id="fetchModelsModalSearch" class="provider-search" type="text" />
         <div class="fetch-models-list" id="fetchModelsModalList"></div>
+        <div class="fetch-models-error" id="fetchModelsError" style="display:none">
+          <p id="fetchModelsErrorText" class="fetch-models-error-text"></p>
+          <button class="btn-primary" id="retryFetchModelsBtn" type="button"></button>
+        </div>
       </div>
     </div>
 
@@ -447,6 +452,17 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
           <button class="btn-secondary" id="cancelTitleSummaryPromptBtn" type="button"></button>
           <button class="btn-secondary" id="resetTitleSummaryPromptBtn" type="button"></button>
           <button class="btn-primary" id="saveTitleSummaryPromptBtn" type="button"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="addProviderModal" aria-hidden="true">
+      <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="addProviderModalTitle">
+        <h3 class="modal-title" id="addProviderModalTitle"></h3>
+        <p class="modal-copy" id="addProviderModalDescription"></p>
+        <div class="provider-template-grid" id="providerTemplateGrid"></div>
+        <div class="panel-actions">
+          <button class="btn-secondary" id="cancelAddProviderBtn" type="button"></button>
         </div>
       </div>
     </div>

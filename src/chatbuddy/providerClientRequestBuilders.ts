@@ -173,3 +173,139 @@ export function toResponsesBody(
   }
   return body;
 }
+
+// ── Gemini Native API ──────────────────────────────────────────
+
+function toGeminiParts(message: ProviderMessage): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = [];
+  if (typeof message.content === 'string') {
+    if (message.content) {
+      parts.push({ text: message.content });
+    }
+    return parts;
+  }
+  for (const part of message.content) {
+    if (part.type === 'text') {
+      parts.push({ text: part.text });
+    } else if (part.type === 'image_url') {
+      const url = part.image_url?.url || '';
+      const match = url.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+      }
+    }
+  }
+  return parts;
+}
+
+function toGeminiToolResultParts(toolRound: ProviderToolRound): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = [];
+  for (const result of toolRound.results) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.output);
+    } catch {
+      parsed = result.output;
+    }
+    parts.push({
+      functionResponse: {
+        name: result.toolCallId,
+        response: { result: parsed }
+      }
+    });
+  }
+  return parts;
+}
+
+function toGeminiContents(messages: ProviderMessage[], toolRounds: ProviderToolRound[] = []): Array<Record<string, unknown>> {
+  const contents: Array<Record<string, unknown>> = [];
+  for (const message of messages) {
+    if (message.role === 'system') {
+      continue;
+    }
+    const geminiRole = message.role === 'assistant' ? 'model' : 'user';
+    contents.push({ role: geminiRole, parts: toGeminiParts(message) });
+  }
+  for (const round of toolRounds) {
+    if (round.toolCalls.length > 0) {
+      const callParts = round.toolCalls.map((call) => ({
+        functionCall: {
+          name: call.name,
+          args: (() => { try { return JSON.parse(call.argumentsText); } catch { return {}; } })()
+        }
+      }));
+      contents.push({ role: 'model', parts: callParts });
+    }
+    if (round.results.length > 0) {
+      contents.push({ role: 'user', parts: toGeminiToolResultParts(round) });
+    }
+  }
+  return contents;
+}
+
+function extractGeminiSystemInstruction(messages: ProviderMessage[]): Record<string, unknown> | undefined {
+  const systemMessages = messages.filter((m) => m.role === 'system');
+  if (systemMessages.length === 0) {
+    return undefined;
+  }
+  const parts: Array<Record<string, unknown>> = [];
+  for (const msg of systemMessages) {
+    const msgParts = toGeminiParts(msg);
+    parts.push(...msgParts);
+  }
+  if (parts.length === 0) {
+    return undefined;
+  }
+  return { parts };
+}
+
+function toGeminiGenerationConfig(providerConfig: ProviderConfig): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  if (providerConfig.temperature > 0) {
+    config.temperature = providerConfig.temperature;
+  }
+  if (providerConfig.topP > 0) {
+    config.topP = providerConfig.topP;
+  }
+  if (providerConfig.maxTokens > 0) {
+    config.maxOutputTokens = providerConfig.maxTokens;
+  }
+  return config;
+}
+
+function toGeminiToolDeclarations(tools: ProviderToolDefinition[]): Array<Record<string, unknown>> {
+  return tools
+    .filter((t) => t.type === 'function')
+    .map((t) => ({
+      type: 'function',
+      function: {
+        name: t.function.name,
+        description: t.function.description || '',
+        parameters: t.function.parameters || {}
+      }
+    }));
+}
+
+export function toGeminiBody(
+  messages: ProviderMessage[],
+  providerConfig: ProviderConfig,
+  _stream: boolean,
+  tools: ProviderToolDefinition[] = [],
+  toolRounds: ProviderToolRound[] = []
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    contents: toGeminiContents(messages, toolRounds)
+  };
+  const systemInstruction = extractGeminiSystemInstruction(messages);
+  if (systemInstruction) {
+    body.systemInstruction = systemInstruction;
+  }
+  const genConfig = toGeminiGenerationConfig(providerConfig);
+  if (Object.keys(genConfig).length > 0) {
+    body.generationConfig = genConfig;
+  }
+  if (tools.length > 0) {
+    body.tools = toGeminiToolDeclarations(tools);
+  }
+  return body;
+}

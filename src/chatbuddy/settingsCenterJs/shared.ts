@@ -103,6 +103,9 @@ export function getSharedJs(): string {
         fetchModelsModalDescription: document.getElementById('fetchModelsModalDescription'),
         fetchModelsModalSearch: document.getElementById('fetchModelsModalSearch'),
         fetchModelsModalList: document.getElementById('fetchModelsModalList'),
+        fetchModelsError: document.getElementById('fetchModelsError'),
+        fetchModelsErrorText: document.getElementById('fetchModelsErrorText'),
+        retryFetchModelsBtn: document.getElementById('retryFetchModelsBtn'),
         closeFetchModelsModalBtn: document.getElementById('closeFetchModelsModalBtn'),
         manualModelModal: document.getElementById('manualModelModal'),
         manualModelModalTitle: document.getElementById('manualModelModalTitle'),
@@ -160,6 +163,11 @@ export function getSharedJs(): string {
         noticeChangelogTitle: document.getElementById('noticeChangelogTitle'),
         noticeChangelogContent: document.getElementById('noticeChangelogContent'),
         aboutOverviewGrid: document.getElementById('aboutOverviewGrid'),
+        addProviderModal: document.getElementById('addProviderModal'),
+        addProviderModalTitle: document.getElementById('addProviderModalTitle'),
+        addProviderModalDescription: document.getElementById('addProviderModalDescription'),
+        providerTemplateGrid: document.getElementById('providerTemplateGrid'),
+        cancelAddProviderBtn: document.getElementById('cancelAddProviderBtn'),
         toastStack: document.getElementById('toastStack')
       };
 
@@ -212,6 +220,7 @@ export function getSharedJs(): string {
       let fetchModelsModalProviderId = '';
       let fetchModelsSearchKeyword = '';
       let isFetchingProviderModels = false;
+      let fetchModelsLastError = '';
       let manualModelModalState = null;
       let discardModalResolver = null;
       let providerEditorId = '';

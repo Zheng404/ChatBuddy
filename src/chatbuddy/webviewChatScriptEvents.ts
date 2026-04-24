@@ -414,5 +414,8 @@ export function getChatEventScript(): string {
       dom.searchPrevBtn.addEventListener('click', function() { navigateSearch(-1); });
       dom.searchNextBtn.addEventListener('click', function() { navigateSearch(1); });
       dom.searchCloseBtn.addEventListener('click', closeSearch);
+      if (dom.searchBtn) {
+        dom.searchBtn.addEventListener('click', openSearch);
+      }
 `;
 }

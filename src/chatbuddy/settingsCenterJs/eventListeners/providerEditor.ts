@@ -62,7 +62,7 @@ export function getProviderEditorJs(): string {
       });
 
       dom.addProviderBtn.addEventListener('click', () => {
-        void addProvider();
+        openAddProviderModal();
       });
 
       dom.deleteProviderBtn.addEventListener('click', () => {
@@ -110,7 +110,7 @@ export function getProviderEditorJs(): string {
 
       dom.apiType.addEventListener('change', () => {
         updateEditingProvider((provider) => {
-          provider.apiType = dom.apiType.value === 'responses' ? 'responses' : 'chat_completions';
+          provider.apiType = dom.apiType.value === 'gemini' ? 'gemini' : dom.apiType.value === 'responses' ? 'responses' : 'chat_completions';
         });
         scheduleProviderAutosave(providerEditorId, 250);
         renderAll();

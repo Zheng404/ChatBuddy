@@ -77,6 +77,23 @@ export function getSettingsCenterModalCss(): string {
         line-height: 1.6;
       }
 
+      .fetch-models-error {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 12px 8px;
+      }
+
+      .fetch-models-error-text {
+        font-size: 12px;
+        color: var(--color-error);
+        text-align: center;
+        line-height: 1.5;
+        max-width: 320px;
+        word-break: break-word;
+      }
+
       .fetch-model-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -113,5 +130,75 @@ export function getSettingsCenterModalCss(): string {
         to {
           transform: rotate(360deg);
         }
+      }
+
+      .provider-template-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: min(60vh, 420px);
+        overflow-y: auto;
+      }
+
+      .provider-template-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg, 8px);
+        padding: 12px 14px;
+        background: transparent;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        outline: none;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .provider-template-card:hover,
+      .provider-template-card:focus-visible {
+        background: var(--panel-bg-strong, var(--toolbar-hover));
+        border-color: var(--accent);
+      }
+
+      .provider-template-card-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .provider-template-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 2px;
+      }
+
+      .provider-template-card-icon {
+        color: var(--accent);
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
+      .provider-template-card-name {
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .provider-template-card-description {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .provider-template-card-preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+
+      .provider-template-card-preview .pill {
+        font-size: 10px;
+        line-height: 16px;
       }`;
 }

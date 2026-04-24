@@ -10,6 +10,17 @@ export function getModalsJs(defaultTitleSummaryPrompt: string): string {
         renderFetchModelsModal();
       });
 
+      if (dom.retryFetchModelsBtn) {
+        dom.retryFetchModelsBtn.addEventListener('click', () => {
+          var provider = getProviderById(fetchModelsModalProviderId);
+          if (!provider) { return; }
+          fetchModelsLastError = '';
+          isFetchingProviderModels = true;
+          renderFetchModelsModal();
+          vscode.postMessage({ type: 'fetchModels', payload: provider });
+        });
+      }
+
       dom.fetchModelsModalList.addEventListener('click', (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) {
@@ -158,8 +169,41 @@ export function getModalsJs(defaultTitleSummaryPrompt: string): string {
         }
       });
 
+      // Add provider template modal
+      dom.providerTemplateGrid.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) { return; }
+        const card = target.closest('.provider-template-card');
+        if (!card) { return; }
+        selectProviderTemplate(card.getAttribute('data-template-key') || '');
+      });
+
+      dom.providerTemplateGrid.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') { return; }
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) { return; }
+        const card = target.closest('.provider-template-card');
+        if (!card) { return; }
+        event.preventDefault();
+        selectProviderTemplate(card.getAttribute('data-template-key') || '');
+      });
+
+      dom.cancelAddProviderBtn.addEventListener('click', () => {
+        closeAddProviderModal();
+      });
+
+      dom.addProviderModal.addEventListener('click', (event) => {
+        if (event.target === dom.addProviderModal) {
+          closeAddProviderModal();
+        }
+      });
+
       // Global Escape key handler
       window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && dom.addProviderModal.classList.contains('visible')) {
+          closeAddProviderModal();
+          return;
+        }
         if (event.key === 'Escape' && dom.titleSummaryPromptModal.classList.contains('visible')) {
           closeTitleSummaryPromptModal();
           return;

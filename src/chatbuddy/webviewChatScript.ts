@@ -61,7 +61,8 @@ export function getChatScript(args: { nonce: string }): string {
         searchCount: document.getElementById('searchCount'),
         searchPrevBtn: document.getElementById('searchPrevBtn'),
         searchNextBtn: document.getElementById('searchNextBtn'),
-        searchCloseBtn: document.getElementById('searchCloseBtn')
+        searchCloseBtn: document.getElementById('searchCloseBtn'),
+        searchBtn: document.getElementById('searchBtn')
       };
 
       let state = {

@@ -32,7 +32,10 @@ export function getMessageHandlerJs(): string {
           const shouldFocusModalSearch = fetchModelsModalProviderId === message.payload.providerId;
           isFetchingProviderModels = false;
           if (message.payload.success) {
+            fetchModelsLastError = '';
             rememberFetchedModels(message.payload.providerId, message.payload.models || []);
+          } else {
+            fetchModelsLastError = message.payload.message || '';
           }
           showToast(message.payload.message || '', message.payload.success ? 'success' : 'error');
           renderAll();

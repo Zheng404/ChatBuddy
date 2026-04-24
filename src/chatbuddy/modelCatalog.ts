@@ -27,7 +27,7 @@ export const DEFAULT_TITLE_SUMMARY_PROMPT =
   '5. Do not use reasoning or thinking process, output the title directly';
 
 export function normalizeApiType(value: unknown, fallback: ProviderApiType = 'chat_completions'): ProviderApiType {
-  return value === 'responses' || value === 'chat_completions' ? value : fallback;
+  return value === 'responses' || value === 'chat_completions' || value === 'gemini' ? value : fallback;
 }
 
 export function createModelRef(providerId: string, modelId: string): string {
