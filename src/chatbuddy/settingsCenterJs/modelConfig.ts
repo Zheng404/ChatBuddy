@@ -605,5 +605,30 @@ export function getModelConfigJs(): string {
         }
         closeDiscardChangesModal(false);
       }
+
+      function buildModelSelectOptions(includeInvalidRef) {
+        const strings = runtimeState.strings || {};
+        const options = [{ ref: '', label: strings.noneOption || '' }]
+          .concat((runtimeState.modelOptions || []).map((option) => {
+            return {
+              ref: option.ref,
+              label: option.label + (option.metaLabel || '')
+            };
+          }));
+        if (includeInvalidRef) {
+          options.push({ ref: includeInvalidRef, label: includeInvalidRef + ' (' + strings.modelUnavailableShort + ')' });
+        }
+        const seen = new Set();
+        return options
+          .filter((option) => {
+            if (seen.has(option.ref)) {
+              return false;
+            }
+            seen.add(option.ref);
+            return true;
+          })
+          .map((option) => '<option value="' + escapeHtml(option.ref) + '">' + escapeHtml(option.label) + '</option>')
+          .join('');
+      }
 `;
 }

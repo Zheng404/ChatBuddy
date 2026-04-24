@@ -87,7 +87,7 @@ export function getDataManagementJs(): string {
         var strings = runtimeState.strings || {};
         var items = runtimeState.backupFiles || [];
         if (!items.length) {
-          dom.backupListContainer.innerHTML = '<div class="help">' + (strings.backupListEmpty || 'No backups found.') + '</div>';
+          dom.backupListContainer.innerHTML = '<div class="help">' + escapeHtml(strings.backupListEmpty || 'No backups found.') + '</div>';
           return;
         }
         var html = '';

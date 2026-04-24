@@ -124,10 +124,6 @@ function createFakePanel(): FakePanel {
   return panel;
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 test('openAssistantChat reuses single-tab panel', () => {
   const assistant = createAssistant('a-1', 'Assistant 1');
   let selectedAssistantId = assistant.id;
@@ -239,7 +235,7 @@ test('openAssistantChat creates separate panels in multi-tab mode', () => {
   }
 });
 
-test('stream state post scheduling is throttled and flush posts immediately', async () => {
+test('stream state post scheduling is throttled and flush posts immediately', async (t) => {
   const assistant = createAssistant('a-1', 'Assistant 1');
   const repository = {
     getSelectedAssistant: () => assistant,
@@ -267,14 +263,18 @@ test('stream state post scheduling is throttled and flush posts immediately', as
     postStateCount += 1;
   };
 
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+
   controllerProxy.scheduleStreamStatePost({ panel });
   controllerProxy.scheduleStreamStatePost({ panel });
-  await wait(200);
+  t.mock.timers.tick(200);
   assert.equal(postStateCount, 1);
 
   controllerProxy.scheduleStreamStatePost({ panel });
   controllerProxy.flushScheduledStreamStatePost({ panel });
   assert.equal(postStateCount, 2);
-  await wait(200);
+  t.mock.timers.tick(200);
   assert.equal(postStateCount, 2);
+
+  t.mock.timers.reset();
 });

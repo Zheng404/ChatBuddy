@@ -14,25 +14,7 @@ export function getDefaultModelsJs(defaultTitleSummaryPrompt: string): string {
             ? defaults.assistant.providerId + ':' + defaults.assistant.modelId
             : '';
         const invalidRef = runtimeState.invalidDefaultSelection || '';
-        const options = [{ ref: '', label: strings.noneOption || '' }]
-          .concat((runtimeState.modelOptions || []).map((option) => {
-            return {
-              ref: option.ref,
-              label: option.label + (option.metaLabel || '')
-            };
-          }))
-          .concat(invalidRef ? [{ ref: invalidRef, label: invalidRef + ' (' + strings.modelUnavailableShort + ')' }] : []);
-        const seen = new Set();
-        dom.defaultAssistantModel.innerHTML = options
-          .filter((option) => {
-            if (seen.has(option.ref)) {
-              return false;
-            }
-            seen.add(option.ref);
-            return true;
-          })
-          .map((option) => '<option value="' + escapeHtml(option.ref) + '">' + escapeHtml(option.label) + '</option>')
-          .join('');
+        dom.defaultAssistantModel.innerHTML = buildModelSelectOptions(invalidRef);
         dom.defaultAssistantModel.value = currentRef || '';
         dom.defaultAssistantModelHelp.textContent = invalidRef ? strings.invalidDefaultModelHint || '' : '';
         dom.defaultAssistantModelHelp.className = invalidRef ? 'help invalid' : 'help';
@@ -44,17 +26,7 @@ export function getDefaultModelsJs(defaultTitleSummaryPrompt: string): string {
           defaults.titleSummary && defaults.titleSummary.providerId && defaults.titleSummary.modelId
             ? defaults.titleSummary.providerId + ':' + defaults.titleSummary.modelId
             : '';
-        const seenTs = new Set();
-        dom.defaultTitleSummaryModel.innerHTML = options
-          .filter((option) => {
-            if (seenTs.has(option.ref)) {
-              return false;
-            }
-            seenTs.add(option.ref);
-            return true;
-          })
-          .map((option) => '<option value="' + escapeHtml(option.ref) + '">' + escapeHtml(option.label) + '</option>')
-          .join('');
+        dom.defaultTitleSummaryModel.innerHTML = buildModelSelectOptions('');
         dom.defaultTitleSummaryModel.value = titleSummaryRef || '';
         dom.defaultTitleSummaryModelHelp.textContent = '';
         dom.defaultTitleSummaryModelHelp.className = 'help';

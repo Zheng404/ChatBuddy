@@ -4,6 +4,10 @@
  */
 export function getModelConfigRenderersJs(): string {
   return `
+      function renderModelEmptyState(messageKey) {
+        return '<div class="model-empty">' + escapeHtml(runtimeState.strings[messageKey] || '') + '</div>';
+      }
+
       function renderKindPill(kind) {
         var effectiveKind = kind || 'chat';
         var label = getKindLabel(effectiveKind);
@@ -229,12 +233,12 @@ export function getModelConfigRenderersJs(): string {
 
       function renderManualModelsList(provider) {
         if (!provider) {
-          dom.manualModelsList.innerHTML = '<div class="model-empty">' + escapeHtml(runtimeState.strings.selectProviderToEdit || '') + '</div>';
+          dom.manualModelsList.innerHTML = renderModelEmptyState('selectProviderToEdit');
           return;
         }
         const models = getManualModels(provider);
         if (!models.length) {
-          dom.manualModelsList.innerHTML = '<div class="model-empty">' + escapeHtml(runtimeState.strings.providerManualModelsEmpty || '') + '</div>';
+          dom.manualModelsList.innerHTML = renderModelEmptyState('providerManualModelsEmpty');
           return;
         }
         dom.manualModelsList.innerHTML = models
@@ -260,12 +264,12 @@ export function getModelConfigRenderersJs(): string {
 
       function renderFetchedModelsList(provider) {
         if (!provider) {
-          dom.fetchedModelsList.innerHTML = '<div class="model-empty">' + escapeHtml(runtimeState.strings.selectProviderToEdit || '') + '</div>';
+          dom.fetchedModelsList.innerHTML = renderModelEmptyState('selectProviderToEdit');
           return;
         }
         const models = getFetchedSelectedModels(provider);
         if (!models.length) {
-          dom.fetchedModelsList.innerHTML = '<div class="model-empty">' + escapeHtml(runtimeState.strings.providerFetchedModelsEmpty || '') + '</div>';
+          dom.fetchedModelsList.innerHTML = renderModelEmptyState('providerFetchedModelsEmpty');
           return;
         }
         dom.fetchedModelsList.innerHTML = models
@@ -325,7 +329,7 @@ export function getModelConfigRenderersJs(): string {
 
         const allModels = mergeModels(fetchedModelsByProvider[provider.id] || [], 'fetched');
         if (!allModels.length) {
-          dom.fetchModelsModalList.innerHTML = '<div class="model-empty">' + escapeHtml(strings.providerFetchModalEmpty || '') + '</div>';
+          dom.fetchModelsModalList.innerHTML = renderModelEmptyState('providerFetchModalEmpty');
           return;
         }
 
@@ -337,7 +341,7 @@ export function getModelConfigRenderersJs(): string {
               return haystack.includes(keyword);
             });
         if (!filtered.length) {
-          dom.fetchModelsModalList.innerHTML = '<div class="model-empty">' + escapeHtml(strings.providerFetchModalSearchEmpty || '') + '</div>';
+          dom.fetchModelsModalList.innerHTML = renderModelEmptyState('providerFetchModalSearchEmpty');
           return;
         }
 

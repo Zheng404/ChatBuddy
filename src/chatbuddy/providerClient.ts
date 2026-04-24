@@ -306,7 +306,8 @@ export class OpenAICompatibleClient {
     response: Response,
     locale: RuntimeLocale,
     onPayload: (payload: unknown) => boolean | void,
-    onDone: () => void
+    onDone: () => void,
+    timeoutMs?: number
   ): Promise<void> {
     if (!response.body) {
       throw new Error(resolveLocaleString(locale, '服务端未返回可读流。', 'The server did not return a readable stream.'));
@@ -314,8 +315,21 @@ export class OpenAICompatibleClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
+    const readTimeout = (timeoutMs && timeoutMs > 0 ? timeoutMs : TIMEOUT.DEFAULT_MS);
+    const readWithTimeout = () => {
+      let timer: ReturnType<typeof setTimeout>;
+      return Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(resolveLocaleString(locale, 'SSE 读取超时。', 'SSE read timeout.'))),
+            readTimeout
+          );
+        })
+      ]).finally(() => clearTimeout(timer));
+    };
     try {
-      let readResult = await reader.read();
+      let readResult = await readWithTimeout();
       while (!readResult.done) {
         buffer += decoder.decode(readResult.value, { stream: true });
         const parts = buffer.split('\n');
@@ -342,7 +356,7 @@ export class OpenAICompatibleClient {
             // Ignore invalid chunks from compatibility providers.
           }
         }
-        readResult = await reader.read();
+        readResult = await readWithTimeout();
       }
       onDone();
     } finally {
@@ -412,7 +426,8 @@ export class OpenAICompatibleClient {
         }
         return false;
       },
-      handlers.onDone
+      handlers.onDone,
+      providerConfig.timeoutMs
     );
   }
 
@@ -444,7 +459,8 @@ export class OpenAICompatibleClient {
         }
         return event.done;
       },
-      handlers.onDone
+      handlers.onDone,
+      providerConfig.timeoutMs
     );
   }
 }
