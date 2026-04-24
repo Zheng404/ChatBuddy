@@ -319,7 +319,6 @@ export class ChatController {
   }
 
   public applySettings(settings: ChatBuddySettings): void {
-    this.repository.updateSettings(settings);
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? settings.streamingDefault;
     this.modelOptions = this.repository.getModelOptions(false, this.getRuntimeStrings());

@@ -16,6 +16,10 @@ import { createTreeProviders, createTreeViews, createSettingsTreeDataSource } fr
 import { registerCommands } from './extension/commands';
 import { getBackupIntervalMs, runScheduledBackup } from './chatbuddy/localBackup';
 
+// Module-level references for async cleanup in deactivate()
+let _mcpRuntime: McpRuntime | undefined;
+let _repository: ChatStateRepository | undefined;
+
 export async function activate(context: vscode.ExtensionContext) {
   // Global unhandled rejection handler — prevents silent crashes in production.
   // Silently ignore benign errors from VSCode's internal lifecycle:
@@ -52,6 +56,10 @@ export async function activate(context: vscode.ExtensionContext) {
   const providerClient = new OpenAICompatibleClient();
   const mcpRuntime = new McpRuntime();
   const chatController = new ChatController(repository, providerClient, mcpRuntime, context.extensionUri);
+
+  // Store references for async cleanup in deactivate()
+  _mcpRuntime = mcpRuntime;
+  _repository = repository;
 
   const getRuntimeLocale = () => resolveLocale(repository.getLocaleSetting(), vscode.env.language);
   const getRuntimeStrings = () => getStrings(getRuntimeLocale());
@@ -206,13 +214,15 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     { dispose: () => { chatController.dispose(); } },
-    { dispose: () => { void mcpRuntime.dispose(); } },
-    { dispose: () => { void repository.close(); } },
+    // Note: mcpRuntime.dispose() and repository.close() are async;
+    // they are awaited in deactivate() below rather than here.
     { dispose: () => { if (backupTimer !== undefined) { clearInterval(backupTimer); } } }
   );
 }
 
-export function deactivate(): void {
-  // Resources are cleaned up via context.subscriptions dispose
-  // Backup timer cleanup handled via context.subscriptions below
+export async function deactivate(): Promise<void> {
+  // Resources are cleaned up via context.subscriptions dispose above.
+  // Await async disposals to ensure proper cleanup before process exits.
+  await _mcpRuntime?.dispose();
+  await _repository?.close();
 }
