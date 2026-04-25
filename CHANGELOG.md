@@ -4,6 +4,77 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
+## [0.3.2] - 2026-04-25
+
+### English
+
+#### Added
+
+- Added GPT-5.5 and GPT-5.5 Pro model capability entries (vision, tools, reasoning, web search).
+- Added DeepSeek-V4-Flash and DeepSeek-V4-Pro model capability entries (tools, reasoning).
+- Added Gemini native API adapter (generateContent/streamGenerateContent) with full tool calling, streaming, and multimodal support.
+- Added `gemini` as a third ProviderApiType alongside chat_completions and responses.
+- Added Custom (Gemini) template option in provider creation modal.
+- Added `test:watch` script to package.json.
+
+#### Changed
+
+- Updated GPT-4.1 series to include web search capability.
+- Updated o3-mini to include vision capability.
+- Updated DeepSeek reasoner and R1 to include tools capability (R1-0528+).
+- Updated DeepSeek-V4 to include reasoning capability.
+- Enhanced vision/reasoning pattern fallback to cover GPT-4.1, GPT-5.4/5.5 variants.
+- Split settingsCenterJs into modular files (modelConfigActions, modelConfigModals, modelConfigState, modelConfigProviderRenderer, modelConfigModelsRenderer, mcpModal).
+- Split eventListeners.ts (648 lines) into 8 focused sub-modules (nav, layout, general, dataManagement, mcp, providerEditor, modelManager, modals).
+- Replace inline template selector with modal popup for provider creation.
+- Add SSE read timeout in providerClient.ts to prevent indefinite hangs.
+- Extract `buildModelSelectOptions()` and `renderModelEmptyState()` helpers to eliminate code duplication.
+- Improve test coverage: 195 → 287+ → 349 tests.
+
+#### Fixed
+
+- Fixed duplicate `updateSettings` and async dispose in chat controller.
+- Fixed innerHTML escaping in dataManagement backup list empty state.
+- Fixed CI test failures and panel icon resolution.
+- Fixed flaky timer test using mock.timers in behavior test.
+
+#### Documentation
+
+- Optimized `.gitignore` and `.vscodeignore` configuration.
+
+### 中文
+
+#### 新增
+
+- 新增 GPT-5.5 和 GPT-5.5 Pro 模型能力条目（视觉、工具、推理、网络搜索）。
+- 新增 DeepSeek-V4-Flash 和 DeepSeek-V4-Pro 模型能力条目（工具、推理）。
+- 新增 Gemini 原生 API 适配器（generateContent/streamGenerateContent），完整支持工具调用、流式输出和多模态。
+- 新增 `gemini` 提供商 API 类型（与 chat_completions、responses 并列）。
+- 新增提供商创建模态框中的 Gemini 自定义模板选项。
+- 新增 `test:watch` 脚本。
+
+#### 变更
+
+- GPT-4.1 系列补充网络搜索能力；o3-mini 补充视觉能力。
+- DeepSeek reasoner/R1 补充工具调用能力（R1-0528 起）；DeepSeek-V4 补充推理能力。
+- 增强视觉/推理模式回退匹配，覆盖 GPT-4.1、GPT-5.4/5.5 变体。
+- 拆分设置中心 JS 为模块化文件；拆分 eventListeners.ts（648 行）为 8 个子模块。
+- 提供商创建由内联模板选择器改为模态框弹窗。
+- providerClient.ts 新增 SSE 读取超时，防止无限挂起。
+- 提取公共函数消除代码重复。
+- 测试覆盖率提升：195 → 287+ → 349 个测试。
+
+#### 修复
+
+- 修复聊天控制器中重复的 updateSettings 和异步 dispose 问题。
+- 修复数据管理备份列表空状态的 innerHTML 转义问题。
+- 修复 CI 测试失败和面板图标解析问题。
+- 修复行为测试中使用 mock.timers 的定时器测试不稳定问题。
+
+#### 文档
+
+- 优化 `.gitignore` 和 `.vscodeignore` 配置。
+
 ## [0.3.1] - 2026-04-23
 
 ### English
