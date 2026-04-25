@@ -87,6 +87,36 @@ describe('resolveFromPatterns — capability inference', () => {
       assert.equal(caps.tools, undefined);
     }
   });
+
+  test('detects vision in gpt-4.1 series via pattern fallback', () => {
+    const result = resolveFromPatterns('gpt-4.1-custom-variant');
+    assert.ok(result?.capabilities?.vision);
+  });
+
+  test('detects reasoning in o-series models', () => {
+    const result = resolveFromPatterns('o3');
+    assert.ok(result?.capabilities?.reasoning);
+    const result2 = resolveFromPatterns('o4-mini');
+    assert.ok(result2?.capabilities?.reasoning);
+  });
+
+  test('detects reasoning and tools in deepseek-r1 variants', () => {
+    const result = resolveFromPatterns('deepseek-r1-0528');
+    assert.ok(result?.capabilities?.reasoning);
+    assert.ok(result?.capabilities?.tools);
+  });
+
+  test('detects vision and reasoning in gpt-5.5 series via pattern fallback', () => {
+    const result = resolveFromPatterns('gpt-5.5-custom-variant');
+    assert.ok(result?.capabilities?.vision);
+    assert.ok(result?.capabilities?.reasoning);
+    assert.ok(result?.capabilities?.tools);
+  });
+
+  test('detects tools and reasoning in deepseek-v4 variants via pattern fallback', () => {
+    const result = resolveFromPatterns('deepseek-v4-custom-variant');
+    assert.ok(result?.capabilities?.tools);
+  });
 });
 
 // ─── 大小写不敏感 ─────────────────────────────────────────────────

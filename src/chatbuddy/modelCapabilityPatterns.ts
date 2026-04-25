@@ -21,8 +21,8 @@ const VIDEO_PATTERN = /(?:runway|kling|pika|sora|cogvideo|stable-video|animate|v
 
 // ── Ability patterns (functional capabilities) ──────────────
 
-const VISION_PATTERN = /\b(vision|vl[-_]?|4o(?!-mini-tts|-transcribe)|claude-3|claude-4|claude-opus|claude-sonnet|claude-haiku|gemini-1\.5|gemini-2|gemini-3|glm-4v|glm-5v|llava|minicpm|pixtral|qwq-vl|kimi-k2\.5|nova-premier|nova-pro|nova-lite|llama-4|grok-4|step-r1-v)\b/i;
-const REASONING_PATTERN = /^(?!.*(?:-non-reasoning|mini-tts|transcribe)\b)(?:.*\b(?:o1|o3|o4|r1|reasoning|reasoner|think(?!ing-turbo)|qwq|zero-preview|deepthink|hunyuan-t1|z1|magistral|spark-x2|glm-5|step-3)\b.*)$/i;
+const VISION_PATTERN = /\b(vision|vl[-_]?|4o(?!-mini-tts|-transcribe)|gpt-4\.1|gpt-5\.5|claude-3|claude-4|claude-opus|claude-sonnet|claude-haiku|gemini-1\.5|gemini-2|gemini-3|glm-4v|glm-5v|llava|minicpm|pixtral|qwq-vl|kimi-k2\.5|nova-premier|nova-pro|nova-lite|llama-4|grok-4|step-r1-v)\b/i;
+const REASONING_PATTERN = /^(?!.*(?:-non-reasoning|mini-tts|transcribe)\b)(?:.*\b(?:o1|o3|o4|r1|reasoning|reasoner|think(?!ing-turbo)|qwq|zero-preview|deepthink|hunyuan-t1|z1|magistral|spark-x2|glm-5|gpt-5\.[45]|step-3)\b.*)$/i;
 const TOOLS_PATTERN = /\b(gpt-4|gpt-5|claude|gemini|qwen|doubao|grok[-_]?[34]|llama-[34]|mixtral|mistral|command-[-ra]|kimi[-_]k|minimax|deepseek|hunyuan|step-|spark-|nova-premier|nova-pro|nova-lite|nova-micro|devstral|codestral)\b/i;
 const WEBSEARCH_PATTERN = /\b(sonar|perplexity|web[-_]?search)\b/i;
 
