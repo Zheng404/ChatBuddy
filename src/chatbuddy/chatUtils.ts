@@ -39,9 +39,15 @@ export function toProviderConversationMessages(questionPrefix: string, messages:
           parts.push({ type: 'text', text: textContent });
         }
         for (const img of message.images) {
-          parts.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+          if (img.base64) {
+            parts.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+          }
         }
-        result.push({ role: 'user', content: parts });
+        if (parts.length > 0) {
+          result.push({ role: 'user', content: parts });
+        } else if (textContent.trim()) {
+          result.push({ role: 'user', content: textContent });
+        }
       } else {
         result.push({ role: 'user', content: textContent });
       }

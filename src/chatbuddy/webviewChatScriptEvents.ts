@@ -110,10 +110,6 @@ export function getChatEventScript(): string {
           if (!state.canChat) {
             return;
           }
-          if (!supportsImageInputOnCurrentModel()) {
-            showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
-            return;
-          }
           vscode.postMessage({ type: 'selectImages' });
         });
       }
@@ -128,10 +124,6 @@ export function getChatEventScript(): string {
         }
         const content = dom.composerInput.value.trim();
         if (!content && !pendingImages.length && !pendingFiles.length) {
-          return;
-        }
-        if (pendingImages.length > 0 && !supportsImageInputOnCurrentModel()) {
-          showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
           return;
         }
         if (editingMessageId) {
@@ -211,10 +203,6 @@ export function getChatEventScript(): string {
           }
           const sendContent = dom.composerInput.value.trim();
           if (!sendContent && !pendingImages.length && !pendingFiles.length) {
-            return;
-          }
-          if (pendingImages.length > 0 && !supportsImageInputOnCurrentModel()) {
-            showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
             return;
           }
           if (editingMessageId) {

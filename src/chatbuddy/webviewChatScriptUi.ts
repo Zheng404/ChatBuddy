@@ -349,6 +349,7 @@ export function getChatUiScript(): string {
               postToolReasoning +
               '<div class="message-images">' + (Array.isArray(message.images) && message.images.length > 0
                 ? message.images.map(function(img) {
+                    if (!img.base64) { return ''; }
                     return '<img class="message-image" src="data:' + img.mimeType + ';base64,' + img.base64 + '" />';
                   }).join('')
                 : '') + '</div>' +

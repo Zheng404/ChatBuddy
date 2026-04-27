@@ -175,7 +175,15 @@ export function cloneMessage(message: ChatMessage): ChatMessage {
     images: message.images
       ? message.images.map((image) => ({
           base64: image.base64,
-          mimeType: image.mimeType
+          mimeType: image.mimeType,
+          path: image.path
+        }))
+      : undefined,
+    files: message.files
+      ? message.files.map((file) => ({
+          name: file.name,
+          content: file.content,
+          language: file.language
         }))
       : undefined
   };
@@ -190,7 +198,8 @@ export function normalizeMessageInput(message: ChatMessage, now: number): ChatMe
     model: toStringValue(message.model).trim() || undefined,
     reasoning: toStringValue(message.reasoning).trim() || undefined,
     toolRounds: Array.isArray(message.toolRounds) && message.toolRounds.length > 0 ? message.toolRounds : undefined,
-    images: Array.isArray(message.images) && message.images.length > 0 ? message.images : undefined
+    images: Array.isArray(message.images) && message.images.length > 0 ? message.images : undefined,
+    files: Array.isArray(message.files) && message.files.length > 0 ? message.files : undefined
   };
 }
 

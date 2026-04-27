@@ -455,13 +455,18 @@ export class CompassSessionStore {
       const newImages: ChatMessage['images'] = [];
       for (let i = 0; i < message.images.length; i++) {
         const img = message.images[i];
-        if (img.path) {
-          // Already stored as file; persist with empty base64 to save space
+        // Already persisted and no base64 to re-save
+        if (img.path && !img.base64) {
           newImages.push({ base64: '', mimeType: img.mimeType, path: img.path });
           continue;
         }
-        // Save base64 to file
-        const imagePath = generateImagePath(img.mimeType, sessionId, message.id, i);
+        // No data at all, skip
+        if (!img.base64) {
+          newImages.push({ base64: '', mimeType: img.mimeType });
+          continue;
+        }
+        // Has base64 data — write to file (reuse existing path for import scenario)
+        const imagePath = img.path || generateImagePath(img.mimeType, sessionId, message.id, i);
         const fullPath = getImageFilePath(paths, imagePath);
         await writeBase64File(fullPath, img.base64);
         newImages.push({ base64: '', mimeType: img.mimeType, path: imagePath });

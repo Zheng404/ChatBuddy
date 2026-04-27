@@ -228,6 +228,7 @@ export function getChatScript(args: { nonce: string }): string {
         pendingImages.forEach(function(img, idx) {
           var wrapper = document.createElement('div');
           wrapper.className = 'image-preview-item';
+          if (!img.base64) { return; }
           var imgEl = document.createElement('img');
           imgEl.src = 'data:' + img.mimeType + ';base64,' + img.base64;
           imgEl.className = 'image-preview-thumb';
@@ -247,20 +248,13 @@ export function getChatScript(args: { nonce: string }): string {
       }
 
       function handleImagePaste(e) {
-        if (!supportsImageInputOnCurrentModel()) {
-          showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
-          e.preventDefault();
-          return;
-        }
         var items = e.clipboardData && e.clipboardData.items;
         if (!items) { return; }
-        var hasImage = false;
         for (var i = 0; i < items.length; i++) {
           if (items[i].type.indexOf('image') !== 0) { continue; }
           var file = items[i].getAsFile();
           if (!file) { continue; }
           e.preventDefault();
-          hasImage = true;
           (function(f) {
             var reader = new FileReader();
             reader.onload = function(ev) {
@@ -327,26 +321,6 @@ export function getChatScript(args: { nonce: string }): string {
           return tempModelRef;
         }
         return String(state.selectedAssistant?.modelRef || '').trim();
-      }
-
-      function supportsImageInputOnCurrentModel() {
-        var modelRef = getCurrentModelRef();
-        if (!modelRef) {
-          return true;
-        }
-        var options = Array.isArray(state.modelOptions) ? state.modelOptions : [];
-        for (var i = 0; i < options.length; i++) {
-          var option = options[i];
-          if (!option || option.ref !== modelRef) {
-            continue;
-          }
-          var capabilities = option.capabilities;
-          if (!capabilities || typeof capabilities.vision !== 'boolean') {
-            return true;
-          }
-          return !!capabilities.vision;
-        }
-        return true;
       }
 
       function clearMessageEditState(clearInput) {

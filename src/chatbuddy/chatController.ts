@@ -605,8 +605,8 @@ export class ChatController {
       if (ext === 'pdf') {
         // Lazy-load pdf-parse to avoid DOMMatrix error at module load time
         // (pdf-parse bundle contains DOMMatrix which is undefined in some VS Code/Electron versions)
-        const pdfParse = await import('pdf-parse');
-        const parser = new pdfParse.PDFParse({ data: buffer });
+        const { PDFParse } = await import('pdf-parse');
+        const parser = new PDFParse({ data: buffer });
         const result = await parser.getText();
         return result.text;
       }
@@ -630,6 +630,22 @@ export class ChatController {
    * Extract text from PPTX by unzipping the archive and reading slide XML.
    * PPTX files are ZIP archives containing XML slide content.
    */
+  /**
+   * Decode common XML entities in text content.
+   */
+  private static decodeXmlEntities(text: string): string {
+    return text
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'");
+  }
+
+  /**
+   * Extract text from PPTX by unzipping the archive and reading slide XML.
+   * PPTX files are ZIP archives containing XML slide content.
+   */
   private static async extractPptxText(buffer: Buffer): Promise<string | undefined> {
     try {
       const zip = await JSZip.loadAsync(buffer);
@@ -637,7 +653,11 @@ export class ChatController {
       // Read all slide XML files (ppt/slides/slide*.xml)
       const slideFiles = Object.keys(zip.files)
         .filter(name => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'))
-        .sort();
+        .sort((a, b) => {
+          const numA = parseInt(a.match(/slide(\d+)\.xml$/)?.[1] || '0', 10);
+          const numB = parseInt(b.match(/slide(\d+)\.xml$/)?.[1] || '0', 10);
+          return numA - numB;
+        });
       for (const slidePath of slideFiles) {
         const content = await zip.files[slidePath].async('string');
         // Extract text between <a:t> tags (PPTX text nodes)
@@ -645,7 +665,7 @@ export class ChatController {
         let match;
         while ((match = regex.exec(content)) !== null) {
           if (match[1] && match[1].trim()) {
-            texts.push(match[1]);
+            texts.push(ChatController.decodeXmlEntities(match[1]));
           }
         }
       }
@@ -713,9 +733,9 @@ export class ChatController {
               if (parsed.length > maxSize) {
                 const lines = parsed.split('\n');
                 if (lines.length > maxLines) {
-                  finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + strings.fileTooLarge + ')';
+                  finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
                 } else {
-                  finalContent = parsed.substring(0, maxSize) + '\n// ... (' + strings.fileTooLarge + ')';
+                  finalContent = parsed.substring(0, maxSize) + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
                 }
               }
               files.push({ name, content: finalContent });
@@ -738,9 +758,9 @@ export class ChatController {
           if (content.length > maxSize) {
             const lines = content.split('\n');
             if (lines.length > maxLines) {
-              finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + strings.fileTooLarge + ')';
+              finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
             } else {
-              finalContent = content.substring(0, maxSize) + '\n// ... (' + strings.fileTooLarge + ')';
+              finalContent = content.substring(0, maxSize) + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
             }
           }
           files.push({ name, content: finalContent });
@@ -773,7 +793,7 @@ export class ChatController {
         canSelectMany: true,
         openLabel: strings.imageRemove || 'Select images',
         filters: {
-          Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
+          Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']
         }
       });
       if (!uris || !uris.length) {
@@ -790,7 +810,8 @@ export class ChatController {
             jpeg: 'image/jpeg',
             gif: 'image/gif',
             webp: 'image/webp',
-            bmp: 'image/bmp'
+            bmp: 'image/bmp',
+            svg: 'image/svg+xml'
           };
           const mimeType = mimeMap[ext] || 'image/png';
           const base64 = Buffer.from(raw).toString('base64');

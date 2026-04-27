@@ -123,43 +123,49 @@ export class ChatGenerationService {
         : fileBlocks;
     }
 
+    const settings = this.deps.repository.getSettings();
+    const resolved = this.deps.resolveEffectiveProviderConfig(settings, assistant, selectedSession.id);
+    const modelId = resolved.config.modelId || '';
+    const caps = resolveCapabilities(modelId);
+    const visionSupported = !!caps?.vision;
+
     // Detect if current model supports vision; if not and images are present,
     // perform OCR or downgrade to text prompt.
-    if (messageImages && messageImages.length > 0) {
-      const settings = this.deps.repository.getSettings();
-      const resolved = this.deps.resolveEffectiveProviderConfig(settings, assistant, selectedSession.id);
-      const modelId = resolved.config.modelId || '';
-      const caps = resolveCapabilities(modelId);
-      if (!caps?.vision) {
-        // Model does not support vision → attempt OCR using the same provider
-        const ocrResults: Array<{ index: number; text: string }> = [];
-        for (let i = 0; i < messageImages.length; i++) {
-          const img = messageImages[i];
-          if (!img.base64) { continue; }
-          try {
-            const ocrText = await this.performOcr(img.base64, img.mimeType, resolved.config, locale);
-            if (ocrText) {
-              ocrResults.push({ index: i, text: ocrText });
-            }
-          } catch {
-            // OCR failed for this image, skip
+    if (messageImages && messageImages.length > 0 && !visionSupported) {
+      // Model does not support vision → attempt OCR using the same provider.
+      // Note: OCR requires the provider to accept image_url input. If the
+      // provider itself rejects vision content, OCR will fail gracefully.
+      const ocrResults: Array<{ index: number; text: string }> = [];
+      for (let i = 0; i < messageImages.length; i++) {
+        const img = messageImages[i];
+        if (!img.base64) { continue; }
+        try {
+          const ocrText = await this.performOcr(img.base64, img.mimeType, resolved.config, locale);
+          if (ocrText) {
+            ocrResults.push({ index: i, text: ocrText });
           }
+        } catch {
+          // OCR failed for this image, skip
         }
-        if (ocrResults.length > 0) {
-          const ocrBlock = '\n\n<image_ocr>\n' +
-            (locale === 'zh-CN' ? '图片文字识别结果：' : 'Image text recognition results:') +
-            '\n\n' +
-            ocrResults.map((r, i) => `[${locale === 'zh-CN' ? '图片' : 'Image'} ${i + 1}]\n${r.text}`).join('\n\n') +
-            '\n</image_ocr>';
-          fullContent = fullContent + ocrBlock;
-        } else {
-          // OCR completely failed → remove images and show warning
-          this.deps.postMessage({
-            type: 'toast',
-            message: strings.imagePasteUnsupportedModel || '',
-            tone: 'info'
-          }, context);
-          messageImages = undefined;
+      }
+      if (ocrResults.length > 0) {
+        const ocrBlock = '\n\n<image_ocr>\n' +
+          (locale === 'zh-CN' ? '图片文字识别结果：' : 'Image text recognition results:') +
+          '\n\n' +
+          ocrResults.map((r) => `[${locale === 'zh-CN' ? '图片' : 'Image'} ${r.index + 1}]\n${r.text}`).join('\n\n') +
+          '\n</image_ocr>';
+        fullContent = fullContent + ocrBlock;
+      } else {
+        // OCR completely failed → remove images and show warning
+        this.deps.postMessage({
+          type: 'toast',
+          message: strings.imagePasteUnsupportedModel || '',
+          tone: 'info'
+        }, context);
+        messageImages = undefined;
+        // If no text content either, abort sending to avoid an empty user message
+        if (!fullContent.trim()) {
+          return;
         }
       }
     }
@@ -178,8 +184,6 @@ export class ChatGenerationService {
     };
     const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
 
-    const settings = this.deps.repository.getSettings();
-    const resolved = this.deps.resolveEffectiveProviderConfig(settings, assistant, selectedSession.id);
     const invalidReason = validateProviderConfig(resolved.config, locale, resolved.meta);
     if (invalidReason) {
       this.deps.repository.appendMessage(assistant.id, selectedSession.id, {
@@ -194,10 +198,17 @@ export class ChatGenerationService {
       return;
     }
 
+    // When the current model does not support vision, strip images from ALL messages
+    // sent to the provider to avoid API errors. Images remain in local state for display.
+    const messagesForProvider = !visionSupported
+      ? sessionAfterUser.messages.map((msg) =>
+          msg.images && msg.images.length > 0 ? { ...msg, images: undefined } : msg
+        )
+      : sessionAfterUser.messages;
     const providerMessages = toProviderMessages(
       resolveTemplateVariables(assistant.systemPrompt),
       assistant.questionPrefix,
-      sessionAfterUser.messages,
+      messagesForProvider,
       assistant.contextCount
     );
     const providerTools = await this.deps.toolOrchestrator.buildProviderTools(settings, assistant, resolved.config);

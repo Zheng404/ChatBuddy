@@ -208,7 +208,22 @@ export class ChatStorage {
   }
 
   public clearSessionsForAssistants(assistantIds: string[], persist = true): void {
+    const paths = this.paths;
+    const sessionIds: string[] = [];
+    if (paths) {
+      for (const assistantId of assistantIds) {
+        const sessions = this.sessionStore.listSessionsByAssistant(assistantId);
+        for (const session of sessions) {
+          sessionIds.push(session.id);
+        }
+      }
+    }
     this.sessionStore.clearSessionsForAssistants(assistantIds);
+    if (paths) {
+      for (const sessionId of sessionIds) {
+        void this.sessionStore.cleanupImagesForSession(sessionId, paths);
+      }
+    }
     if (persist) {
       this.schedulePersist();
     }
