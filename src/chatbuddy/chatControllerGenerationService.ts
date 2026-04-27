@@ -22,6 +22,7 @@ import {
   ToolOrchestratorPanelContext
 } from './chatControllerToolOrchestrator';
 import { OpenAICompatibleClient, resolveModelBindingConfig, validateProviderConfig } from './providerClient';
+import { resolveCapabilities } from './modelCapabilities';
 import { ChatStateRepository } from './stateRepository';
 import {
   buildStreamCallbacks,
@@ -36,6 +37,7 @@ import {
   ChatBuddySettings,
   ChatMessage,
   ChatMessageImage,
+  ProviderConfig,
   RuntimeLocale,
   WebviewOutboundMessage
 } from './types';
@@ -76,9 +78,9 @@ type ChatGenerationServiceDeps = {
 export class ChatGenerationService {
   constructor(private readonly deps: ChatGenerationServiceDeps) {}
 
-  public async sendMessage(content: string, images?: Array<{ base64: string; mimeType: string }>, context?: ToolOrchestratorPanelContext): Promise<void> {
+  public async sendMessage(content: string, images?: Array<{ base64: string; mimeType: string }>, files?: Array<{ name: string; content: string; language?: string }>, context?: ToolOrchestratorPanelContext): Promise<void> {
     const normalized = content.trim();
-    if (!normalized && (!images || !images.length)) {
+    if (!normalized && (!images || !images.length) && (!files || !files.length)) {
       return;
     }
     if (this.deps.isGenerating()) {
@@ -108,13 +110,71 @@ export class ChatGenerationService {
     }
 
     const normalizedWithPrefix = applyQuestionPrefix(normalized, assistant.questionPrefix);
-    const messageImages: ChatMessageImage[] | undefined = images && images.length > 0 ? images : undefined;
+    let messageImages: ChatMessageImage[] | undefined = images && images.length > 0 ? images : undefined;
+
+    let fullContent = normalizedWithPrefix;
+    if (files && files.length > 0) {
+      const fileBlocks = files.map(f => {
+        const lang = f.language || '';
+        return '```' + lang + '\n// File: ' + f.name + '\n' + f.content + '\n```';
+      }).join('\n\n');
+      fullContent = normalizedWithPrefix
+        ? normalizedWithPrefix + '\n\n' + fileBlocks
+        : fileBlocks;
+    }
+
+    // Detect if current model supports vision; if not and images are present,
+    // perform OCR or downgrade to text prompt.
+    if (messageImages && messageImages.length > 0) {
+      const settings = this.deps.repository.getSettings();
+      const resolved = this.deps.resolveEffectiveProviderConfig(settings, assistant, selectedSession.id);
+      const modelId = resolved.config.modelId || '';
+      const caps = resolveCapabilities(modelId);
+      if (!caps?.vision) {
+        // Model does not support vision → attempt OCR using the same provider
+        const ocrResults: Array<{ index: number; text: string }> = [];
+        for (let i = 0; i < messageImages.length; i++) {
+          const img = messageImages[i];
+          if (!img.base64) { continue; }
+          try {
+            const ocrText = await this.performOcr(img.base64, img.mimeType, resolved.config, locale);
+            if (ocrText) {
+              ocrResults.push({ index: i, text: ocrText });
+            }
+          } catch {
+            // OCR failed for this image, skip
+          }
+        }
+        if (ocrResults.length > 0) {
+          const ocrBlock = '\n\n<image_ocr>\n' +
+            (locale === 'zh-CN' ? '图片文字识别结果：' : 'Image text recognition results:') +
+            '\n\n' +
+            ocrResults.map((r, i) => `[${locale === 'zh-CN' ? '图片' : 'Image'} ${i + 1}]\n${r.text}`).join('\n\n') +
+            '\n</image_ocr>';
+          fullContent = fullContent + ocrBlock;
+        } else {
+          // OCR completely failed → remove images and show warning
+          this.deps.postMessage({
+            type: 'toast',
+            message: strings.imagePasteUnsupportedModel || '',
+            tone: 'info'
+          }, context);
+          messageImages = undefined;
+        }
+      }
+    }
+
+    const messageFiles = files && files.length > 0
+      ? files.map(f => ({ name: f.name, content: f.content, language: f.language }))
+      : undefined;
+
     const userMessage: ChatMessage = {
       id: createId('msg'),
       role: 'user',
-      content: normalizedWithPrefix,
+      content: fullContent,
       timestamp: nowTs(),
-      images: messageImages
+      images: messageImages,
+      files: messageFiles
     };
     const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
 
@@ -304,8 +364,9 @@ export class ChatGenerationService {
     const userMsg = session.messages[userIndex];
     const userContent = userMsg.content;
     const userImages = userMsg.images && userMsg.images.length > 0 ? userMsg.images : undefined;
+    const userFiles = userMsg.files && userMsg.files.length > 0 ? userMsg.files : undefined;
     this.deps.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent, userImages, context);
+    await this.sendMessage(userContent, userImages, userFiles, context);
   }
 
   public async regenerateFromMessage(
@@ -357,8 +418,36 @@ export class ChatGenerationService {
     const userMsg = session.messages[userIndex];
     const userContent = userMsg.content;
     const userImages = userMsg.images && userMsg.images.length > 0 ? userMsg.images : undefined;
+    const userFiles = userMsg.files && userMsg.files.length > 0 ? userMsg.files : undefined;
     this.deps.repository.truncateSessionMessages(assistant.id, session.id, userIndex);
-    await this.sendMessage(userContent, userImages, context);
+    await this.sendMessage(userContent, userImages, userFiles, context);
+  }
+
+  /**
+   * Perform OCR on an image using the current provider.
+   * Returns the extracted text, or undefined if OCR fails.
+   */
+  private async performOcr(
+    base64: string,
+    mimeType: string,
+    providerConfig: ProviderConfig,
+    locale: RuntimeLocale
+  ): Promise<string | undefined> {
+    const systemPrompt = locale === 'zh-CN'
+      ? '请描述图片中的文字内容，准确提取并转录所有可见文字。'
+      : 'Please describe the text content in the image. Extract and transcribe all visible text accurately.';
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'text' as const, text: 'Please extract all text from this image.' },
+          { type: 'image_url' as const, image_url: { url: `data:${mimeType};base64,${base64}` } }
+        ]
+      }
+    ];
+    const result = await this.deps.providerClient.chat(messages, providerConfig, locale);
+    return result.text?.trim() || undefined;
   }
 
   public async copyMessage(messageId: string): Promise<void> {

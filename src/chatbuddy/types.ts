@@ -150,11 +150,20 @@ export interface ChatMessage {
   reasoning?: string;
   toolRounds?: ChatToolRound[];
   images?: ChatMessageImage[];
+  files?: ChatMessageFile[];
 }
 
 export interface ChatMessageImage {
   base64: string;
   mimeType: string;
+  /** File path relative to the images storage directory. When set, base64 is omitted from persisted state. */
+  path?: string;
+}
+
+export interface ChatMessageFile {
+  name: string;
+  content: string;
+  language?: string;
 }
 
 export interface ChatToolRound {
@@ -372,13 +381,15 @@ export type WebviewInboundMessage =
   | { type: 'editMessage'; messageId: string; newContent: string; regenerate?: boolean }
   | { type: 'clearSession' }
   | { type: 'setStreaming'; enabled: boolean }
-  | { type: 'sendMessage'; content: string; images?: Array<{ base64: string; mimeType: string }> }
+  | { type: 'sendMessage'; content: string; images?: Array<{ base64: string; mimeType: string }>; files?: Array<{ name: string; content: string; language?: string }> }
   | { type: 'continueToolCalls' }
   | { type: 'cancelToolCalls' }
   | { type: 'listMcpResources' }
   | { type: 'listMcpPrompts' }
   | { type: 'readMcpResource'; serverId: string; uri: string }
   | { type: 'getMcpPrompt'; serverId: string; name: string; args: Record<string, string> }
+  | { type: 'selectFiles' }
+  | { type: 'selectImages' }
   | { type: 'stopGeneration' };
 
 export type WebviewOutboundMessage =
@@ -388,4 +399,6 @@ export type WebviewOutboundMessage =
   | { type: 'mcpPrompts'; payload: { items: McpPromptEntry[]; message?: string } }
   | { type: 'mcpInsert'; payload: { content: string; message?: string } }
   | { type: 'prefillComposer'; content: string }
+  | { type: 'filesSelected'; files: Array<{ name: string; content: string; language?: string }> }
+  | { type: 'imagesSelected'; images: Array<{ base64: string; mimeType: string }> }
   | { type: 'toast'; message: string; tone?: 'success' | 'error' | 'info' };

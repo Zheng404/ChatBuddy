@@ -15,6 +15,7 @@ export const LEGACY_PROVIDER_API_KEYS_KEY = 'chatbuddy.sqlite.providerApiKeys.v1
 
 export const COMPASS_META_DIR_NAME = 'meta';
 export const COMPASS_SESSIONS_DIR_NAME = 'sessions';
+export const COMPASS_IMAGES_DIR_NAME = 'images';
 
 export const COMPASS_INDEX_FILE_NAME = 'index.compass.json';
 export const COMPASS_KV_FILE_NAME = 'kv.compass.json';
@@ -39,6 +40,7 @@ export type CompassPaths = {
   rootPath: string;
   metaPath: string;
   sessionsPath: string;
+  imagesPath: string;
   indexPath: string;
   kvPath: string;
   migrationPath: string;
@@ -58,12 +60,14 @@ export function createCompassPaths(globalStoragePath: string): CompassPaths {
   const rootPath = globalStoragePath;
   const metaPath = path.join(rootPath, COMPASS_META_DIR_NAME);
   const sessionsPath = path.join(rootPath, COMPASS_SESSIONS_DIR_NAME);
+  const imagesPath = path.join(rootPath, COMPASS_IMAGES_DIR_NAME);
   return {
     globalStoragePath,
     legacyDbPath: path.join(globalStoragePath, LEGACY_DB_FILE_NAME),
     rootPath,
     metaPath,
     sessionsPath,
+    imagesPath,
     indexPath: path.join(sessionsPath, COMPASS_INDEX_FILE_NAME),
     kvPath: path.join(metaPath, COMPASS_KV_FILE_NAME),
     migrationPath: path.join(metaPath, COMPASS_MIGRATION_FILE_NAME),
@@ -82,4 +86,14 @@ export function createCompassPaths(globalStoragePath: string): CompassPaths {
 
 export function getSessionFilePath(paths: CompassPaths, assistantId: string, sessionId: string): string {
   return path.join(paths.sessionsPath, assistantId, `${sessionId}.jsonl`);
+}
+
+export function getImageFilePath(paths: CompassPaths, imagePath: string): string {
+  return path.join(paths.imagesPath, imagePath);
+}
+
+/** Generate a relative image path from mimeType and identifiers. */
+export function generateImagePath(mimeType: string, sessionId: string, messageId: string, index: number): string {
+  const ext = mimeType.split('/').pop()?.replace('svg+xml', 'svg') || 'png';
+  return `${sessionId}_${messageId}_${index}.${ext}`;
 }

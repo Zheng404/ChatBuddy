@@ -6,20 +6,24 @@
  *
  * 消息以 JSON Lines 格式存储，每行一个规范化后的消息对象。
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from '../types';
 import { nowTs } from '../utils';
 import {
   ensureDir,
   fileExists,
   listFilesRecursively,
+  readBase64File,
   readJsonFile,
   readTextFile,
   removeEmptyDirectoriesRecursively,
   removeFileIfExists,
+  writeBase64File,
   writeJsonAtomic,
   writeTextAtomic
 } from './io';
-import { CompassPaths, getSessionFilePath } from './paths';
+import { CompassPaths, getImageFilePath, getSessionFilePath, generateImagePath } from './paths';
 import {
   buildPreview,
   cloneMessage,
@@ -96,10 +100,11 @@ export class CompassSessionStore {
       }
       const sessionFilePath = getSessionFilePath(paths, summary.assistantId, summary.id);
       const messages = await this.readSessionMessages(sessionFilePath);
-      summary.messageCount = messages.length;
-      summary.preview = buildPreview(messages);
+      const hydratedMessages = await this.hydrateImages(messages, paths);
+      summary.messageCount = hydratedMessages.length;
+      summary.preview = buildPreview(hydratedMessages);
       this.sessionSummaries.set(summary.id, summary);
-      this.sessionMessages.set(summary.id, messages);
+      this.sessionMessages.set(summary.id, hydratedMessages);
     }
   }
 
@@ -120,13 +125,15 @@ export class CompassSessionStore {
     await writeJsonAtomic(paths.indexPath, indexPayload);
 
     const expectedSessionFiles = new Set<string>();
+    await ensureDir(paths.imagesPath);
     for (const summary of indexPayload.sessions) {
       const sessionFilePath = getSessionFilePath(paths, summary.assistantId, summary.id);
       expectedSessionFiles.add(sessionFilePath);
       const messages = (this.sessionMessages.get(summary.id) ?? []).map((message) =>
         normalizeMessageInput(message, nowTs())
       );
-      const content = messages.map((message) => JSON.stringify(message)).join('\n');
+      const messagesForPersist = await this.extractImagesToFiles(messages, paths, summary.id);
+      const content = messagesForPersist.map((message) => JSON.stringify(message)).join('\n');
       await writeTextAtomic(sessionFilePath, content ? `${content}\n` : '');
     }
 
@@ -406,6 +413,95 @@ export class CompassSessionStore {
     this.sessionSummaries.delete(sessionId);
     this.sessionMessages.delete(sessionId);
     return true;
+  }
+
+  /**
+   * Delete image files associated with a session.
+   * Should be called after deleteSession and before persist.
+   */
+  public async cleanupImagesForSession(sessionId: string, paths: CompassPaths): Promise<void> {
+    try {
+      const imagesDir = paths.imagesPath;
+      if (!(await fileExists(imagesDir))) {
+        return;
+      }
+      const entries = await fs.promises.readdir(imagesDir);
+      const prefix = `${sessionId}_`;
+      for (const entry of entries) {
+        if (entry.startsWith(prefix)) {
+          await removeFileIfExists(path.join(imagesDir, entry));
+        }
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  /**
+   * Extract image base64 data to files and replace with path references.
+   * Returns new message array with base64 removed and path added.
+   */
+  private async extractImagesToFiles(
+    messages: ChatMessage[],
+    paths: CompassPaths,
+    sessionId: string
+  ): Promise<ChatMessage[]> {
+    const result: ChatMessage[] = [];
+    for (const message of messages) {
+      if (!message.images || message.images.length === 0) {
+        result.push(message);
+        continue;
+      }
+      const newImages: ChatMessage['images'] = [];
+      for (let i = 0; i < message.images.length; i++) {
+        const img = message.images[i];
+        if (img.path) {
+          // Already stored as file; persist with empty base64 to save space
+          newImages.push({ base64: '', mimeType: img.mimeType, path: img.path });
+          continue;
+        }
+        // Save base64 to file
+        const imagePath = generateImagePath(img.mimeType, sessionId, message.id, i);
+        const fullPath = getImageFilePath(paths, imagePath);
+        await writeBase64File(fullPath, img.base64);
+        newImages.push({ base64: '', mimeType: img.mimeType, path: imagePath });
+      }
+      result.push({ ...message, images: newImages });
+    }
+    return result;
+  }
+
+  /**
+   * Hydrate images by reading base64 from files.
+   */
+  private async hydrateImages(
+    messages: ChatMessage[],
+    paths: CompassPaths
+  ): Promise<ChatMessage[]> {
+    const result: ChatMessage[] = [];
+    for (const message of messages) {
+      if (!message.images || message.images.length === 0) {
+        result.push(message);
+        continue;
+      }
+      const newImages: ChatMessage['images'] = [];
+      for (const img of message.images) {
+        if (img.path && !img.base64) {
+          const fullPath = getImageFilePath(paths, img.path);
+          const base64 = await readBase64File(fullPath);
+          if (base64) {
+            newImages.push({ base64, mimeType: img.mimeType, path: img.path });
+          } else {
+            // File missing, keep path but no base64
+            newImages.push({ base64: '', mimeType: img.mimeType, path: img.path });
+          }
+        } else {
+          newImages.push(img);
+        }
+      }
+      result.push({ ...message, images: newImages });
+    }
+    return result;
   }
 
   public clearSessionsForAssistant(assistantId: string): number {

@@ -20,9 +20,6 @@ export function getChatEventScript(): string {
             toolContinuationActionPending = false;
           }
           renderByDiff(editStateChanged || optimisticResolved);
-          if ((wasGenerating || optimisticResolved) && !state.isGenerating) {
-            dom.messagesInner.querySelectorAll('.streaming-cursor, .loading-indicator-wrapper').forEach((el) => el.remove());
-          }
           if (state.error) {
             if (state.error !== lastStateError) {
               showToast(state.error, 'error');
@@ -41,6 +38,32 @@ export function getChatEventScript(): string {
           const text = typeof message.message === 'string' ? message.message : '';
           showToast(text, message.tone || 'info');
         }
+        if (message.type === 'filesSelected') {
+          const selectedFiles = message.files;
+          if (Array.isArray(selectedFiles) && selectedFiles.length > 0) {
+            selectedFiles.forEach(function(file) {
+              if (file && file.name && typeof file.content === 'string') {
+                pendingFiles.push({
+                  name: file.name,
+                  content: file.content,
+                  language: file.language || getLanguageFromFileName(file.name)
+                });
+              }
+            });
+            renderFilePreviews();
+          }
+        }
+        if (message.type === 'imagesSelected') {
+          const selectedImages = message.images;
+          if (Array.isArray(selectedImages) && selectedImages.length > 0) {
+            selectedImages.forEach(function(img) {
+              if (img && img.base64 && img.mimeType) {
+                pendingImages.push({ base64: img.base64, mimeType: img.mimeType });
+              }
+            });
+            renderImagePreviews();
+          }
+        }
         if (message.type === 'prefillComposer') {
           const text = typeof message.content === 'string' ? message.content : '';
           if (!text.trim()) {
@@ -48,6 +71,7 @@ export function getChatEventScript(): string {
           }
           clearMessageEditState(false);
           clearPendingImages();
+          clearPendingFiles();
           dom.composerInput.value = text;
           dom.composerInput.focus();
           dom.composerInput.setSelectionRange(dom.composerInput.value.length, dom.composerInput.value.length);
@@ -72,16 +96,38 @@ export function getChatEventScript(): string {
         vscode.postMessage({ type: 'setSessionTempModel', modelRef: nextTempModelRef });
       });
 
-      dom.stopBtn.addEventListener('click', () => {
-        vscode.postMessage({ type: 'stopGeneration' });
-      });
+      if (dom.attachFileBtn) {
+        dom.attachFileBtn.addEventListener('click', () => {
+          if (!state.canChat) {
+            return;
+          }
+          vscode.postMessage({ type: 'selectFiles' });
+        });
+      }
+
+      if (dom.attachImageBtn) {
+        dom.attachImageBtn.addEventListener('click', () => {
+          if (!state.canChat) {
+            return;
+          }
+          if (!supportsImageInputOnCurrentModel()) {
+            showToast(state.strings.imagePasteUnsupportedModel || '', 'error');
+            return;
+          }
+          vscode.postMessage({ type: 'selectImages' });
+        });
+      }
 
       dom.sendBtn.addEventListener('click', () => {
-        if (!state.canChat || state.isGenerating || optimisticSendState) {
+        if (state.isGenerating) {
+          vscode.postMessage({ type: 'stopGeneration' });
+          return;
+        }
+        if (!state.canChat || optimisticSendState) {
           return;
         }
         const content = dom.composerInput.value.trim();
-        if (!content && !pendingImages.length) {
+        if (!content && !pendingImages.length && !pendingFiles.length) {
           return;
         }
         if (pendingImages.length > 0 && !supportsImageInputOnCurrentModel()) {
@@ -94,6 +140,8 @@ export function getChatEventScript(): string {
           const currentContent = String(editingMsg?.content || '').trim();
           const isUserMsg = editingMsg?.role === 'user';
           clearMessageEditState(true);
+          clearPendingImages();
+          clearPendingFiles();
           renderByDiff(true);
           if (content === currentContent) {
             return;
@@ -102,16 +150,20 @@ export function getChatEventScript(): string {
           return;
         }
         const images = pendingImages.length > 0 ? pendingImages.slice() : undefined;
+        const files = pendingFiles.length > 0 ? pendingFiles.slice() : undefined;
         dom.composerInput.value = '';
         clearPendingImages();
+        clearPendingFiles();
         beginOptimisticSend(content);
         renderByDiff(true);
-        vscode.postMessage({ type: 'sendMessage', content, images });
+        vscode.postMessage({ type: 'sendMessage', content, images, files });
       });
 
       dom.clearBtn.addEventListener('click', () => {
         if (editingMessageId) {
           clearMessageEditState(true);
+          clearPendingImages();
+          clearPendingFiles();
           renderByDiff(true);
           return;
         }
@@ -127,7 +179,14 @@ export function getChatEventScript(): string {
 
       dom.composerInput.addEventListener('paste', (event) => {
         handleImagePaste(event);
+        handleFilePaste(event);
       });
+
+      if (dom.composerBox) {
+        // Note: File drag-and-drop is not supported in VS Code WebViews
+        // because VS Code intercepts drag events to open files in editors.
+        // Users should use the "Attach files" button or paste files instead.
+      }
 
       dom.composerInput.addEventListener('keydown', (event) => {
         if (!state.canChat) {
@@ -140,6 +199,8 @@ export function getChatEventScript(): string {
         if (event.key === 'Escape' && editingMessageId) {
           event.preventDefault();
           clearMessageEditState(true);
+          clearPendingImages();
+          clearPendingFiles();
           renderByDiff(true);
           return;
         }
@@ -149,7 +210,7 @@ export function getChatEventScript(): string {
             return;
           }
           const sendContent = dom.composerInput.value.trim();
-          if (!sendContent && !pendingImages.length) {
+          if (!sendContent && !pendingImages.length && !pendingFiles.length) {
             return;
           }
           if (pendingImages.length > 0 && !supportsImageInputOnCurrentModel()) {
@@ -161,24 +222,28 @@ export function getChatEventScript(): string {
             return;
           }
           const images = pendingImages.length > 0 ? pendingImages.slice() : undefined;
+          const files = pendingFiles.length > 0 ? pendingFiles.slice() : undefined;
           dom.composerInput.value = '';
           clearPendingImages();
+          clearPendingFiles();
           beginOptimisticSend(sendContent);
           renderByDiff(true);
-          vscode.postMessage({ type: 'sendMessage', content: sendContent, images });
+          vscode.postMessage({ type: 'sendMessage', content: sendContent, images, files });
         }
       });
 
-      dom.composerResizer.addEventListener('mousedown', (event) => {
-        if (event.button !== 0) {
-          return;
-        }
-        isResizingComposer = true;
-        composerResizeStartY = event.clientY;
-        composerResizeStartHeight = dom.composerInput.offsetHeight;
-        document.body.classList.add('resizing');
-        event.preventDefault();
-      });
+      if (dom.composerToolbar) {
+        dom.composerToolbar.addEventListener('mousedown', (event) => {
+          if (event.button !== 0) {
+            return;
+          }
+          isResizingComposer = true;
+          composerResizeStartY = event.clientY;
+          composerResizeStartHeight = dom.composerInput.offsetHeight;
+          document.body.classList.add('resizing');
+          event.preventDefault();
+        });
+      }
 
       window.addEventListener('mousemove', (event) => {
         if (!isResizingComposer) {

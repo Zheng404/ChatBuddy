@@ -42,6 +42,8 @@ import {
 import { getLocaleFromSettings, warn } from './utils';
 import { STREAM_STATE_POST_INTERVAL_MS } from './streamAccumulator';
 import { ChatStateCache } from './chatControllerStateCache';
+import * as mammoth from 'mammoth';
+import * as JSZip from 'jszip';
 import {
   listMcpResources,
   listMcpPrompts,
@@ -368,7 +370,9 @@ export class ChatController {
         deleteMessage: (messageId) => this.deleteMessage(messageId),
         editMessage: (messageId, newContent, regenerate) => this.editMessage(messageId, newContent, regenerate),
         clearSession: () => this.clearSession(),
-        sendMessage: (content, images, targetContext) => this.sendMessage(content, images, targetContext),
+        sendMessage: (content, images, files, targetContext) => this.sendMessage(content, images, files, targetContext),
+        selectFiles: (targetContext) => this.selectFiles(targetContext),
+        selectImages: (targetContext) => this.selectImages(targetContext),
         continuePendingToolCalls: (targetContext) => this.continuePendingToolCalls(targetContext),
         cancelPendingToolCalls: (targetContext) => this.cancelPendingToolCalls(targetContext),
         listMcpResources: (targetContext) => this.listMcpResources(targetContext),
@@ -538,8 +542,8 @@ export class ChatController {
     this.postMessage({ type: 'state', payload }, { panel: targetPanel });
   }
 
-  private async sendMessage(content: string, images: Array<{ base64: string; mimeType: string }> | undefined, context?: PanelMessageContext): Promise<void> {
-    await this.generationService.sendMessage(content, images, context);
+  private async sendMessage(content: string, images: Array<{ base64: string; mimeType: string }> | undefined, files: Array<{ name: string; content: string; language?: string }> | undefined, context?: PanelMessageContext): Promise<void> {
+    await this.generationService.sendMessage(content, images, files, context);
   }
 
   private async regenerateReply(context?: PanelMessageContext): Promise<void> {
@@ -569,5 +573,237 @@ export class ChatController {
   private async confirmDangerousAction(message: string, actionLabel: string): Promise<boolean> {
     const confirmed = await vscode.window.showWarningMessage(message, { modal: true }, actionLabel);
     return confirmed === actionLabel;
+  }
+
+  private static readonly IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
+  private static readonly IMAGE_MIME_MAP: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml'
+  };
+
+  private static readonly DOCUMENT_EXTENSIONS = new Set(['pdf', 'docx', 'pptx']);
+
+  /** Check if file content appears to be binary by scanning for NULL bytes. */
+  private static isBinaryContent(bytes: Uint8Array): boolean {
+    const limit = Math.min(bytes.length, 8192);
+    for (let i = 0; i < limit; i++) {
+      if (bytes[i] === 0) { return true; }
+    }
+    return false;
+  }
+
+  /**
+   * Parse document content (PDF, DOCX, PPTX) into plain text.
+   * Returns undefined if parsing fails.
+   */
+  private static async parseDocumentContent(
+    ext: string,
+    buffer: Buffer,
+    _name: string
+  ): Promise<string | undefined> {
+    try {
+      if (ext === 'pdf') {
+        // Lazy-load pdf-parse to avoid DOMMatrix error at module load time
+        // (pdf-parse bundle contains DOMMatrix which is undefined in some VS Code/Electron versions)
+        const pdfParse = await import('pdf-parse');
+        const parser = new pdfParse.PDFParse({ data: buffer });
+        const result = await parser.getText();
+        return result.text;
+      }
+      if (ext === 'docx') {
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value;
+      }
+      if (ext === 'pptx') {
+        // PPTX 解析: 它是 ZIP 包，包含 XML 文件
+        // 简单方案: 尝试用 mammoth 的底层解析, 或自行解压提取文本
+        // 这里使用简单的 ZIP + XML 文本提取
+        return ChatController.extractPptxText(buffer);
+      }
+    } catch {
+      // Parsing failed, return undefined to trigger fallback
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract text from PPTX by unzipping the archive and reading slide XML.
+   * PPTX files are ZIP archives containing XML slide content.
+   */
+  private static async extractPptxText(buffer: Buffer): Promise<string | undefined> {
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      const texts: string[] = [];
+      // Read all slide XML files (ppt/slides/slide*.xml)
+      const slideFiles = Object.keys(zip.files)
+        .filter(name => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'))
+        .sort();
+      for (const slidePath of slideFiles) {
+        const content = await zip.files[slidePath].async('string');
+        // Extract text between <a:t> tags (PPTX text nodes)
+        const regex = /\u003ca:t\u003e([^\u003c]*)\u003c\/a:t\u003e/g;
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+          if (match[1] && match[1].trim()) {
+            texts.push(match[1]);
+          }
+        }
+      }
+      if (texts.length > 0) {
+        return texts.join('\n');
+      }
+    } catch {
+      // Fallback
+    }
+    return undefined;
+  }
+
+  private async selectFiles(context?: PanelMessageContext): Promise<void> {
+    const locale = this.getLocale();
+    const strings = getStrings(locale);
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant || assistant.isDeleted) {
+      return;
+    }
+    try {
+      const uris = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: true,
+        openLabel: strings.fileDropZoneHint || 'Select files',
+        filters: {
+          'Supported Files': ['ts', 'js', 'py', 'rs', 'go', 'java', 'cpp', 'c', 'h',
+            'cs', 'rb', 'php', 'swift', 'kt', 'html', 'css', 'scss', 'json', 'yaml',
+            'yml', 'xml', 'sql', 'sh', 'md', 'txt', 'vue', 'svelte', 'graphql',
+            'pdf', 'docx', 'pptx', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'],
+          'Text & Code': ['ts', 'js', 'py', 'rs', 'go', 'java', 'cpp', 'c', 'h',
+            'cs', 'rb', 'php', 'swift', 'kt', 'html', 'css', 'scss', 'json', 'yaml',
+            'yml', 'xml', 'sql', 'sh', 'md', 'txt', 'vue', 'svelte', 'graphql'],
+          'Documents': ['pdf', 'docx', 'pptx'],
+          'Images': ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'],
+          'All Files': ['*']
+        }
+      });
+      if (!uris || !uris.length) {
+        return;
+      }
+      const files: Array<{ name: string; content: string; language?: string }> = [];
+      const images: Array<{ base64: string; mimeType: string }> = [];
+      const maxSize = 100 * 1024;
+      const maxLines = 500;
+      for (const uri of uris) {
+        try {
+          const raw = await vscode.workspace.fs.readFile(uri);
+          const name = uri.path.split('/').pop() || uri.path;
+          const ext = name.split('.').pop()?.toLowerCase() || '';
+
+          // Image files → base64 image channel
+          if (ChatController.IMAGE_EXTENSIONS.has(ext)) {
+            const mimeType = ChatController.IMAGE_MIME_MAP[ext] || 'image/png';
+            const base64 = Buffer.from(raw).toString('base64');
+            images.push({ base64, mimeType });
+            continue;
+          }
+
+          // Document files (PDF, DOCX, PPTX) → parse to text
+          if (ChatController.DOCUMENT_EXTENSIONS.has(ext)) {
+            const parsed = await ChatController.parseDocumentContent(ext, Buffer.from(raw), name);
+            if (parsed !== undefined) {
+              let finalContent = parsed;
+              if (parsed.length > maxSize) {
+                const lines = parsed.split('\n');
+                if (lines.length > maxLines) {
+                  finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + strings.fileTooLarge + ')';
+                } else {
+                  finalContent = parsed.substring(0, maxSize) + '\n// ... (' + strings.fileTooLarge + ')';
+                }
+              }
+              files.push({ name, content: finalContent });
+              continue;
+            }
+            // Parsing failed → fall through to binary rejection
+          }
+
+          // Binary files → reject with toast
+          if (ChatController.isBinaryContent(raw)) {
+            const msg = (strings.fileBinaryRejected || 'Binary file not supported: {name}')
+              .replace('{name}', name);
+            this.postMessage({ type: 'toast', message: msg, tone: 'error' }, context);
+            continue;
+          }
+
+          // Text files → read as UTF-8 with truncation
+          const content = Buffer.from(raw).toString('utf-8');
+          let finalContent = content;
+          if (content.length > maxSize) {
+            const lines = content.split('\n');
+            if (lines.length > maxLines) {
+              finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + strings.fileTooLarge + ')';
+            } else {
+              finalContent = content.substring(0, maxSize) + '\n// ... (' + strings.fileTooLarge + ')';
+            }
+          }
+          files.push({ name, content: finalContent });
+        } catch {
+          // Skip files that cannot be read
+        }
+      }
+      if (files.length > 0) {
+        this.postMessage({ type: 'filesSelected', files }, context);
+      }
+      if (images.length > 0) {
+        this.postMessage({ type: 'imagesSelected', images }, context);
+      }
+    } catch {
+      // Dialog cancelled or error
+    }
+  }
+
+  private async selectImages(context?: PanelMessageContext): Promise<void> {
+    const locale = this.getLocale();
+    const strings = getStrings(locale);
+    const assistant = this.repository.getSelectedAssistant();
+    if (!assistant || assistant.isDeleted) {
+      return;
+    }
+    try {
+      const uris = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: true,
+        openLabel: strings.imageRemove || 'Select images',
+        filters: {
+          Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
+        }
+      });
+      if (!uris || !uris.length) {
+        return;
+      }
+      const images: Array<{ base64: string; mimeType: string }> = [];
+      for (const uri of uris) {
+        try {
+          const raw = await vscode.workspace.fs.readFile(uri);
+          const ext = uri.path.split('.').pop()?.toLowerCase() || '';
+          const mimeMap: Record<string, string> = {
+            png: 'image/png',
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            gif: 'image/gif',
+            webp: 'image/webp',
+            bmp: 'image/bmp'
+          };
+          const mimeType = mimeMap[ext] || 'image/png';
+          const base64 = Buffer.from(raw).toString('base64');
+          images.push({ base64, mimeType });
+        } catch {
+          // Skip images that cannot be read
+        }
+      }
+      if (images.length > 0) {
+        this.postMessage({ type: 'imagesSelected', images }, context);
+      }
+    } catch {
+      // Dialog cancelled or error
+    }
   }
 }

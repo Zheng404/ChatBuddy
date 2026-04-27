@@ -28,22 +28,29 @@ export function getChatBodyHtml(): string {
       <footer class="composer-shell">
         <div class="composer">
           <div class="composer-box">
-            <div class="composer-resizer" id="composerResizer"></div>
-            <div class="image-preview-bar" id="imagePreviewBar"></div>
-            <textarea class="composer-textarea" id="composerInput"></textarea>
-            <div class="composer-actions">
-              <div class="composer-inline-controls">
+            <div class="composer-toolbar" id="composerToolbar">
+              <div class="composer-toolbar-left">
                 <button class="action-btn-icon" id="clearBtn" type="button"><span class="codicon codicon-clear-all"></span></button>
-                <select id="tempModelSelect" class="model-select"></select>
-                <span class="chip temp-chip" id="tempModelChip"></span>
+                <button class="action-btn-icon" id="searchBtn" type="button" title="Search (Ctrl+F)"><span class="codicon codicon-search"></span></button>
+                <button class="action-btn-icon" id="attachFileBtn" type="button" title="Attach file"><span class="codicon codicon-file-add"></span></button>
+                <button class="action-btn-icon" id="attachImageBtn" type="button" title="Attach image"><span class="codicon codicon-device-camera"></span></button>
               </div>
-              <div class="send-group">
+              <div class="composer-toolbar-right">
                 <label class="toggle">
                   <input type="checkbox" id="streamingToggle" />
                   <span id="streamingLabel"></span>
                 </label>
-                <button class="btn-secondary" id="stopBtn" type="button"></button>
-                <button class="btn-icon" id="searchBtn" type="button" title="Search (Ctrl+F)"><span class="codicon codicon-search"></span></button>
+              </div>
+            </div>
+            <div class="image-preview-bar" id="imagePreviewBar"></div>
+            <div class="file-preview-bar" id="filePreviewBar"></div>
+            <textarea class="composer-textarea" id="composerInput"></textarea>
+            <div class="composer-actions">
+              <div class="composer-inline-controls">
+                <select id="tempModelSelect" class="model-select"></select>
+                <span class="chip temp-chip" id="tempModelChip"></span>
+              </div>
+              <div class="send-group">
                 <button class="btn-primary" id="sendBtn" type="button"></button>
               </div>
             </div>

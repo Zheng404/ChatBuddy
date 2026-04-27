@@ -46,7 +46,9 @@ export type ChatControllerWebviewRouterArgs = {
   deleteMessage: (messageId: string) => Promise<void>;
   editMessage: (messageId: string, newContent: string, regenerate?: boolean) => Promise<void>;
   clearSession: () => Promise<void>;
-  sendMessage: (content: string, images: Array<{ base64: string; mimeType: string }> | undefined, context?: ChatControllerPanelMessageContext) => Promise<void>;
+  sendMessage: (content: string, images: Array<{ base64: string; mimeType: string }> | undefined, files: Array<{ name: string; content: string; language?: string }> | undefined, context?: ChatControllerPanelMessageContext) => Promise<void>;
+  selectFiles: (context?: ChatControllerPanelMessageContext) => Promise<void>;
+  selectImages: (context?: ChatControllerPanelMessageContext) => Promise<void>;
   continuePendingToolCalls: (context?: ChatControllerPanelMessageContext) => Promise<void>;
   cancelPendingToolCalls: (context?: ChatControllerPanelMessageContext) => void;
   listMcpResources: (context?: ChatControllerPanelMessageContext) => Promise<void>;
@@ -83,6 +85,8 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
     editMessage,
     clearSession,
     sendMessage,
+    selectFiles,
+    selectImages,
     continuePendingToolCalls,
     cancelPendingToolCalls,
     listMcpResources,
@@ -224,7 +228,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       await clearSession();
       return;
     case 'sendMessage':
-      await sendMessage(message.content, message.images, context);
+      await sendMessage(message.content, message.images, message.files, context);
       return;
     case 'continueToolCalls':
       await continuePendingToolCalls(context);
@@ -243,6 +247,12 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       return;
     case 'getMcpPrompt':
       await insertMcpPrompt(message.serverId, message.name, message.args, context);
+      return;
+    case 'selectFiles':
+      await selectFiles(context);
+      return;
+    case 'selectImages':
+      await selectImages(context);
       return;
     case 'stopGeneration':
       stopGeneration('manual');

@@ -108,7 +108,22 @@ describe('buildStreamFlush', () => {
     assert.equal(captures[0].id, 'msg-fb');
   });
 
-  test('uses emptyResponse string when content is blank', () => {
+  test('uses emptyResponse string when content is blank and persist is true', () => {
+    const acc = makeAcc({ rawMerged: '   ' });
+    const captures: CapturedUpdate[] = [];
+    const repository = createMockRepository(captures);
+    const flush = buildStreamFlush(acc, {
+      assistantId: 'a1',
+      sessionId: 's1',
+      fallbackMessageId: 'msg-fb',
+      modelLabel: 'M'
+    }, repository, makeStrings({ emptyResponse: '(no content)' }));
+
+    flush(true);
+    assert.equal(captures[0].content, '(no content)');
+  });
+
+  test('uses empty string when content is blank and persist is false', () => {
     const acc = makeAcc({ rawMerged: '   ' });
     const captures: CapturedUpdate[] = [];
     const repository = createMockRepository(captures);
@@ -120,7 +135,7 @@ describe('buildStreamFlush', () => {
     }, repository, makeStrings({ emptyResponse: '(no content)' }));
 
     flush(false);
-    assert.equal(captures[0].content, '(no content)');
+    assert.equal(captures[0].content, '');
   });
 
   test('updates rawPersisted and reasoningPersisted after flush', () => {

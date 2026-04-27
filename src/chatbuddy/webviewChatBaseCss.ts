@@ -11,6 +11,7 @@ export function getWebviewChatBaseCss(): string {
         --active-bg: var(--vscode-list-activeSelectionBackground);
         --active-fg: var(--vscode-list-activeSelectionForeground);
         --toolbar-hover: var(--vscode-toolbar-hoverBackground);
+        --accent: var(--vscode-focusBorder, var(--vscode-button-background));
         --user-bg: color-mix(in srgb, var(--vscode-editor-inactiveSelectionBackground) 88%, var(--bg) 12%);
         --assistant-bg: color-mix(in srgb, var(--bg) 94%, var(--fg) 6%);
         --code-bg: color-mix(in srgb, var(--bg) 85%, var(--fg) 15%);
@@ -247,20 +248,7 @@ export function getWebviewChatBaseCss(): string {
         cursor: pointer;
       }
 
-      /* Loading dots */
-      .loading-dots{display:flex;gap:4px;align-items:center;padding:10px 0}
-      .loading-dots .dot{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:ld-bounce 1.4s infinite ease-in-out both}
-      .loading-dots .dot:nth-child(1){animation-delay:-.32s}.loading-dots .dot:nth-child(2){animation-delay:-.16s}
-      @keyframes ld-bounce{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
-
-      /* Loading indicator wrapper */
-      .loading-indicator-wrapper{padding:20px;text-align:center}
-
-      /* Streaming cursor */
-      .streaming-cursor{display:inline-block;width:2px;height:1.2em;background:var(--fg);margin-left:2px;vertical-align:text-bottom;animation:sc-blink 1s step-end infinite}
-      @keyframes sc-blink{0%,100%{opacity:1}50%{opacity:0}}
-
-      .message-action-btn {
+.message-action-btn {
         border: 0;
         border-radius: 6px;
         background: transparent;

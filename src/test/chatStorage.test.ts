@@ -476,7 +476,7 @@ test('deleteSession removes a session', async () => {
     storage.insertSession(makeSession('a1', 's2'), true);
     assert.equal(storage.countSessions(), 2);
 
-    storage.deleteSession('a1', 's1', true);
+    await storage.deleteSession('a1', 's1', true);
     assert.equal(storage.countSessions(), 1);
     assert.equal(storage.sessionExists('a1', 's1'), false);
     assert.equal(storage.sessionExists('a1', 's2'), true);
@@ -493,7 +493,7 @@ test('clearSessionsForAssistant removes all sessions for an assistant', async ()
     storage.insertSession(makeSession('a1', 's2'), true);
     storage.insertSession(makeSession('a2', 's3'), true);
 
-    const removed = storage.clearSessionsForAssistant('a1', true);
+    const removed = await storage.clearSessionsForAssistant('a1', true);
     assert.equal(removed, 2);
     assert.equal(storage.countSessions(), 1);
     assert.equal(storage.sessionExists('a2', 's3'), true);

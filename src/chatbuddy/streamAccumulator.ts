@@ -49,7 +49,7 @@ export function buildStreamFlush(
 ): (persist: boolean) => void {
   return (persist: boolean) => {
     const thinkSplit = splitThinkTaggedContent(acc.rawMerged);
-    const contentValue = thinkSplit.content.trim() || strings.emptyResponse;
+    const contentValue = thinkSplit.content.trim() || (persist ? strings.emptyResponse : '');
     const reasoningValue = mergeReasoningParts(acc.reasoningMerged, thinkSplit.reasoning);
     repository.updateLastAssistantMessage(
       params.assistantId,

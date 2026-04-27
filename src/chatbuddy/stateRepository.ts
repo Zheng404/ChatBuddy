@@ -408,12 +408,12 @@ export class ChatStateRepository {
     this.sessionStateService.generateSessionTitle(assistantId, sessionId, title);
   }
 
-  public deleteSession(assistantId: string, sessionId: string): void {
-    this.sessionStateService.deleteSession(assistantId, sessionId);
+  public async deleteSession(assistantId: string, sessionId: string): Promise<void> {
+    await this.sessionStateService.deleteSession(assistantId, sessionId);
   }
 
-  public clearSessionsForAssistant(assistantId: string): number {
-    return this.sessionStateService.clearSessionsForAssistant(assistantId);
+  public async clearSessionsForAssistant(assistantId: string): Promise<number> {
+    return await this.sessionStateService.clearSessionsForAssistant(assistantId);
   }
 
   public appendMessage(assistantId: string, sessionId: string, message: ChatMessage): ChatSessionDetail {

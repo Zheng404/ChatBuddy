@@ -22,6 +22,23 @@ export const SHARED_FORM_STYLE = `
         background: var(--button-hover);
       }
 
+      .btn-stop {
+        border: 1px solid transparent;
+        border-radius: var(--radius-md, 8px);
+        padding: 8px 14px;
+        background: #be1100;
+        color: #fff;
+        cursor: pointer;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .btn-stop:hover {
+        background: #991a0a;
+      }
+
       .btn-secondary {
         border: 1px solid var(--input-border);
         border-radius: var(--radius-md, 8px);

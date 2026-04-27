@@ -66,6 +66,25 @@ export async function removeFileIfExists(filePath: string): Promise<void> {
   }
 }
 
+export async function readBase64File(filePath: string): Promise<string | undefined> {
+  try {
+    const data = await fs.promises.readFile(filePath);
+    return data.toString('base64');
+  } catch (readError) {
+    if ((readError as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return undefined;
+    }
+    throw readError;
+  }
+}
+
+export async function writeBase64File(filePath: string, base64: string): Promise<void> {
+  await ensureDir(path.dirname(filePath));
+  const tempPath = `${filePath}.tmp`;
+  await fs.promises.writeFile(tempPath, base64, 'base64');
+  await fs.promises.rename(tempPath, filePath);
+}
+
 export async function listFilesRecursively(dirPath: string, suffix: string): Promise<string[]> {
   const result: string[] = [];
   const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });

@@ -24,6 +24,9 @@ export function getChatUiScript(): string {
         const imagesDigest = Array.isArray(message.images)
           ? String(message.images.length)
           : '';
+        const filesDigest = Array.isArray(message.files)
+          ? String(message.files.length) + ':' + message.files.map(function(f) { return f.name || ''; }).join(',')
+          : '';
         return [
           String(message.id || ''),
           String(message.role || ''),
@@ -34,6 +37,7 @@ export function getChatUiScript(): string {
           String(message.timestamp || ''),
           String(message.model || ''),
           imagesDigest,
+          filesDigest,
           toolRoundsDigest
         ].join('~');
       }
@@ -236,7 +240,6 @@ export function getChatUiScript(): string {
       var messageHtmlCache = {};
 
       function generateMessageHtml(message, latestAssistantId, assistantDisplayName, isGenerating, lastMsg, options) {
-        const showCursor = isGenerating && lastMsg && lastMsg.role === 'assistant' && message.id === lastMsg.id;
         const suppressActions = !!(options && options.suppressActions);
         const role =
           message.role === 'user'
@@ -349,7 +352,7 @@ export function getChatUiScript(): string {
                     return '<img class="message-image" src="data:' + img.mimeType + ';base64,' + img.base64 + '" />';
                   }).join('')
                 : '') + '</div>' +
-              '<div class="message-text">' + markdownToHtml(message.content || '') + ((showCursor && message.id === lastMsg.id) ? '<span class="streaming-cursor"></span>' : '') + '</div>' +
+              '<div class="message-text">' + markdownToHtml(message.content || '') + '</div>' +
             '</div>' +
           '</div>';
       }
@@ -401,11 +404,7 @@ export function getChatUiScript(): string {
           }
         }
 
-        const showLoadingIndicator =
-          !!optimisticSend ||
-          (isGenerating && authoritativeLastMsg && authoritativeLastMsg.role === 'assistant' && !authoritativeLastMsg.content);
-
-        dom.messagesInner.innerHTML = htmlParts.join('') + (showLoadingIndicator ? '<div class="loading-indicator-wrapper"><div class="loading-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>' : '');
+        dom.messagesInner.innerHTML = htmlParts.join('');
 
         dom.messages.scrollTop = dom.messages.scrollHeight;
         renderEnhancedContent();
@@ -436,14 +435,7 @@ export function getChatUiScript(): string {
         dom.composerInput.placeholder = state.canChat
           ? state.strings.composerPlaceholder
           : (state.readOnlyReason || state.strings.noAssistantSelectedBody || state.strings.composerPlaceholder);
-        const sendLabel = isEditingMessage
-          ? (state.strings.saveAction || state.strings.editMessageAction || state.strings.send || '')
-          : (state.strings.send || '');
-        dom.sendBtn.innerHTML = icons.send + '<span>' + escapeHtml(sendLabel) + '</span>';
-        dom.stopBtn.innerHTML = icons.stop + '<span>' + escapeHtml(state.strings.stop || '') + '</span>';
         const sendShortcutText = getCurrentSendShortcutText();
-        dom.sendBtn.title = [sendLabel, sendShortcutText].filter(Boolean).join(' · ');
-        dom.stopBtn.title = state.strings.stop || '';
         dom.streamingLabel.textContent = state.strings.streaming;
         const isTemporaryModel = !!state.sessionTempModelRef;
         dom.tempModelChip.textContent = state.strings.chatTemporaryModelLabel || '';
@@ -454,12 +446,30 @@ export function getChatUiScript(): string {
         dom.composerInput.disabled = !state.canChat;
         dom.tempModelSelect.disabled = !state.canChat || isBusy;
         dom.streamingToggle.disabled = !state.canChat || isBusy;
-        dom.sendBtn.disabled = isBusy || !state.canChat;
-        dom.stopBtn.disabled = !state.isGenerating;
+        // 发送/停止按钮合二为一：生成中显示停止，否则显示发送
+        if (state.isGenerating) {
+          dom.sendBtn.classList.remove('btn-primary');
+          dom.sendBtn.classList.add('btn-stop');
+          dom.sendBtn.innerHTML = icons.stop + '<span>' + escapeHtml(state.strings.stop || '') + '</span>';
+          dom.sendBtn.title = state.strings.stop || '';
+          dom.sendBtn.disabled = false;
+        } else {
+          dom.sendBtn.classList.remove('btn-stop');
+          dom.sendBtn.classList.add('btn-primary');
+          const sendLabel = isEditingMessage
+            ? (state.strings.saveAction || state.strings.editMessageAction || state.strings.send || '')
+            : (state.strings.send || '');
+          dom.sendBtn.innerHTML = icons.send + '<span>' + escapeHtml(sendLabel) + '</span>';
+          dom.sendBtn.title = [sendLabel, sendShortcutText].filter(Boolean).join(' · ');
+          dom.sendBtn.disabled = !state.canChat;
+        }
         dom.clearBtn.title = isEditingMessage ? (state.strings.cancelAction || '') : (state.strings.clearSessionAction || '');
         dom.clearBtn.disabled = isEditingMessage
           ? false
           : (!state.canChat || isBusy || !state.selectedSession?.messages?.length);
+        if (dom.composerToolbar) {
+          dom.composerToolbar.classList.toggle('generating', !!state.isGenerating);
+        }
       }
 
       function renderByDiff(force) {

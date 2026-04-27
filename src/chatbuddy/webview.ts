@@ -35,6 +35,18 @@ export function getChatWebviewHtml(webview: vscode.Webview, extensionUri: vscode
   <body>
     ${getChatBodyHtml()}
     <script nonce="${nonce}" src="${katexJsUri}"></script>
+    <script nonce="${nonce}">
+      // Polyfill for DOMMatrix / WebKitCSSMatrix (required by Mermaid in some VS Code/Electron versions)
+      if (typeof DOMMatrix === 'undefined' && typeof WebKitCSSMatrix === 'undefined') {
+        window.DOMMatrix = function DOMMatrix(init) {
+          this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+          this.m11 = 1; this.m12 = 0; this.m13 = 0; this.m14 = 0;
+          this.m21 = 0; this.m22 = 1; this.m23 = 0; this.m24 = 0;
+          this.m31 = 0; this.m32 = 0; this.m33 = 1; this.m34 = 0;
+          this.m41 = 0; this.m42 = 0; this.m43 = 0; this.m44 = 1;
+        };
+      }
+    </script>
     <script type="module" nonce="${nonce}">
       import mermaid from '${mermaidEsmUri}';
       mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });

@@ -36,12 +36,15 @@ export function getChatScript(args: { nonce: string }): string {
         content: document.getElementById('content'),
         messages: document.getElementById('messages'),
         messagesInner: document.getElementById('messagesInner'),
-        composerResizer: document.getElementById('composerResizer'),
+        composerBox: document.querySelector('.composer-box'),
+        composerToolbar: document.getElementById('composerToolbar'),
         composerInput: document.getElementById('composerInput'),
         imagePreviewBar: document.getElementById('imagePreviewBar'),
+        filePreviewBar: document.getElementById('filePreviewBar'),
         sendBtn: document.getElementById('sendBtn'),
-        stopBtn: document.getElementById('stopBtn'),
         clearBtn: document.getElementById('clearBtn'),
+        attachFileBtn: document.getElementById('attachFileBtn'),
+        attachImageBtn: document.getElementById('attachImageBtn'),
         tempModelSelect: document.getElementById('tempModelSelect'),
         tempModelChip: document.getElementById('tempModelChip'),
         streamingToggle: document.getElementById('streamingToggle'),
@@ -126,11 +129,94 @@ export function getChatScript(args: { nonce: string }): string {
       let editingMessageId = '';
       let editingSessionId = '';
       let pendingImages = [];
+      let pendingFiles = [];
 
       function clearPendingImages() {
         pendingImages = [];
         renderImagePreviews();
       }
+
+      function clearPendingFiles() {
+        pendingFiles = [];
+        renderFilePreviews();
+      }
+
+      function getLanguageFromFileName(fileName) {
+        var ext = String(fileName || '').split('.').pop().toLowerCase();
+        var map = {
+          ts: 'typescript', js: 'javascript', jsx: 'jsx', tsx: 'tsx',
+          py: 'python', rs: 'rust', go: 'go', java: 'java',
+          cpp: 'cpp', c: 'c', h: 'c', cs: 'csharp',
+          rb: 'ruby', php: 'php', swift: 'swift', kt: 'kotlin',
+          scala: 'scala', html: 'html', css: 'css', scss: 'scss',
+          less: 'less', json: 'json', yaml: 'yaml', yml: 'yaml',
+          xml: 'xml', sql: 'sql', sh: 'bash', bash: 'bash',
+          zsh: 'bash', md: 'markdown', vue: 'vue', svelte: 'svelte',
+          dockerfile: 'dockerfile', tf: 'terraform', graphql: 'graphql',
+          ini: 'ini', conf: 'ini', cfg: 'ini', properties: 'properties',
+          gradle: 'groovy', mvn: 'xml', npmrc: 'ini', gitignore: 'gitignore',
+          env: 'bash', lock: 'json', csv: 'csv', svg: 'xml'
+        };
+        return map[ext] || ext || '';
+      }
+
+      function isTextFile(file) {
+        if (file.type && file.type.startsWith('text/')) { return true; }
+        if (file.type && file.type.startsWith('application/')) {
+          var textual = ['json', 'xml', 'javascript', 'typescript', 'yaml', 'yml', 'sql', 'graphql'];
+          for (var i = 0; i < textual.length; i++) {
+            if (file.type.indexOf(textual[i]) !== -1) { return true; }
+          }
+        }
+        var name = String(file.name || '').toLowerCase();
+        var textExts = ['.ts','.js','.jsx','.tsx','.py','.rs','.go','.java','.cpp','.c','.h','.cs',
+          '.rb','.php','.swift','.kt','.scala','.html','.css','.scss','.less','.json','.yaml','.yml',
+          '.xml','.sql','.sh','.bash','.zsh','.md','.txt','.vue','.svelte','.dockerfile',
+          '.tf','.graphql','.ini','.conf','.cfg','.properties','.gradle','.mvn','.npmrc','.gitignore',
+          '.env','.lock','.csv','.svg','.dockerignore','.prettierrc','.eslintrc'];
+        for (var j = 0; j < textExts.length; j++) {
+          if (name.endsWith(textExts[j])) { return true; }
+        }
+        if (name.indexOf('.') === -1) { return true; }
+        return false;
+      }
+
+      function renderFilePreviews() {
+        dom.filePreviewBar.innerHTML = '';
+        if (!pendingFiles.length) {
+          dom.filePreviewBar.style.display = 'none';
+          return;
+        }
+        dom.filePreviewBar.style.display = 'flex';
+        pendingFiles.forEach(function(file, idx) {
+          var item = document.createElement('div');
+          item.className = 'file-preview-item';
+          var nameEl = document.createElement('span');
+          nameEl.className = 'file-preview-name';
+          nameEl.textContent = file.name;
+          item.appendChild(nameEl);
+          var removeBtn = document.createElement('button');
+          removeBtn.className = 'file-preview-remove';
+          removeBtn.type = 'button';
+          removeBtn.innerHTML = '<span class="codicon codicon-close"></span>';
+          removeBtn.title = state.strings.fileRemove || '';
+          removeBtn.addEventListener('click', function() {
+            pendingFiles.splice(idx, 1);
+            renderFilePreviews();
+          });
+          item.appendChild(removeBtn);
+          dom.filePreviewBar.appendChild(item);
+        });
+      }
+
+      function _fmt(template, values) {
+        return template.replace(/{([^}]+)}/g, function(_m, key) {
+          return values && values[key] !== undefined ? String(values[key]) : '';
+        });
+      }
+
+      // Note: File drag-and-drop is not supported in VS Code WebViews.
+      // Users should use the "Attach files" button or paste files instead.
 
       function renderImagePreviews() {
         dom.imagePreviewBar.innerHTML = '';
@@ -168,24 +254,71 @@ export function getChatScript(args: { nonce: string }): string {
         }
         var items = e.clipboardData && e.clipboardData.items;
         if (!items) { return; }
+        var hasImage = false;
         for (var i = 0; i < items.length; i++) {
           if (items[i].type.indexOf('image') !== 0) { continue; }
           var file = items[i].getAsFile();
           if (!file) { continue; }
           e.preventDefault();
-          var reader = new FileReader();
-          reader.onload = function(ev) {
-            var dataUrl = ev.target.result;
-            var parts = dataUrl.split(',');
-            var mimeMatch = parts[0].match(new RegExp(':(.*?);'));
-            var mime = mimeMatch ? mimeMatch[1] : 'image/png';
-            var b64 = parts[1];
-            pendingImages.push({ base64: b64, mimeType: mime });
-            renderImagePreviews();
-          };
-          reader.readAsDataURL(file);
-          return;
+          hasImage = true;
+          (function(f) {
+            var reader = new FileReader();
+            reader.onload = function(ev) {
+              var dataUrl = ev.target.result;
+              var parts = dataUrl.split(',');
+              var mimeMatch = parts[0].match(new RegExp(':(.*?);'));
+              var mime = mimeMatch ? mimeMatch[1] : 'image/png';
+              var b64 = parts[1];
+              pendingImages.push({ base64: b64, mimeType: mime });
+              renderImagePreviews();
+            };
+            reader.readAsDataURL(f);
+          })(file);
         }
+      }
+
+      function handleFilePaste(e) {
+        var items = e.clipboardData && e.clipboardData.items;
+        if (!items) { return; }
+        var handled = false;
+        var maxSize = 100 * 1024;
+        var maxLines = 500;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].kind !== 'file') { continue; }
+          var file = items[i].getAsFile();
+          if (!file) { continue; }
+          if (!isTextFile(file)) { continue; }
+          e.preventDefault();
+          handled = true;
+          (function(f) {
+            var reader = new FileReader();
+            reader.onload = function(ev) {
+              var content = String(ev.target.result || '');
+              if (content.length > maxSize) {
+                var lines = content.split('\\n');
+                if (lines.length > maxLines) {
+                  content = lines.slice(0, maxLines).join('\\n') + '\\n// ... (' + (state.strings.fileTooLarge ? state.strings.fileTooLarge.replace(/{name}/g, f.name) : 'truncated') + ')';
+                } else {
+                  content = content.substring(0, maxSize) + '\\n// ... (' + (state.strings.fileTooLarge ? state.strings.fileTooLarge.replace(/{name}/g, f.name) : 'truncated') + ')';
+                }
+                var warnTmpl = state.strings.fileTooLarge || 'File too large, truncated: {name}';
+                showToast(_fmt(warnTmpl, { name: f.name }), 'warning');
+              }
+              pendingFiles.push({
+                name: f.name,
+                content: content,
+                language: getLanguageFromFileName(f.name)
+              });
+              renderFilePreviews();
+            };
+            reader.onerror = function() {
+              var readErrTmpl = state.strings.fileReadError || 'Failed to read file: {name}';
+              showToast(_fmt(readErrTmpl, { name: f.name }), 'error');
+            };
+            reader.readAsText(f);
+          })(file);
+        }
+        return handled;
       }
 
       function getCurrentModelRef() {

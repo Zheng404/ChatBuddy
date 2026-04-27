@@ -191,11 +191,11 @@ export class SessionStateService {
     this.context.persistLater();
   }
 
-  public deleteSession(assistantId: string, sessionId: string): void {
+  public async deleteSession(assistantId: string, sessionId: string): Promise<void> {
     if (!this.context.storageReady()) {
       return;
     }
-    const removed = this.context.storage.deleteSession(assistantId, sessionId, true);
+    const removed = await this.context.storage.deleteSession(assistantId, sessionId, true);
     if (!removed) {
       return;
     }
@@ -210,11 +210,11 @@ export class SessionStateService {
     this.context.persistLater();
   }
 
-  public clearSessionsForAssistant(assistantId: string): number {
+  public async clearSessionsForAssistant(assistantId: string): Promise<number> {
     if (!this.context.storageReady()) {
       return 0;
     }
-    const removed = this.context.storage.clearSessionsForAssistant(assistantId, true);
+    const removed = await this.context.storage.clearSessionsForAssistant(assistantId, true);
     if (removed <= 0) {
       return 0;
     }

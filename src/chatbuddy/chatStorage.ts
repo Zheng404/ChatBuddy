@@ -38,6 +38,7 @@ export class ChatStorage {
     await this.migrateLegacyRootLayout(paths);
     await ensureDir(paths.metaPath);
     await ensureDir(paths.sessionsPath);
+    await ensureDir(paths.imagesPath);
 
     await this.sessionStore.load(paths);
     await this.kvStore.load(paths);
@@ -179,16 +180,27 @@ export class ChatStorage {
     return changed;
   }
 
-  public deleteSession(assistantId: string, sessionId: string, persist = true): boolean {
+  public async deleteSession(assistantId: string, sessionId: string, persist = true): Promise<boolean> {
+    const paths = this.paths;
     const changed = this.sessionStore.deleteSession(assistantId, sessionId);
+    if (changed && paths) {
+      await this.sessionStore.cleanupImagesForSession(sessionId, paths);
+    }
     if (changed && persist) {
       this.schedulePersist();
     }
     return changed;
   }
 
-  public clearSessionsForAssistant(assistantId: string, persist = true): number {
+  public async clearSessionsForAssistant(assistantId: string, persist = true): Promise<number> {
+    const paths = this.paths;
+    const sessionIds = this.sessionStore.listSessionsByAssistant(assistantId).map(s => s.id);
     const removed = this.sessionStore.clearSessionsForAssistant(assistantId);
+    if (removed > 0 && paths) {
+      for (const sessionId of sessionIds) {
+        await this.sessionStore.cleanupImagesForSession(sessionId, paths);
+      }
+    }
     if (removed > 0 && persist) {
       this.schedulePersist();
     }

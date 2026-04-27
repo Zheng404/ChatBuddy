@@ -28,7 +28,7 @@ export function applyQuestionPrefix(content: string, questionPrefix: string): st
 export function toProviderConversationMessages(questionPrefix: string, messages: ChatMessage[]): ProviderMessage[] {
   const result: ProviderMessage[] = [];
   for (const message of messages) {
-    if ((message.content.trim().length === 0 && !message.images?.length) || message.role === 'system') {
+    if ((message.content.trim().length === 0 && !message.images?.length && !message.files?.length) || message.role === 'system') {
       continue;
     }
     if (message.role === 'user') {
