@@ -44,7 +44,7 @@ WebView 向 Extension Host 发送的消息类型：
 | `editMessage` | `messageId: string, newContent: string, regenerate?: boolean` | 编辑消息内容 |
 | `clearSession` | 无 | 清空当前会话的所有消息 |
 | `setStreaming` | `enabled: boolean` | 切换流式输出开关 |
-| `sendMessage` | `content: string, images?: Array<{ base64: string, mimeType: string }>` | 发送用户消息（支持图片） |
+| `sendMessage` | `content: string, images?: Array<{ base64: string, mimeType: string }>, files?: Array<{ name: string, content: string, language?: string }>` | 发送用户消息（支持图片和文件） |
 | `continueToolCalls` | 无 | 确认继续执行挂起的工具调用 |
 | `cancelToolCalls` | 无 | 取消挂起的工具调用 |
 | `listMcpResources` | 无 | 请求列出所有 MCP 资源 |

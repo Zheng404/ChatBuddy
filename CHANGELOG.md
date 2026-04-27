@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
+## [Unreleased]
+
+### English
+
+#### Added
+
+- Document parsing for PDF, DOCX, and PPTX files. Files are extracted as plain text and sent to the model.
+- Multi-image paste support: users can paste or select multiple images at once.
+- OCR fallback: when a non-vision model receives images, text is extracted via OCR and appended as a text prompt.
+- External image file storage: image base64 data is saved to the `images/` directory instead of persisted state, reducing memory usage.
+- File attachment cards in chat messages: files are shown as collapsible cards rather than inline code blocks.
+- SVG support in image picker dialog.
+
+#### Changed
+
+- `message.content` now stores only the user's raw text input; file contents are injected at provider-request time via `toProviderConversationMessages`.
+- Optimistic send preview now includes images and files.
+- File picker dialogs are restricted to supported file types.
+
+#### Fixed
+
+- Fixed `pdf-parse` API usage (destructured `PDFParse` instead of wrong property access).
+- Fixed PPTX XML entity decoding and numeric slide sorting (`slide10` before `slide2`).
+- Fixed `cloneMessage` and `normalizeMessageInput` losing `path` and `files` fields.
+- Fixed `extractImagesToFiles` not handling imported backup images correctly.
+- Fixed empty base64 images being sent to the provider or rendered as broken images.
+- Fixed WebView blocking image paste for non-vision models, which prevented the OCR fallback from ever executing.
+- Fixed history messages with images being sent to non-vision models after model switch.
+- Fixed OCR complete failure with no text input causing an empty user message.
+- Fixed `clearSessionsForAssistants` not cleaning up image files.
+- Fixed file truncation hint not replacing `{name}` placeholder.
+- Fixed CSS variables (`--surface`, `--hover-bg`) and inline `transform` on file toggle.
+
+### 中文
+
+#### 新增
+
+- 文档解析：支持 PDF、DOCX、PPTX 文件，自动提取纯文本发送给模型。
+- 多图片粘贴：支持一次性粘贴或选择多张图片。
+- OCR 降级：当非视觉模型收到图片时，通过 OCR 提取文字并作为文本提示词附加。
+- 图片外部文件存储：图片 base64 数据保存到 `images/` 目录，不再存放在持久化状态中，减少内存占用。
+- 聊天中文件附件卡片：文件以可折叠卡片形式显示，不再直接内联代码块。
+- 图片选择对话框支持 SVG 格式。
+
+#### 变更
+
+- `message.content` 仅存储用户原始文本输入；文件内容在构建 Provider 请求时通过 `toProviderConversationMessages` 动态注入。
+- 乐观发送预览现在包含图片和文件。
+- 文件选择对话框限制为支持的文件类型。
+
+#### 修复
+
+- 修复 `pdf-parse` API 调用方式（解构 `PDFParse` 类）。
+- 修复 PPTX XML 实体未解码和幻灯片按字母排序错乱（`slide10` 排在 `slide2` 之前）。
+- 修复 `cloneMessage` 和 `normalizeMessageInput` 丢失 `path` 和 `files` 字段。
+- 修复 `extractImagesToFiles` 导入备份图片时处理不当。
+- 修复空 base64 图片被发送给 Provider 或渲染为裂图。
+- 修复 WebView 阻止非视觉模型图片粘贴，导致 OCR 降级逻辑永远无法执行。
+- 修复切换模型后历史消息中的图片仍发送给不支持视觉的模型。
+- 修复 OCR 完全失败且没有文本输入时发送空消息。
+- 修复 `clearSessionsForAssistants` 未清理图片文件。
+- 修复文件截断提示未替换 `{name}` 占位符。
+- 修复 CSS 变量（`--surface`、`--hover-bg`）和文件切换按钮的内联 `transform` 不生效。
+
 ## [0.3.2] - 2026-04-25
 
 ### English
