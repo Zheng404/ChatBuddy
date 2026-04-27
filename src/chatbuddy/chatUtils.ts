@@ -32,7 +32,15 @@ export function toProviderConversationMessages(questionPrefix: string, messages:
       continue;
     }
     if (message.role === 'user') {
-      const textContent = applyQuestionPrefix(message.content, questionPrefix);
+      let textContent = applyQuestionPrefix(message.content, questionPrefix);
+      // Inject file contents as code blocks for the provider
+      if (message.files && message.files.length > 0) {
+        const fileBlocks = message.files.map((f) => {
+          const lang = f.language || '';
+          return '```' + lang + '\n// File: ' + f.name + '\n' + f.content + '\n```';
+        }).join('\n\n');
+        textContent = textContent ? textContent + '\n\n' + fileBlocks : fileBlocks;
+      }
       if (message.images && message.images.length > 0) {
         const parts: ProviderMessageContent[] = [];
         if (textContent.trim()) {

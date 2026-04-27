@@ -146,7 +146,7 @@ export function getChatEventScript(): string {
         dom.composerInput.value = '';
         clearPendingImages();
         clearPendingFiles();
-        beginOptimisticSend(content);
+        beginOptimisticSend(content, images, files);
         renderByDiff(true);
         vscode.postMessage({ type: 'sendMessage', content, images, files });
       });
@@ -214,7 +214,7 @@ export function getChatEventScript(): string {
           dom.composerInput.value = '';
           clearPendingImages();
           clearPendingFiles();
-          beginOptimisticSend(sendContent);
+          beginOptimisticSend(sendContent, images, files);
           renderByDiff(true);
           vscode.postMessage({ type: 'sendMessage', content: sendContent, images, files });
         }
@@ -253,6 +253,15 @@ export function getChatEventScript(): string {
       dom.messagesInner.addEventListener('click', (event) => {
         const target = event.target;
         if (!(target instanceof Element)) {
+          return;
+        }
+        const fileHeader = target.closest('[data-action="toggle-file"]');
+        if (fileHeader) {
+          fileHeader.classList.toggle('expanded');
+          const content = fileHeader.nextElementSibling;
+          if (content) {
+            content.style.display = content.style.display === 'none' ? 'block' : 'none';
+          }
           return;
         }
         const trigger = target.closest('[data-msg-action]');

@@ -94,7 +94,7 @@ describe('toProviderConversationMessages with files', () => {
 
   test('converts message with files and images to provider format', () => {
     const messages: ChatMessage[] = [
-      makeUserMessage('Compare this\n\n```typescript\n// File: a.ts\nconst x = 1;\n```', {
+      makeUserMessage('Compare this', {
         images: [{ base64: 'abc123', mimeType: 'image/png' }],
         files: [makeFile('a.ts', 'const x = 1;', 'typescript')]
       })
@@ -119,7 +119,8 @@ describe('toProviderConversationMessages with files', () => {
     ];
     const result = toProviderConversationMessages('', messages);
     assert.equal(result.length, 1);
-    // 虽然 files 元数据存在，但 content 为空，所以 content 是空字符串
-    assert.equal(result[0].content, '');
+    // files 元数据存在，函数会自动拼接文件内容到 provider message
+    assert.ok(typeof result[0].content === 'string');
+    assert.ok((result[0].content as string).includes('// File: a.ts'));
   });
 });

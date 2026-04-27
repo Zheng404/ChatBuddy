@@ -248,6 +248,78 @@ export function getWebviewChatBaseCss(): string {
         cursor: pointer;
       }
 
+      .message-files {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+
+      .file-attachment {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+      }
+
+      .file-attachment-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.15s;
+      }
+
+      .file-attachment-header:hover {
+        background: var(--hover);
+      }
+
+      .file-attachment-name {
+        flex: 1;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--fg);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .file-attachment-toggle {
+        display: inline-block;
+        font-size: 10px;
+        color: var(--muted);
+        transition: transform 0.2s;
+      }
+
+      .file-attachment-header.expanded .file-attachment-toggle {
+        transform: rotate(180deg);
+      }
+
+      .file-attachment-content {
+        border-top: 1px solid var(--border);
+        padding: 8px 12px;
+        background: var(--bg);
+      }
+
+      .file-attachment-content pre {
+        margin: 0;
+        padding: 8px;
+        border-radius: 6px;
+        background: var(--code-bg, rgba(128,128,128,0.08));
+        overflow-x: auto;
+        font-size: 12px;
+        line-height: 1.5;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .file-attachment-content code {
+        font-family: var(--vscode-editor-font-family), monospace;
+        color: var(--fg);
+      }
+
 .message-action-btn {
         border: 0;
         border-radius: 6px;

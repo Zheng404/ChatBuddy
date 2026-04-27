@@ -77,14 +77,24 @@ export function getChatUiScript(): string {
         optimisticSendState = undefined;
         if (options?.restoreInput && !String(dom.composerInput.value || '').trim()) {
           dom.composerInput.value = pending.content;
+          if (pending.images && pending.images.length > 0) {
+            pendingImages = pending.images.slice();
+            renderImagePreviews();
+          }
+          if (pending.files && pending.files.length > 0) {
+            pendingFiles = pending.files.slice();
+            renderFilePreviews();
+          }
         }
         return true;
       }
 
-      function beginOptimisticSend(content) {
+      function beginOptimisticSend(content, images, files) {
         clearOptimisticSend();
         optimisticSendState = {
           content,
+          images: images && images.length > 0 ? images.slice() : undefined,
+          files: files && files.length > 0 ? files.slice() : undefined,
           sessionId: String(state.selectedSessionId || ''),
           startedAt: Date.now(),
           baseMarker: buildSessionSyncMarker(state)
@@ -126,7 +136,9 @@ export function getChatUiScript(): string {
             id: 'optimistic-user-message',
             role: 'user',
             content: pending.content,
-            timestamp: pending.startedAt
+            timestamp: pending.startedAt,
+            images: pending.images,
+            files: pending.files
           }
         ]);
       }
@@ -351,6 +363,23 @@ export function getChatUiScript(): string {
                 ? message.images.map(function(img) {
                     if (!img.base64) { return ''; }
                     return '<img class="message-image" src="data:' + img.mimeType + ';base64,' + img.base64 + '" />';
+                  }).join('')
+                : '') + '</div>' +
+              '<div class="message-files">' + (Array.isArray(message.files) && message.files.length > 0
+                ? message.files.map(function(file, fidx) {
+                    var fName = escapeHtml(file.name || '');
+                    var fLang = escapeHtml(file.language || '');
+                    var fContent = escapeHtml(file.content || '');
+                    return '<div class="file-attachment">' +
+                      '<div class="file-attachment-header" data-action="toggle-file">' +
+                        '<span class="codicon codicon-file"></span>' +
+                        '<span class="file-attachment-name">' + fName + '</span>' +
+                        '<span class="file-attachment-toggle">▼</span>' +
+                      '</div>' +
+                      '<div class="file-attachment-content" style="display:none;">' +
+                        '<pre><code class="language-' + fLang + '">' + fContent + '</code></pre>' +
+                      '</div>' +
+                    '</div>';
                   }).join('')
                 : '') + '</div>' +
               '<div class="message-text">' + markdownToHtml(message.content || '') + '</div>' +

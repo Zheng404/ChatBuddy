@@ -177,7 +177,7 @@ export class ChatGenerationService {
     const userMessage: ChatMessage = {
       id: createId('msg'),
       role: 'user',
-      content: fullContent,
+      content: normalizedWithPrefix,
       timestamp: nowTs(),
       images: messageImages,
       files: messageFiles
