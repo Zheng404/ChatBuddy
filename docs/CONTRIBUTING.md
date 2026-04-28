@@ -331,14 +331,27 @@ npm run lint
 
 | 测试文件 | 覆盖范围 |
 |----------|----------|
-| `chatController.behavior.test.ts` | 聊天控制器核心行为 |
+| `chatController.behavior.test.ts` | 聊天控制器端到端行为 |
+| `chatControllerGenerationService.test.ts` | 消息生成服务 |
+| `chatControllerPayload.test.ts` | 消息载荷构建 |
+| `chatControllerToolOrchestrator.test.ts` | 工具调用编排 |
+| `chatFileContext.test.ts` | 文件上下文处理 |
 | `chatStorage.test.ts` | 存储层读写 |
+| `mcpRuntime.test.ts` | MCP 运行时 |
+| `modelCapabilityPatterns.test.ts` | 模型能力推断 |
 | `providerClient.stream.test.ts` | Provider 流式解析 |
+| `providerClientParsers.test.ts` | 响应解析器 |
+| `providerClientRequestBuilders.test.ts` | 请求构建器 |
+| `provider.test.ts` | 提供商管理 |
+| `backupArchive.test.ts` | ZIP 备份压缩解压 |
+| `retry.test.ts` | 重试工具函数 |
 | `stateClone.test.ts` | 状态深拷贝 |
+| `stateRepositoryAssistantService.test.ts` | 助手状态服务 |
 | `stateRepositoryBackup.test.ts` | 备份导入导出 |
 | `stateRepositoryPersistenceService.test.ts` | 持久化服务 |
 | `stateSanitizers.test.ts` | 状态初始化与清理 |
-| `backupArchive.test.ts` | ZIP 备份压缩解压 |
+| `streamAccumulator.test.ts` | 流式累加器 |
+| `template.test.ts` | 模板工具函数 |
 
 ### 添加新测试
 

@@ -1,5 +1,7 @@
 # ChatBuddy 架构文档
 
+> 最后更新：2026-04-28
+
 本文档描述 ChatBuddy VS Code 扩展的整体架构、模块分层和数据流。
 
 ---
@@ -151,7 +153,7 @@ ChatController 本身不处理业务细节，只负责：
 | 提供商 | API 类型 | 特点 |
 |--------|----------|------|
 | OpenAI | chat_completions / responses | 原生支持 |
-| Gemini | chat_completions | 通过代理适配 |
+| Gemini | chat_completions / gemini | 代理适配 + 原生 API |
 | OpenRouter | chat_completions | 统一路由 |
 | Ollama | chat_completions | 本地模型，自动模型列表获取 |
 | 自定义 | chat_completions | 任意兼容端点 |

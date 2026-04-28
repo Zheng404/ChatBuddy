@@ -26,7 +26,7 @@
 ## 功能特性
 
 - **多助手管理** — 创建、组织和切换多个 AI 助手，每个助手拥有独立的系统提示词、模型和参数。
-- **多服务商支持** — 兼容 OpenAI、Gemini、OpenRouter、Ollama 及任意自定义 OpenAI 兼容端点。
+- **多提供商支持** — 兼容 OpenAI、Gemini、OpenRouter、Ollama 及任意自定义 OpenAI 兼容端点。
 - **会话管理** — 每个助手拥有独立的会话历史。支持重命名、搜索、导出和清空会话。
 - **MCP 集成** — 连接 MCP 服务器（stdio、SSE、HTTP），通过外部工具、资源和 Prompt 扩展 AI 能力。
 - **流式响应** — 实时流式输出，带有打字机效果。随时可中断生成。
@@ -51,18 +51,18 @@
 ### 配置
 
 1. 打开 VS Code 侧边栏的 **ChatBuddy** 面板（寻找机器人图标）。
-2. 在设置视图中点击 **模型配置**，添加 AI 服务商和 API 密钥。
+2. 在设置视图中点击 **模型配置**，添加 AI 提供商和 API 密钥。
 3. 在助手视图中新建一个助手。
 4. 开始对话！
 
 ---
 
-## 服务商兼容性
+## 提供商兼容性
 
 ChatBuddy 是一款**通用 OpenAI 兼容 API 客户端**。只要 API 端点实现了 OpenAI 协议，填入 base URL 和 API Key 即可使用。
 
-- **API 格式**：支持 `chat/completions` 和 `responses` 两种接口，可为每个服务商独立配置。
-- **模型自动获取**：对提供 `/models` 接口的服务商，可自动拉取模型列表。
+- **API 格式**：支持 `chat/completions` 和 `responses` 两种接口，可为每个提供商独立配置。
+- **模型自动获取**：对提供 `/models` 接口的提供商，可自动拉取模型列表。
 
 ---
 
@@ -71,7 +71,7 @@ ChatBuddy 是一款**通用 OpenAI 兼容 API 客户端**。只要 API 端点实
 <table>
   <tr>
     <td width="50%"><b>聊天界面</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Assistant.png" width="100%"></td>
-    <td width="50%"><b>服务商配置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Provider%20Setup.png" width="100%"></td>
+    <td width="50%"><b>提供商配置</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Provider%20Setup.png" width="100%"></td>
   </tr>
   <tr>
     <td width="50%"><b>模型管理</b><br><img src="https://github.com/Zheng404/ChatBuddy/raw/HEAD/img/Model%20Management.png" width="100%"></td>
