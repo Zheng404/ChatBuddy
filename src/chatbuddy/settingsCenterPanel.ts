@@ -29,7 +29,7 @@ import type {
   RuntimeLocale,
   RuntimeStrings
 } from './types';
-import { getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, warn } from './utils';
+import { getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, getTimeoutOptions, warn } from './utils';
 
 import type {
   SettingsCenterSection,
@@ -222,6 +222,7 @@ export class SettingsCenterPanelController {
         languageOptions: getLanguageOptions(strings),
         sendShortcutOptions: getSendShortcutOptions(strings),
         chatTabModeOptions: getChatTabModeOptions(strings),
+        timeoutOptions: getTimeoutOptions(strings),
         settings,
         modelOptions,
         invalidDefaultSelection,

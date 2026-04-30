@@ -1,6 +1,6 @@
 # ChatBuddy - VS Code AI Assistant Extension
 
-> 最后更新：2026-04-28
+> 最后更新：2026-04-30
 
 ---
 
@@ -202,6 +202,7 @@ ChatBuddy/
 | MCP 调用超时 | 服务器进程未启动或协议不匹配 | 检查超时配置和服务器路径，查看输出面板日志 |
 | WebView HTML 生成异常 | 模板字符串转义/拼接问题 | 检查 `webviewChatHtml.ts` 中的字符串拼接 |
 | 文件附件导致 API 400 | 文件内容 + 上下文超出 token 限制 | 减小「上下文数」设置（默认 16→4-8），注意多文件累积 |
+| 生成中断显示 "This operation was aborted" | 超时竞态：`abort()` 先于 `setAbortReason` 执行 | 已修复（先设原因再 abort），超时仅在首次响应等待阶段生效 |
 
 ---
 

@@ -225,6 +225,13 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                 </div>
                 <div class="help" id="chatTabModeHelp"></div>
               </section>
+
+              <section class="section-card">
+                <h2 class="section-title" id="timeoutSectionTitle"></h2>
+                <div class="field">
+                  <select id="timeout"></select>
+                </div>
+              </section>
             </div>
           </section>
 

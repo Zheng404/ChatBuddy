@@ -27,6 +27,8 @@ export function getSharedJs(): string {
         chatTabModeSectionTitle: document.getElementById('chatTabModeSectionTitle'),
 
         chatTabModeHelp: document.getElementById('chatTabModeHelp'),
+        timeoutSectionTitle: document.getElementById('timeoutSectionTitle'),
+        timeout: document.getElementById('timeout'),
         dataTransferDescription: document.getElementById('dataTransferDescription'),
         dangerSectionTitle: document.getElementById('dangerSectionTitle'),
         resetDataDescription: document.getElementById('resetDataDescription'),
@@ -177,6 +179,7 @@ export function getSharedJs(): string {
         languageOptions: [],
         sendShortcutOptions: [],
         chatTabModeOptions: [],
+        timeoutOptions: [],
         settings: {
           providers: [],
           defaultModels: {},

@@ -16,7 +16,7 @@ export const TITLE_GENERATION = {
 export const TIMEOUT = {
   MIN_MS: 5000,
   MAX_MS: 300000,
-  DEFAULT_MS: 60000,
+  DEFAULT_MS: 300000,
   CONNECTION_TEST_MS: 30000,
 } as const;
 

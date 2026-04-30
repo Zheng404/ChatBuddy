@@ -33,6 +33,7 @@ export type SettingsCenterMessage =
   | { type: 'saveLocale'; payload: { locale: ChatBuddyLocaleSetting } }
   | { type: 'saveSendShortcut'; payload: { sendShortcut: ChatSendShortcut } }
   | { type: 'saveChatTabMode'; payload: { chatTabMode: ChatTabMode } }
+  | { type: 'saveTimeout'; payload: { timeoutMs: number } }
   | { type: 'saveDefaultAssistant'; payload: { assistant: string } }
   | { type: 'saveDefaultTitleSummary'; payload: { titleSummary: string } }
   | { type: 'saveTitleSummaryPrompt'; payload: { titleSummaryPrompt: string } }
@@ -96,6 +97,7 @@ export type SettingsCenterState = {
   languageOptions: ReadonlyArray<{ value: ChatBuddyLocaleSetting; label: string }>;
   sendShortcutOptions: ReadonlyArray<{ value: ChatSendShortcut; label: string }>;
   chatTabModeOptions: ReadonlyArray<{ value: ChatTabMode; label: string }>;
+  timeoutOptions: ReadonlyArray<{ value: string; label: string }>;
   settings: ChatBuddySettings;
   modelOptions: ProviderModelOption[];
   invalidDefaultSelection: string;

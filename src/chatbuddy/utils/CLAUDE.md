@@ -21,7 +21,7 @@
 | `id.ts` | `createId`, `nowTs` | 唯一 ID 生成和时间戳 | `createId()` → `'abc123...'` |
 | `csp.ts` | `getNonce`, `buildCsp` | CSP 策略构建 | 生成 WebView CSP 头 |
 | `html.ts` | `escapeHtml`, `escapeHtmlAttr` | HTML 转义 | 防止 XSS 注入 |
-| `locale.ts` | `getLocaleFromSettings`, `resolveLocaleString` | 本地化辅助 | 快捷键标签、选项文本 |
+| `locale.ts` | `getLocaleFromSettings`, `resolveLocaleString`, `getTimeoutOptions` | 本地化辅助 | 快捷键标签、选项文本 |
 | `guard.ts` | `isString`, `isObject`, `isNonEmptyArray` | 类型守卫 | 运行时类型检查 |
 | `fs.ts` | `readFile`, `writeFile`, `fileExists` | 文件操作封装 | 异步文件 I/O |
 | `provider.ts` | `normalizeProvider` | Provider 配置规范化 | 标准化 API 端点 URL |

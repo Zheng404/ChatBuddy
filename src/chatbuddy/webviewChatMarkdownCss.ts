@@ -20,10 +20,14 @@ export function getWebviewChatMarkdownCss(): string {
         margin: 0;
       }
 
+      .code-block-lang + .code-block-copy + pre {
+        padding-top: 28px;
+      }
+
       .code-block-lang {
         position: absolute;
-        top: 4px;
-        left: 10px;
+        top: 6px;
+        left: 12px;
         font-size: 11px;
         color: var(--color-text-subtle);
         opacity: 0.7;

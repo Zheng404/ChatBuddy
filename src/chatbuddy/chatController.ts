@@ -90,7 +90,9 @@ export class ChatController {
       renderWebviewHtml: (webview) => getChatWebviewHtml(webview, this.extensionUri),
       handleWebviewMessage: (message, context) => this.handleWebviewMessage(message, context),
       handlePanelDisposing: (panel) => {
-        this.stopGeneration('manual');
+        if (this.isGenerating) {
+          this.stopGeneration('manual');
+        }
         const timeoutHandle = this.streamStatePostTimers.get(panel);
         if (timeoutHandle) {
           clearTimeout(timeoutHandle);

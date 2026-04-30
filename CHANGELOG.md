@@ -4,6 +4,48 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
+## [0.3.4] - 2026-04-30
+
+### English
+
+#### Added
+
+- Request timeout setting in Settings Center (General section) with presets: 30s, 60s, 120s, 180s, 300s.
+- Code block language label no longer overlaps with code content (padding added).
+
+#### Changed
+
+- Default timeout increased from 60s to 300s.
+- Timeout now only applies to the "first response wait" phase; timer is cleared once streaming data starts arriving.
+- Session temporary model chip now stays on the same line as the model selector.
+
+#### Fixed
+
+- Fixed race condition where `abort()` was called before `setAbortReason('timeout')`, causing raw English "This operation was aborted" instead of localized timeout message.
+- Fixed `streamFinalResponse` using `toErrorMessage` instead of `resolveGenerationErrorMessage`, causing abort/timeout errors to show raw messages during tool calling.
+- Fixed global timeout not being cleared during streaming phase of tool call final responses.
+- Fixed `handlePanelDisposing` calling `stopGeneration` even when not generating, polluting abort reason.
+
+### 中文
+
+#### 新增
+
+- 设置中心「通用」区域新增「请求超时」设置项，提供 30s/60s/120s/180s/300s 预设选项。
+- 代码块语言标签不再与代码内容重叠（增加了顶部内边距）。
+
+#### 变更
+
+- 默认超时从 60 秒提升至 300 秒。
+- 超时仅在「首次响应等待」阶段生效，收到流式数据后不再计时。
+- 本会话临时模型胶囊现在与模型选择器保持在同一行。
+
+#### 修复
+
+- 修复超时竞态条件：`abort()` 在 `setAbortReason` 之前执行导致显示原始英文 "This operation was aborted" 而非本地化超时提示。
+- 修复 `streamFinalResponse` 使用 `toErrorMessage` 而非 `resolveGenerationErrorMessage`，导致工具调用期间的中止/超时错误显示原始消息。
+- 修复工具调用最终流式响应阶段全局超时未被清除的问题。
+- 修复 `handlePanelDisposing` 在未生成时调用 `stopGeneration` 污染中止原因的问题。
+
 ## [0.3.3] - 2026-04-27
 
 ### English

@@ -54,7 +54,7 @@ export const DEFAULT_SETTINGS: ChatBuddySettings = {
   maxTokens: 0,
   presencePenalty: 0,
   frequencyPenalty: 0,
-  timeoutMs: 60000,
+  timeoutMs: 300000,
   streamingDefault: true,
   locale: 'auto',
   sendShortcut: 'enter',

@@ -233,8 +233,8 @@ export class ChatGenerationService {
     this.deps.setStreamingEnabled(assistant.streaming);
 
     const timeoutHandle = setTimeout(() => {
-      this.deps.getAbortController()?.abort();
       this.deps.setAbortReason('timeout');
+      this.deps.getAbortController()?.abort();
     }, resolved.config.timeoutMs);
 
     this.deps.postState(undefined, context);
@@ -256,12 +256,33 @@ export class ChatGenerationService {
     });
     const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
 
+    // 全局超时仅在「无响应」阶段生效：首个流式 token 到达后即清除，
+    // 后续由 consumeSseResponse 的 readWithTimeout 检测连接中断。
+    let responseTimeoutCleared = false;
+    const wrappedCallbacks = useStreaming ? {
+      onDelta: (delta: string) => {
+        if (!responseTimeoutCleared) {
+          clearTimeout(timeoutHandle);
+          responseTimeoutCleared = true;
+        }
+        streamCallbacks.onDelta(delta);
+      },
+      onReasoningDelta: (delta: string) => {
+        if (!responseTimeoutCleared) {
+          clearTimeout(timeoutHandle);
+          responseTimeoutCleared = true;
+        }
+        streamCallbacks.onReasoningDelta(delta);
+      },
+      onDone: streamCallbacks.onDone
+    } : streamCallbacks;
+
     try {
       if (useStreaming) {
         await this.deps.providerClient.chatStream(
           providerMessages,
           resolved.config,
-          streamCallbacks,
+          wrappedCallbacks,
           locale,
           this.deps.getAbortController()?.signal
         );

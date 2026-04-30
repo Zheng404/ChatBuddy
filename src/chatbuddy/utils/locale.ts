@@ -42,3 +42,17 @@ export function getChatTabModeOptions(strings: RuntimeStrings): ReadonlyArray<{ 
     { value: 'multi', label: strings.chatTabModeMulti }
   ] as const;
 }
+
+/**
+ * 获取请求超时预设选项
+ * @param strings 本地化字符串
+ */
+export function getTimeoutOptions(strings: RuntimeStrings): ReadonlyArray<{ value: string; label: string }> {
+  return [
+    { value: '30000', label: strings.timeout30s },
+    { value: '60000', label: strings.timeout60s },
+    { value: '120000', label: strings.timeout120s },
+    { value: '180000', label: strings.timeout180s },
+    { value: '300000', label: strings.timeout300s }
+  ] as const;
+}

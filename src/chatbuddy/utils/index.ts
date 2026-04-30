@@ -15,7 +15,8 @@ export {
   getLocaleFromSettings,
   resolveLocaleString,
   getSendShortcutOptions,
-  getChatTabModeOptions
+  getChatTabModeOptions,
+  getTimeoutOptions
 } from './locale';
 
 // 类型守卫

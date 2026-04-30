@@ -13,5 +13,8 @@ export function getGeneralJs(): string {
       dom.chatTabMode.addEventListener('change', () => {
         vscode.postMessage({ type: 'saveChatTabMode', payload: { chatTabMode: dom.chatTabMode.value === 'multi' ? 'multi' : 'single' } });
       });
+      dom.timeout.addEventListener('change', () => {
+        vscode.postMessage({ type: 'saveTimeout', payload: { timeoutMs: parseInt(dom.timeout.value, 10) || 300000 } });
+      });
 `;
 }

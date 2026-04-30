@@ -104,6 +104,9 @@ export function resolveGenerationErrorMessage(
     if (errorMsg.includes('timeout')) {
       return strings.requestTimeout;
     }
+    if (errorMsg.includes('aborted')) {
+      return strings.requestTimeout;
+    }
     return error.message || strings.unknownError;
   }
   return strings.unknownError;
@@ -187,7 +190,8 @@ export class ToolCallOrchestrator {
 
   public async runToolCallingBatch(
     pending: PendingToolContinuation,
-    context?: ToolOrchestratorPanelContext
+    context?: ToolOrchestratorPanelContext,
+    onFirstStreamToken?: () => void
   ): Promise<'completed' | 'paused'> {
     const maxRounds = Math.max(1, Math.floor(pending.settings.mcp.maxToolRounds) || 1);
     const targetContext = this.buildToolContinuationContext(pending, context);
@@ -276,7 +280,7 @@ export class ToolCallOrchestrator {
     this.deps.setPendingToolContinuation(undefined);
 
     if (pending.assistant.streaming) {
-      await this.streamFinalResponse(pending, chatToolRounds, targetContext);
+      await this.streamFinalResponse(pending, chatToolRounds, targetContext, onFirstStreamToken);
     } else {
       this.applyProviderResultToAssistantMessage(
         pending.assistant.id,
@@ -318,7 +322,7 @@ export class ToolCallOrchestrator {
     this.deps.postState(undefined, targetContext);
 
     try {
-      await this.runToolCallingBatch(pending, targetContext);
+      await this.runToolCallingBatch(pending, targetContext, () => clearTimeout(timeoutHandle));
     } catch (error) {
       const fallback = resolveGenerationErrorMessage(error, this.deps.getAbortReason(), strings);
       this.applyProviderResultToAssistantMessage(
@@ -413,7 +417,8 @@ export class ToolCallOrchestrator {
   private async streamFinalResponse(
     pending: PendingToolContinuation,
     chatToolRounds: ChatToolRound[],
-    context?: ToolOrchestratorPanelContext
+    context?: ToolOrchestratorPanelContext,
+    onFirstToken?: () => void
   ): Promise<void> {
     const strings = getStrings(pending.locale);
     const acc = createStreamAccumulator();
@@ -432,7 +437,27 @@ export class ToolCallOrchestrator {
       }
       this.deps.scheduleStreamStatePost(context);
     });
-    const callbacks = buildStreamCallbacks(acc, flush);
+    const baseCallbacks = buildStreamCallbacks(acc, flush);
+
+    // 首个流式 token 到达时清除全局超时
+    let firstTokenFired = false;
+    const callbacks = {
+      onDelta: (delta: string) => {
+        if (!firstTokenFired) {
+          firstTokenFired = true;
+          onFirstToken?.();
+        }
+        baseCallbacks.onDelta(delta);
+      },
+      onReasoningDelta: (delta: string) => {
+        if (!firstTokenFired) {
+          firstTokenFired = true;
+          onFirstToken?.();
+        }
+        baseCallbacks.onReasoningDelta(delta);
+      },
+      onDone: baseCallbacks.onDone
+    };
 
     try {
       await this.deps.providerClient.chatStream(
@@ -445,7 +470,7 @@ export class ToolCallOrchestrator {
       );
     } catch (error) {
       clearStreamFlush(acc);
-      const errorMsg = toErrorMessage(error, strings.unknownError);
+      const errorMsg = resolveGenerationErrorMessage(error, this.deps.getAbortReason(), strings);
       const partial = buildStreamErrorContent(acc, errorMsg);
       this.deps.repository.updateLastAssistantMessage(
         pending.assistant.id,

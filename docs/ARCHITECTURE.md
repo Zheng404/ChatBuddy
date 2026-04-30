@@ -1,6 +1,6 @@
 # ChatBuddy 架构文档
 
-> 最后更新：2026-04-28
+> 最后更新：2026-04-30
 
 本文档描述 ChatBuddy VS Code 扩展的整体架构、模块分层和数据流。
 
@@ -143,6 +143,8 @@ ChatController 本身不处理业务细节，只负责：
 - WebView 消息路由（`routeChatControllerWebviewMessage`）
 - 状态载荷构建（`chatControllerPayload.ts`）
 - 面板状态同步（`setActivePanelChangeCallback`）
+
+**超时机制**：`ChatGenerationService` 和 `ToolCallOrchestrator` 在发起 AI 请求时设置全局超时（默认 300s，用户可在设置中心配置）。超时仅在**首次响应等待**阶段生效——首个流式 token 到达后清除全局超时计时器，后续由 `consumeSseResponse` 的 `readWithTimeout` 检测连接中断。超时触发时先 `setAbortReason('timeout')` 再 `abort()`，确保错误处理读到正确的中止原因。
 
 #### 3.3 提供商客户端
 

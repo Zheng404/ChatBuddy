@@ -132,8 +132,10 @@ export function getWebviewChatComposerCss(): string {
       .composer-inline-controls {
         display: flex;
         align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
+        gap: 8px;
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
       }
 
       .chip {
@@ -213,7 +215,9 @@ export function getWebviewChatComposerCss(): string {
       }
 
       .model-select {
-        min-width: 260px;
+        min-width: 120px;
+        max-width: 320px;
+        flex-shrink: 1;
         border: 1px solid var(--input-border);
         border-radius: 8px;
         background: var(--input-bg);
