@@ -3,7 +3,7 @@
  *
  * 提供所有核心数据类型的不可变克隆函数，确保状态变更时不会意外修改共享引用。
  */
-import type { AssistantGroup, AssistantProfile, ChatSession, ChatSessionSummary, McpKeyValueEntry, McpServerProfile, McpSettings, ProviderProfile } from './types';
+import type { AssistantGroup, AssistantProfile, AssistantTemplate, ChatSession, ChatSessionSummary, McpKeyValueEntry, McpServerProfile, McpSettings, ProviderProfile } from './types';
 
 export function cloneProvider(provider: ProviderProfile): ProviderProfile {
   return {
@@ -22,7 +22,15 @@ export function cloneAssistant(assistant: AssistantProfile): AssistantProfile {
   return {
     ...assistant,
     enabledMcpServerIds: [...assistant.enabledMcpServerIds],
-    overrides: assistant.overrides ? { ...assistant.overrides } : undefined
+    overrides: assistant.overrides ? { ...assistant.overrides } : undefined,
+    failoverModelRefs: assistant.failoverModelRefs ? [...assistant.failoverModelRefs] : undefined
+  };
+}
+
+export function cloneTemplate(template: AssistantTemplate): AssistantTemplate {
+  return {
+    ...template,
+    enabledMcpServerIds: [...template.enabledMcpServerIds]
   };
 }
 
@@ -45,7 +53,8 @@ export function cloneMcpServer(server: McpServerProfile): McpServerProfile {
 export function cloneMcpSettings(settings: McpSettings): McpSettings {
   return {
     maxToolRounds: settings.maxToolRounds,
-    servers: settings.servers.map(cloneMcpServer)
+    servers: settings.servers.map(cloneMcpServer),
+    groups: (settings.groups || []).map((group) => ({ ...group }))
   };
 }
 

@@ -45,8 +45,25 @@ export function getChatScript(args: { nonce: string }): string {
         clearBtn: document.getElementById('clearBtn'),
         attachFileBtn: document.getElementById('attachFileBtn'),
         attachImageBtn: document.getElementById('attachImageBtn'),
+        saveAsTemplateBtn: document.getElementById('saveAsTemplateBtn'),
         tempModelSelect: document.getElementById('tempModelSelect'),
         tempModelChip: document.getElementById('tempModelChip'),
+        tempParamsBtn: document.getElementById('tempParamsBtn'),
+        tempParamsChip: document.getElementById('tempParamsChip'),
+        mcpHealthChip: document.getElementById('mcpHealthChip'),
+        tempParamsPopup: document.getElementById('tempParamsPopup'),
+        tempParamsTitle: document.getElementById('tempParamsTitle'),
+        tempParamsResetBtn: document.getElementById('tempParamsResetBtn'),
+        tempParamsTemp: document.getElementById('tempParamsTemp'),
+        tempParamsTempLabel: document.getElementById('tempParamsTempLabel'),
+        tempParamsTopP: document.getElementById('tempParamsTopP'),
+        tempParamsTopPLabel: document.getElementById('tempParamsTopPLabel'),
+        tempParamsMaxTokens: document.getElementById('tempParamsMaxTokens'),
+        tempParamsMaxTokensLabel: document.getElementById('tempParamsMaxTokensLabel'),
+        tempParamsPresence: document.getElementById('tempParamsPresence'),
+        tempParamsPresenceLabel: document.getElementById('tempParamsPresenceLabel'),
+        tempParamsFrequency: document.getElementById('tempParamsFrequency'),
+        tempParamsFrequencyLabel: document.getElementById('tempParamsFrequencyLabel'),
         streamingToggle: document.getElementById('streamingToggle'),
         streamingLabel: document.getElementById('streamingLabel'),
         toastStack: document.getElementById('toastStack'),
@@ -83,6 +100,8 @@ export function getChatScript(args: { nonce: string }): string {
         modelOptions: [],
         mcpServers: [],
         sessionTempModelRef: '',
+        sessionTempParams: {},
+        templates: [],
         sendShortcut: 'enter',
         streaming: true,
         isGenerating: false,
@@ -229,8 +248,10 @@ export function getChatScript(args: { nonce: string }): string {
           var wrapper = document.createElement('div');
           wrapper.className = 'image-preview-item';
           if (!img.base64) { return; }
+          var mime = String(img.mimeType || '').toLowerCase();
+          if (['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'].indexOf(mime) === -1) { return; }
           var imgEl = document.createElement('img');
-          imgEl.src = 'data:' + img.mimeType + ';base64,' + img.base64;
+          imgEl.src = 'data:' + mime + ';base64,' + img.base64;
           imgEl.className = 'image-preview-thumb';
           wrapper.appendChild(imgEl);
           var removeBtn = document.createElement('button');

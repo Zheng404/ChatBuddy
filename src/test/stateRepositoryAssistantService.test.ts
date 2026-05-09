@@ -42,7 +42,7 @@ function makeSettings(overrides: Partial<ChatBuddySettings> = {}): ChatBuddySett
   return {
     providers: [],
     defaultModels: {},
-    mcp: { servers: [{ id: 'mcp1', name: 'MCP1', enabled: true, transport: 'stdio' as const, command: 'cmd', args: [], cwd: '', env: [], url: '', headers: [], timeoutMs: 30000, remotePassthroughEnabled: false }], maxToolRounds: 5 },
+    mcp: { servers: [{ id: 'mcp1', name: 'MCP1', enabled: true, transport: 'stdio' as const, command: 'cmd', args: [], cwd: '', env: [], url: '', headers: [], timeoutMs: 30000, remotePassthroughEnabled: false }], groups: [], maxToolRounds: 5 },
     temperature: 0.7,
     topP: 1,
     maxTokens: 2048,
@@ -69,6 +69,7 @@ function makeState(overrides: Partial<PersistedStateLite> = {}): PersistedStateL
     selectedSessionIdByAssistant: {},
     sessionPanelCollapsed: false,
     collapsedGroupIds: [],
+    templates: [],
     settings: makeSettings(),
     ...overrides
   };
@@ -375,25 +376,25 @@ describe('restoreAssistant', () => {
 // ─── hardDeleteAssistant ───────────────────────────────────────────
 
 describe('hardDeleteAssistant', () => {
-  test('removes assistant and clears sessions', () => {
+  test('removes assistant and clears sessions', async () => {
     const { service, state, storageCalls } = createService();
-    const result = service.hardDeleteAssistant('a1');
+    const result = await service.hardDeleteAssistant('a1');
     assert.equal(result, true);
     assert.equal(state.assistants.length, 0);
     assert.ok(storageCalls.some(c => c.startsWith('clear:')));
   });
 
-  test('returns false for unknown assistant', () => {
+  test('returns false for unknown assistant', async () => {
     const { service } = createService();
-    assert.equal(service.hardDeleteAssistant('nonexistent'), false);
+    assert.equal(await service.hardDeleteAssistant('nonexistent'), false);
   });
 
-  test('selects next assistant after deleting selected one', () => {
+  test('selects next assistant after deleting selected one', async () => {
     const { service, state } = createService({
       assistants: [makeAssistant({ id: 'a1' }), makeAssistant({ id: 'a2' })],
       selectedAssistantId: 'a1'
     });
-    service.hardDeleteAssistant('a1');
+    await service.hardDeleteAssistant('a1');
     assert.equal(state.selectedAssistantId, 'a2');
   });
 });
@@ -401,22 +402,22 @@ describe('hardDeleteAssistant', () => {
 // ─── hardDeleteDeletedAssistants ────────────────────────────────────
 
 describe('hardDeleteDeletedAssistants', () => {
-  test('removes all deleted assistants', () => {
+  test('removes all deleted assistants', async () => {
     const { service, state } = createService({
       assistants: [
         makeAssistant({ id: 'a1', isDeleted: true }),
         makeAssistant({ id: 'a2', isDeleted: false })
       ]
     });
-    const count = service.hardDeleteDeletedAssistants();
+    const count = await service.hardDeleteDeletedAssistants();
     assert.equal(count, 1);
     assert.equal(state.assistants.length, 1);
     assert.equal(state.assistants[0].id, 'a2');
   });
 
-  test('returns 0 when no deleted assistants', () => {
+  test('returns 0 when no deleted assistants', async () => {
     const { service } = createService();
-    assert.equal(service.hardDeleteDeletedAssistants(), 0);
+    assert.equal(await service.hardDeleteDeletedAssistants(), 0);
   });
 });
 

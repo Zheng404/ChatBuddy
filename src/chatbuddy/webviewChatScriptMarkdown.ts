@@ -166,7 +166,7 @@ export function getChatMarkdownRendererScript(args: {
               '<a href="' +
               escapeHtmlAttr(safeUrl) +
               '" target="_blank" rel="noopener noreferrer">' +
-              label +
+              escapeHtml(label) +
               '</a>'
             );
           });
@@ -452,7 +452,7 @@ export function getChatMarkdownRendererScript(args: {
           m.initialize({
             startOnLoad: false,
             theme: isMermaidDarkTheme() ? 'dark' : 'default',
-            securityLevel: 'loose'
+            securityLevel: 'strict'
           });
           mermaidInitialized = true;
           return true;
@@ -488,6 +488,30 @@ export function getChatMarkdownRendererScript(args: {
           }, 100);
         });
         return mermaidLoadPromise;
+      }
+
+      /**
+       * Sanitize SVG output from Mermaid to prevent XSS.
+       * Strips <script>, <iframe>, <object>, <embed> tags and on* event handlers.
+       */
+      function sanitizeSvg(svg) {
+        var temp = document.createElement('div');
+        temp.innerHTML = svg;
+        var dangerous = temp.querySelectorAll('script, iframe, object, embed, foreignObject');
+        for (var i = 0; i < dangerous.length; i++) { dangerous[i].remove(); }
+        var all = temp.querySelectorAll('*');
+        for (var j = 0; j < all.length; j++) {
+          var attrs = all[j].attributes;
+          for (var k = attrs.length - 1; k >= 0; k--) {
+            var name = attrs[k].name.toLowerCase();
+            var value = String(attrs[k].value || '').trim().toLowerCase();
+            if (name.indexOf('on') === 0 ||
+                ((name === 'href' || name === 'xlink:href') && value.indexOf('javascript:') === 0)) {
+              all[j].removeAttribute(attrs[k].name);
+            }
+          }
+        }
+        return temp.innerHTML;
       }
 
       function replaceMermaidWithCode(el, errorMessage) {
@@ -529,7 +553,7 @@ export function getChatMarkdownRendererScript(args: {
             processMermaidQueue();
             return;
           }
-          var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6);
+          var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
           var text = (el.textContent || '').trim();
           if (!text) {
             console.error('[Mermaid] empty diagram text');
@@ -547,7 +571,7 @@ export function getChatMarkdownRendererScript(args: {
                 processMermaidQueue();
                 return;
               }
-              el.innerHTML = result.svg;
+              el.innerHTML = sanitizeSvg(result.svg);
               // Bind interactive functions (click events, tooltips, etc.)
               if (result.bindFunctions && typeof result.bindFunctions === 'function') {
                 try {

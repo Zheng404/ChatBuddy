@@ -37,11 +37,40 @@ export function getDataManagementJs(): string {
         dom.importBtn.textContent = strings.importDataAction || '';
         dom.importLegacyBtn.textContent = strings.importLegacyDataAction || '';
         dom.resetBtn.textContent = strings.resetDataAction || '';
+        renderSelectiveExport();
         renderDataTabs();
         renderDataTabVisibility();
         renderLocalBackupSettings();
         renderManualBackupSection();
         renderBackupList();
+      }
+
+      function renderSelectiveExport() {
+        var strings = runtimeState.strings || {};
+        if (dom.selectiveExportTitle) {
+          dom.selectiveExportTitle.textContent = strings.selectiveExportTitle || '';
+        }
+        if (dom.selectiveExportDescription) {
+          dom.selectiveExportDescription.textContent = strings.selectiveExportDescription || '';
+        }
+        if (dom.selectiveExportBtn) {
+          dom.selectiveExportBtn.textContent = strings.selectiveExportAction || '';
+        }
+        if (!dom.selectiveExportChecks) { return; }
+        var categories = [
+          { key: 'providers', label: strings.selectiveExportProviders || 'Providers' },
+          { key: 'mcp', label: strings.selectiveExportMcp || 'MCP' },
+          { key: 'assistants', label: strings.selectiveExportAssistants || 'Assistants' },
+          { key: 'settings', label: strings.selectiveExportSettings || 'Settings' }
+        ];
+        var html = '';
+        for (var i = 0; i < categories.length; i++) {
+          var cat = categories[i];
+          var checked = selectiveExportCategories[cat.key] !== false ? 'checked' : '';
+          html += '<label class="selective-export-check"><input type="checkbox" data-selective-key="' + escapeHtml(cat.key) + '" ' + checked + ' />'
+            + '<span>' + escapeHtml(cat.label) + '</span></label>';
+        }
+        dom.selectiveExportChecks.innerHTML = html;
       }
 
       function renderLocalBackupSettings() {
@@ -66,6 +95,39 @@ export function getDataManagementJs(): string {
         dom.triggerBackupBtn.textContent = strings.triggerBackupAction || '';
         dom.refreshBackupListBtn.textContent = strings.refreshBackupListAction || '';
         dom.backupHistoryTitle.textContent = strings.backupHistoryTitle || '';
+        renderBackupEncryptionSection();
+      }
+
+      function renderBackupEncryptionSection() {
+        var strings = runtimeState.strings || {};
+        var settings = (runtimeState.settings && runtimeState.settings.localBackup) || {};
+        if (dom.backupEncryptionSectionTitle) {
+          dom.backupEncryptionSectionTitle.textContent = strings.backupEncryptionSectionTitle || '';
+        }
+        if (dom.backupEncryptionHelp) {
+          dom.backupEncryptionHelp.textContent = strings.backupEncryptionHelp || '';
+        }
+        if (dom.backupEncryptionLabel) {
+          dom.backupEncryptionLabel.textContent = strings.backupEncryptionLabel || '';
+        }
+        if (dom.backupEncryptionToggle) {
+          dom.backupEncryptionToggle.checked = !!settings.encryptionEnabled;
+        }
+        if (dom.backupPasswordStatusLabel) {
+          dom.backupPasswordStatusLabel.textContent = runtimeState.hasBackupPassword
+            ? (strings.backupPasswordSet || 'Password set')
+            : (strings.backupPasswordNotSet || 'Password not set');
+          dom.backupPasswordStatusLabel.className = 'backup-password-status' + (runtimeState.hasBackupPassword ? ' has-password' : '');
+        }
+        if (dom.backupPasswordSetBtn) {
+          dom.backupPasswordSetBtn.textContent = runtimeState.hasBackupPassword
+            ? (strings.backupPasswordChangeAction || 'Change Password')
+            : (strings.backupPasswordSetAction || 'Set Password');
+        }
+        if (dom.backupPasswordClearBtn) {
+          dom.backupPasswordClearBtn.textContent = strings.backupPasswordClearAction || 'Clear Password';
+          dom.backupPasswordClearBtn.style.display = runtimeState.hasBackupPassword ? '' : 'none';
+        }
       }
 
       function formatFileSize(bytes) {

@@ -179,6 +179,10 @@
         "title": "%chatbuddy.command.stopGeneration%"
       },
       {
+        "command": "chatbuddy.regenerateReply",
+        "title": "%chatbuddy.command.regenerateReply%"
+      },
+      {
         "command": "chatbuddy.createAssistant.uiEn",
         "title": "Create Assistant",
         "icon": "$(add)"
@@ -363,6 +367,26 @@
         "command": "chatbuddy.askAI.uiZh",
         "title": "问 AI",
         "icon": "$(sparkle)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "chatbuddy.createSession",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "when": "chatBuddyChatPanelFocused"
+      },
+      {
+        "command": "chatbuddy.regenerateReply",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "chatBuddyChatPanelFocused"
+      },
+      {
+        "command": "chatbuddy.stopGeneration",
+        "key": "ctrl+alt+s",
+        "mac": "cmd+alt+s",
+        "when": "chatBuddyChatPanelFocused && chatBuddyIsGenerating"
       }
     ],
     "menus": {

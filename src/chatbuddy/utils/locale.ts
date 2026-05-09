@@ -28,7 +28,8 @@ export function resolveLocaleString(locale: string, zhText: string, enText: stri
 export function getSendShortcutOptions(strings: RuntimeStrings): ReadonlyArray<{ value: ChatSendShortcut; label: string }> {
   return [
     { value: 'enter', label: strings.sendShortcutEnter },
-    { value: 'ctrlEnter', label: strings.sendShortcutCtrlEnter }
+    { value: 'ctrlEnter', label: strings.sendShortcutCtrlEnter },
+    { value: 'shiftEnter', label: strings.sendShortcutShiftEnter }
   ] as const;
 }
 

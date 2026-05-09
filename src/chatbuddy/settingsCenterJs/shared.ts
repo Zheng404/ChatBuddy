@@ -35,6 +35,10 @@ export function getSharedJs(): string {
         exportBtn: document.getElementById('exportBtn'),
         importBtn: document.getElementById('importBtn'),
         importLegacyBtn: document.getElementById('importLegacyBtn'),
+        selectiveExportTitle: document.getElementById('selectiveExportTitle'),
+        selectiveExportDescription: document.getElementById('selectiveExportDescription'),
+        selectiveExportChecks: document.getElementById('selectiveExportChecks'),
+        selectiveExportBtn: document.getElementById('selectiveExportBtn'),
         resetBtn: document.getElementById('resetBtn'),
         dataTabTransfer: document.getElementById('dataTabTransfer'),
         dataTabLocal: document.getElementById('dataTabLocal'),
@@ -52,6 +56,13 @@ export function getSharedJs(): string {
         manualBackupTitle: document.getElementById('manualBackupTitle'),
         triggerBackupBtn: document.getElementById('triggerBackupBtn'),
         refreshBackupListBtn: document.getElementById('refreshBackupListBtn'),
+        backupEncryptionSectionTitle: document.getElementById('backupEncryptionSectionTitle'),
+        backupEncryptionHelp: document.getElementById('backupEncryptionHelp'),
+        backupEncryptionToggle: document.getElementById('backupEncryptionToggle'),
+        backupEncryptionLabel: document.getElementById('backupEncryptionLabel'),
+        backupPasswordStatusLabel: document.getElementById('backupPasswordStatusLabel'),
+        backupPasswordSetBtn: document.getElementById('backupPasswordSetBtn'),
+        backupPasswordClearBtn: document.getElementById('backupPasswordClearBtn'),
         backupHistoryTitle: document.getElementById('backupHistoryTitle'),
         backupListContainer: document.getElementById('backupListContainer'),
         autoBackupSectionTitle: document.getElementById('autoBackupSectionTitle'),
@@ -81,7 +92,6 @@ export function getSharedJs(): string {
         providerEmptyText: document.getElementById('providerEmptyText'),
         providerEnabledCheckbox: document.getElementById('providerEnabledCheckbox'),
         providerEnabledSwitchLabel: document.getElementById('providerEnabledSwitchLabel'),
-        saveProviderBtn: document.getElementById('saveProviderBtn'),
         testConnectionBtn: document.getElementById('testConnectionBtn'),
         fetchModelsBtn: document.getElementById('fetchModelsBtn'),
         deleteProviderBtn: document.getElementById('deleteProviderBtn'),
@@ -149,7 +159,9 @@ export function getSharedJs(): string {
         mcpSaveToolRoundsBtn: document.getElementById('mcpSaveToolRoundsBtn'),
         mcpServersTitle: document.getElementById('mcpServersTitle'),
         mcpServerList: document.getElementById('mcpServerList'),
+        mcpGroupList: document.getElementById('mcpGroupList'),
         mcpAddServerBtn: document.getElementById('mcpAddServerBtn'),
+        mcpAddGroupBtn: document.getElementById('mcpAddGroupBtn'),
         mcpServerModal: document.getElementById('mcpServerModal'),
         mcpServerModalTitle: document.getElementById('mcpServerModalTitle'),
         mcpServerModalDescription: document.getElementById('mcpServerModalDescription'),
@@ -207,7 +219,9 @@ export function getSharedJs(): string {
         changelogMarkdown: '',
         notice: '',
         noticeTone: 'info',
-        backupFiles: []
+        backupFiles: [],
+        mcpLastProbeAt: 0,
+        hasBackupPassword: false
       };
       let activeSection = 'general';
       let activeDataTab = 'transfer';
@@ -230,6 +244,9 @@ export function getSharedJs(): string {
       let searchKeyword = '';
       let lastToastNotice = '';
       let mcpServers = [];
+      let mcpGroups = [];
+      let expandedGroupIds = new Set();
+      let selectiveExportCategories = { providers: true, mcp: true, assistants: true, settings: true };
       let mcpModalMode = 'add';
       let mcpModalEditIdx = -1;
       let mcpModalDraft = null;

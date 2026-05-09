@@ -54,6 +54,11 @@ export function getAssistantEditorHtmlBody(): string {
               <select id="modelRef"></select>
             </div>
             <div class="field full">
+              <label for="failoverModelRefs" id="failoverModelsLabel"></label>
+              <div class="failover-help" id="failoverModelsHelp"></div>
+              <div class="failover-check-list" id="failoverModelCheckList"></div>
+            </div>
+            <div class="field full">
               <div class="checkbox-row">
                 <input id="streaming" type="checkbox" />
                 <label for="streaming" id="streamingLabel"></label>
@@ -119,6 +124,75 @@ export function getAssistantEditorHtmlBody(): string {
             </div>
           </div>
         </section>
+
+        <section class="section collapsible-section">
+          <button class="collapsible-header" id="advancedToggle" type="button">
+            <h2 class="section-title" id="advancedSectionTitle"></h2>
+            <span class="collapsible-icon codicon codicon-chevron-down"></span>
+          </button>
+          <div class="collapsible-body" id="advancedBody">
+            <div class="field-grid">
+              <div class="field full">
+                <label class="sub-section-label" id="overridesSubSectionLabel"></label>
+              </div>
+              <div class="field full">
+                <label for="overridesApiKey" id="overridesApiKeyLabel"></label>
+                <input id="overridesApiKey" type="password" autocomplete="off" />
+              </div>
+              <div class="field full">
+                <label for="overridesBaseUrl" id="overridesBaseUrlLabel"></label>
+                <input id="overridesBaseUrl" type="text" />
+              </div>
+              <div class="field full">
+                <label for="overridesModel" id="overridesModelLabel"></label>
+                <input id="overridesModel" type="text" />
+              </div>
+              <div class="field">
+                <label for="overridesTemperature" id="overridesTemperatureLabel"></label>
+                <input id="overridesTemperature" type="number" min="0" max="2" step="0.1" />
+              </div>
+              <div class="field full">
+                <label class="sub-section-label" id="advancedParamsSubSectionLabel"></label>
+              </div>
+              <div class="field full">
+                <label for="stopSequences" id="stopSequencesLabel"></label>
+                <input id="stopSequences" type="text" />
+              </div>
+              <div class="field">
+                <label for="seed" id="seedLabel"></label>
+                <input id="seed" type="number" step="1" />
+              </div>
+              <div class="field">
+                <label for="responseFormat" id="responseFormatLabel"></label>
+                <select id="responseFormat">
+                  <option value="">-</option>
+                  <option value="text">text</option>
+                  <option value="json_object">json_object</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="toolChoice" id="toolChoiceLabel"></label>
+                <select id="toolChoice">
+                  <option value="">-</option>
+                  <option value="auto">auto</option>
+                  <option value="none">none</option>
+                  <option value="required">required</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="geminiSafetyLevel" id="geminiSafetyLevelLabel"></label>
+                <select id="geminiSafetyLevel">
+                  <option value="">-</option>
+                  <option value="default">default</option>
+                  <option value="none">none</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
     </div>
@@ -147,6 +221,9 @@ export function getAssistantEditorJs(): string {
         groupLabel: document.getElementById('groupLabel'),
         modelLabel: document.getElementById('modelLabel'),
         streamingLabel: document.getElementById('streamingLabel'),
+        failoverModelsLabel: document.getElementById('failoverModelsLabel'),
+        failoverModelsHelp: document.getElementById('failoverModelsHelp'),
+        failoverModelCheckList: document.getElementById('failoverModelCheckList'),
         mcpServersLabel: document.getElementById('mcpServersLabel'),
         temperatureLabel: document.getElementById('temperatureLabel'),
         topPLabel: document.getElementById('topPLabel'),
@@ -172,7 +249,30 @@ export function getAssistantEditorJs(): string {
         contextCount: document.getElementById('contextCount'),
         presencePenalty: document.getElementById('presencePenalty'),
         frequencyPenalty: document.getElementById('frequencyPenalty'),
-        toastStack: document.getElementById('toastStack')
+        toastStack: document.getElementById('toastStack'),
+        advancedToggle: document.getElementById('advancedToggle'),
+        advancedSectionTitle: document.getElementById('advancedSectionTitle'),
+        advancedBody: document.getElementById('advancedBody'),
+        overridesSubSectionLabel: document.getElementById('overridesSubSectionLabel'),
+        overridesApiKeyLabel: document.getElementById('overridesApiKeyLabel'),
+        overridesBaseUrlLabel: document.getElementById('overridesBaseUrlLabel'),
+        overridesModelLabel: document.getElementById('overridesModelLabel'),
+        overridesTemperatureLabel: document.getElementById('overridesTemperatureLabel'),
+        advancedParamsSubSectionLabel: document.getElementById('advancedParamsSubSectionLabel'),
+        stopSequencesLabel: document.getElementById('stopSequencesLabel'),
+        seedLabel: document.getElementById('seedLabel'),
+        responseFormatLabel: document.getElementById('responseFormatLabel'),
+        toolChoiceLabel: document.getElementById('toolChoiceLabel'),
+        geminiSafetyLevelLabel: document.getElementById('geminiSafetyLevelLabel'),
+        overridesApiKey: document.getElementById('overridesApiKey'),
+        overridesBaseUrl: document.getElementById('overridesBaseUrl'),
+        overridesModel: document.getElementById('overridesModel'),
+        overridesTemperature: document.getElementById('overridesTemperature'),
+        stopSequences: document.getElementById('stopSequences'),
+        seed: document.getElementById('seed'),
+        responseFormat: document.getElementById('responseFormat'),
+        toolChoice: document.getElementById('toolChoice'),
+        geminiSafetyLevel: document.getElementById('geminiSafetyLevel')
       };
 
       let state = null;
@@ -200,6 +300,8 @@ ${getHtmlEscaperScript()}
         dom.groupLabel.textContent = strings.assistantGroupLabel;
         dom.modelLabel.textContent = strings.assistantModelLabel;
         dom.streamingLabel.textContent = strings.assistantStreamingLabel;
+        dom.failoverModelsLabel.textContent = strings.failoverModelsLabel || 'Failover Models';
+        dom.failoverModelsHelp.textContent = strings.failoverModelsHelp || '';
         dom.mcpServersLabel.textContent = strings.mcpServersLabel || 'MCP Servers';
         dom.temperatureLabel.textContent = strings.temperatureLabel;
         dom.topPLabel.textContent = strings.topPLabel;
@@ -207,6 +309,18 @@ ${getHtmlEscaperScript()}
         dom.contextCountLabel.textContent = strings.contextCountLabel;
         dom.presencePenaltyLabel.textContent = strings.presencePenaltyLabel;
         dom.frequencyPenaltyLabel.textContent = strings.frequencyPenaltyLabel;
+        dom.advancedSectionTitle.textContent = strings.assistantAdvancedSection || 'Advanced';
+        dom.overridesSubSectionLabel.textContent = strings.assistantOverridesSubSection || 'Provider Overrides';
+        dom.overridesApiKeyLabel.textContent = strings.assistantOverridesApiKey || 'API Key Override';
+        dom.overridesBaseUrlLabel.textContent = strings.assistantOverridesBaseUrl || 'Base URL Override';
+        dom.overridesModelLabel.textContent = strings.assistantOverridesModel || 'Model Override';
+        dom.overridesTemperatureLabel.textContent = strings.assistantOverridesTemperature || 'Temperature Override';
+        dom.advancedParamsSubSectionLabel.textContent = strings.assistantAdvancedParamsSubSection || 'Advanced Parameters';
+        dom.stopSequencesLabel.textContent = strings.assistantStopSequencesLabel || 'Stop Sequences';
+        dom.seedLabel.textContent = strings.assistantSeedLabel || 'Seed';
+        dom.responseFormatLabel.textContent = strings.assistantResponseFormatLabel || 'Response Format';
+        dom.toolChoiceLabel.textContent = strings.assistantToolChoiceLabel || 'Tool Choice';
+        dom.geminiSafetyLevelLabel.textContent = strings.assistantGeminiSafetyLevelLabel || 'Gemini Safety';
         dom.saveBtn.title = strings.assistantSaveAction;
         dom.avatarSelectBtn.title = strings.assistantAvatarSelectAction;
         dom.groupId.title = strings.assistantGroupLabel;
@@ -219,6 +333,14 @@ ${getHtmlEscaperScript()}
         }).join('');
         dom.modelRef.innerHTML = (state.models || []).map((model) => {
           return '<option value="' + escapeHtml(model.ref) + '">' + escapeHtml(model.label + (model.metaLabel || '')) + '</option>';
+        }).join('');
+        // Render failover model checkboxes (exclude currently selected primary model)
+        const primaryRef = dom.modelRef.value || state.assistant?.modelRef;
+        dom.failoverModelCheckList.innerHTML = (state.models || []).filter((model) => model.ref !== primaryRef).map((model) => {
+          return '<label class="failover-check-item">' +
+            '<input type="checkbox" value="' + escapeHtml(model.ref) + '" />' +
+            '<span>' + escapeHtml(model.label + (model.metaLabel || '')) + '</span>' +
+          '</label>';
         }).join('');
         dom.mcpServerCheckList.innerHTML = (state.mcpServers || []).map((server) => {
           const transportLabel = server.transport === 'streamableHttp'
@@ -282,6 +404,10 @@ ${getHtmlEscaperScript()}
         ensureModelOption(assistant.modelRef);
         dom.modelRef.value = assistant.modelRef || '';
         dom.streaming.checked = !!assistant.streaming;
+        const failoverIds = new Set(assistant.failoverModelRefs || []);
+        Array.from(dom.failoverModelCheckList.querySelectorAll('input[type="checkbox"]')).forEach((cb) => {
+          cb.checked = failoverIds.has(cb.value);
+        });
         const enabledIds = new Set(assistant.enabledMcpServerIds || []);
         Array.from(dom.mcpServerCheckList.querySelectorAll('input[type="checkbox"]')).forEach((cb) => {
           cb.checked = enabledIds.has(cb.value);
@@ -292,6 +418,16 @@ ${getHtmlEscaperScript()}
         dom.contextCount.value = String(assistant.contextCount ?? 16);
         dom.presencePenalty.value = String(assistant.presencePenalty ?? 0);
         dom.frequencyPenalty.value = String(assistant.frequencyPenalty ?? 0);
+        const overrides = assistant.overrides || {};
+        dom.overridesApiKey.value = overrides.apiKey || '';
+        dom.overridesBaseUrl.value = overrides.baseUrl || '';
+        dom.overridesModel.value = overrides.model || '';
+        dom.overridesTemperature.value = overrides.temperature !== undefined ? String(overrides.temperature) : '';
+        dom.stopSequences.value = (assistant.stopSequences || []).join(', ');
+        dom.seed.value = assistant.seed !== undefined ? String(assistant.seed) : '';
+        dom.responseFormat.value = assistant.responseFormat?.type === 'json_object' ? 'json_object' : (assistant.responseFormat?.type === 'text' ? 'text' : '');
+        dom.toolChoice.value = typeof assistant.toolChoice === 'string' ? assistant.toolChoice : '';
+        dom.geminiSafetyLevel.value = typeof assistant.geminiSafetyLevel === 'string' ? assistant.geminiSafetyLevel : '';
         renderAvatarPreview();
       }
 
@@ -318,7 +454,39 @@ ${getHtmlEscaperScript()}
           maxTokens: Number.parseInt(dom.maxTokens.value, 10),
           contextCount: Number.parseInt(dom.contextCount.value, 10),
           presencePenalty: Number.parseFloat(dom.presencePenalty.value),
-          frequencyPenalty: Number.parseFloat(dom.frequencyPenalty.value)
+          frequencyPenalty: Number.parseFloat(dom.frequencyPenalty.value),
+          overrides: (function() {
+            const apiKey = (dom.overridesApiKey.value || '').trim();
+            const baseUrl = (dom.overridesBaseUrl.value || '').trim();
+            const model = (dom.overridesModel.value || '').trim();
+            const temperatureRaw = dom.overridesTemperature.value.trim();
+            const temperature = temperatureRaw !== '' ? Number.parseFloat(temperatureRaw) : undefined;
+            if (!apiKey && !baseUrl && !model && temperature === undefined) {
+              return undefined;
+            }
+            const result = {};
+            if (apiKey) { result.apiKey = apiKey; }
+            if (baseUrl) { result.baseUrl = baseUrl; }
+            if (model) { result.model = model; }
+            if (temperature !== undefined && !Number.isNaN(temperature)) { result.temperature = temperature; }
+            return result;
+          })(),
+          stopSequences: (function() {
+            const raw = (dom.stopSequences.value || '').trim();
+            if (!raw) { return undefined; }
+            const items = raw.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+            return items.length > 0 ? items : undefined;
+          })(),
+          seed: (function() {
+            const raw = dom.seed.value.trim();
+            if (!raw) { return undefined; }
+            const val = Number.parseInt(raw, 10);
+            return Number.isNaN(val) ? undefined : val;
+          })(),
+          responseFormat: dom.responseFormat.value || undefined,
+          toolChoice: dom.toolChoice.value || undefined,
+          geminiSafetyLevel: dom.geminiSafetyLevel.value || undefined,
+          failoverModelRefs: Array.from(dom.failoverModelCheckList.querySelectorAll('input[type="checkbox"]:checked')).map((cb) => cb.value).filter(Boolean)
         };
       }
 
@@ -360,6 +528,11 @@ ${getHtmlEscaperScript()}
           type: 'save',
           payload: collectPayload()
         });
+      });
+
+      dom.advancedToggle.addEventListener('click', () => {
+        const isOpen = dom.advancedBody.classList.toggle('open');
+        dom.advancedToggle.classList.toggle('collapsed', !isOpen);
       });
 
       vscode.postMessage({ type: 'ready' });

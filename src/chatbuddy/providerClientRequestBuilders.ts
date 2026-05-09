@@ -146,6 +146,18 @@ export function toChatCompletionBody(
   if (providerConfig.maxTokens > 0) {
     body.max_tokens = providerConfig.maxTokens;
   }
+  if (providerConfig.stopSequences?.length) {
+    body.stop = providerConfig.stopSequences;
+  }
+  if (providerConfig.seed != null) {
+    body.seed = providerConfig.seed;
+  }
+  if (providerConfig.responseFormat) {
+    body.response_format = providerConfig.responseFormat;
+  }
+  if (providerConfig.toolChoice != null) {
+    body.tool_choice = providerConfig.toolChoice;
+  }
   return body;
 }
 
@@ -170,6 +182,18 @@ export function toResponsesBody(
   }
   if (providerConfig.maxTokens > 0) {
     body.max_output_tokens = providerConfig.maxTokens;
+  }
+  if (providerConfig.stopSequences?.length) {
+    body.stop = providerConfig.stopSequences;
+  }
+  if (providerConfig.seed != null) {
+    body.seed = providerConfig.seed;
+  }
+  if (providerConfig.responseFormat) {
+    body.response_format = providerConfig.responseFormat;
+  }
+  if (providerConfig.toolChoice != null) {
+    body.tool_choice = providerConfig.toolChoice;
   }
   return body;
 }
@@ -267,8 +291,24 @@ function toGeminiGenerationConfig(providerConfig: ProviderConfig): Record<string
   if (providerConfig.topP > 0) {
     config.topP = providerConfig.topP;
   }
+  if (providerConfig.topK != null && providerConfig.topK > 0) {
+    config.topK = providerConfig.topK;
+  }
   if (providerConfig.maxTokens > 0) {
     config.maxOutputTokens = providerConfig.maxTokens;
+  }
+  if (providerConfig.stopSequences?.length) {
+    config.stopSequences = providerConfig.stopSequences;
+  }
+  if (providerConfig.seed != null) {
+    config.seed = providerConfig.seed;
+  }
+  if (providerConfig.responseFormat) {
+    config.responseMimeType = providerConfig.responseFormat.type === 'json_object'
+      ? 'application/json'
+      : providerConfig.responseFormat.type === 'json_schema'
+        ? 'application/json'
+        : 'text/plain';
   }
   return config;
 }
@@ -284,6 +324,24 @@ function toGeminiToolDeclarations(tools: ProviderToolDefinition[]): Array<Record
         parameters: t.function.parameters || {}
       }
     }));
+}
+
+function toGeminiSafetySettings(level: ProviderConfig['geminiSafetyLevel']): Array<Record<string, unknown>> | undefined {
+  if (!level || level === 'default') { return undefined; }
+  const thresholdMap: Record<Exclude<NonNullable<ProviderConfig['geminiSafetyLevel']>, 'default'>, string> = {
+    none: 'BLOCK_NONE',
+    low: 'BLOCK_LOW_AND_ABOVE',
+    medium: 'BLOCK_MEDIUM_AND_ABOVE',
+    high: 'BLOCK_ONLY_HIGH'
+  };
+  const threshold = thresholdMap[level];
+  const categories = [
+    'HARM_CATEGORY_HARASSMENT',
+    'HARM_CATEGORY_HATE_SPEECH',
+    'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+    'HARM_CATEGORY_DANGEROUS_CONTENT'
+  ];
+  return categories.map((category) => ({ category, threshold }));
 }
 
 export function toGeminiBody(
@@ -306,6 +364,10 @@ export function toGeminiBody(
   }
   if (tools.length > 0) {
     body.tools = toGeminiToolDeclarations(tools);
+  }
+  const safetySettings = toGeminiSafetySettings(providerConfig.geminiSafetyLevel);
+  if (safetySettings) {
+    body.safetySettings = safetySettings;
   }
   return body;
 }

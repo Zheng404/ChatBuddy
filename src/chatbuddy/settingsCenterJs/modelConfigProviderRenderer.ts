@@ -7,7 +7,6 @@ export function getModelConfigProviderRendererJs(): string {
         const strings = runtimeState.strings || {};
         dom.addProviderBtn.textContent = strings.addProviderAction || '';
         dom.providerSearch.placeholder = strings.providerSearchPlaceholder || '';
-        dom.saveProviderBtn.textContent = strings.saveProviderAction || '';
         dom.testConnectionBtn.textContent = strings.testConnectionAction || '';
         dom.fetchModelsBtn.textContent = strings.fetchModelsAction || '';
         dom.deleteProviderBtn.textContent = strings.deleteProviderAction || '';
@@ -113,8 +112,6 @@ export function getModelConfigProviderRendererJs(): string {
         dom.apiType.disabled = disabled;
         dom.apiKey.disabled = disabled;
         dom.baseUrl.disabled = disabled;
-        dom.saveProviderBtn.hidden = true;
-        dom.saveProviderBtn.disabled = true;
         dom.addManualModelBtn.disabled = disabled;
         dom.fetchModelsBtn.disabled = disabled || isFetchingProviderModels;
         dom.fetchModelsBtn.textContent = isFetchingProviderModels

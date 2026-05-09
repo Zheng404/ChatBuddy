@@ -18,6 +18,7 @@ import {
 import { ChatStorage } from './chatStorage';
 import { nowTs } from './utils';
 import {
+  AssistantTemplate,
   ChatBuddyLocaleSetting,
   ChatBuddySettings,
   ChatSessionDetail,
@@ -51,6 +52,20 @@ export function applyProviderApiKeysToSettings(
       apiKey: apiKeys[provider.id] ?? ''
     }))
   };
+}
+
+function sanitizeTemplates(templates: unknown): AssistantTemplate[] {
+  if (!Array.isArray(templates)) {
+    return [];
+  }
+  return templates.filter(
+    (t): t is AssistantTemplate =>
+      t != null &&
+      typeof t === 'object' &&
+      typeof t.id === 'string' &&
+      typeof t.name === 'string' &&
+      typeof t.systemPrompt === 'string'
+  );
 }
 
 export function mergePersistedState(
@@ -108,6 +123,7 @@ export function mergePersistedState(
       selectedSessionIdByAssistant,
       sessionPanelCollapsed: source.sessionPanelCollapsed ?? false,
       collapsedGroupIds: source.collapsedGroupIds ?? [],
+      templates: sanitizeTemplates(source.templates),
       settings
     },
     sessions

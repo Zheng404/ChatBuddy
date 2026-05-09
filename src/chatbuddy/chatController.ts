@@ -36,6 +36,7 @@ import {
   ChatBuddySettings,
   ProviderModelOption,
   RuntimeLocale,
+  SessionTempParams,
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
@@ -64,6 +65,7 @@ export class ChatController {
   private abortController: AbortController | undefined;
   private abortReason: GenerationAbortReason | undefined;
   private sessionTempModelRefBySession: Record<string, string> = {};
+  private sessionTempParamsBySession: Record<string, SessionTempParams> = {};
   private lastSelectedSessionIdByAssistant: Record<string, string | undefined> = {};
   private modelOptions: ProviderModelOption[];
   private readonly toolOrchestrator: ToolCallOrchestrator;
@@ -112,6 +114,7 @@ export class ChatController {
       isGenerating: () => this.isGenerating,
       setIsGenerating: (generating) => {
         this.isGenerating = generating;
+        void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -135,6 +138,7 @@ export class ChatController {
       isGenerating: () => this.isGenerating,
       setIsGenerating: (generating) => {
         this.isGenerating = generating;
+        void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -275,6 +279,7 @@ export class ChatController {
     }
     this.repository.deleteSession(assistant.id, sessionId);
     delete this.sessionTempModelRefBySession[sessionId];
+    delete this.sessionTempParamsBySession[sessionId];
     this.ensureSession(assistant.id);
     this.postState();
   }
@@ -293,6 +298,7 @@ export class ChatController {
     const sessions = this.repository.getSessionsForAssistant(assistantId);
     for (const session of sessions) {
       delete this.sessionTempModelRefBySession[session.id];
+      delete this.sessionTempParamsBySession[session.id];
     }
     this.panelManager.disposePanelForAssistant(assistantId);
   }
@@ -363,6 +369,7 @@ export class ChatController {
         createSessionForAssistant: (assistantId) => this.createSessionForAssistant(assistantId),
         ensureSession: (assistantId) => this.ensureSession(assistantId),
         sessionTempModelRefBySession: this.sessionTempModelRefBySession,
+        sessionTempParamsBySession: this.sessionTempParamsBySession,
         setStreamingEnabled: (enabled) => {
           this.streamingEnabled = enabled;
         },
@@ -438,6 +445,7 @@ export class ChatController {
     const created = this.repository.createSession(assistant.id, getDefaultSessionTitle(this.getLocale()));
     if (previousSessionId && previousSessionId !== created.id) {
       delete this.sessionTempModelRefBySession[previousSessionId];
+      delete this.sessionTempParamsBySession[previousSessionId];
     }
     return created.id;
   }
@@ -456,7 +464,8 @@ export class ChatController {
       settings,
       assistant,
       sessionId,
-      sessionTempModelRefBySession: this.sessionTempModelRefBySession
+      sessionTempModelRefBySession: this.sessionTempModelRefBySession,
+      sessionTempParamsBySession: this.sessionTempParamsBySession
     });
   }
 
@@ -501,7 +510,8 @@ export class ChatController {
       assistantId: assistant?.id,
       selectedSessionId: selectedSession?.id,
       lastSelectedSessionIdByAssistant: this.lastSelectedSessionIdByAssistant,
-      sessionTempModelRefBySession: this.sessionTempModelRefBySession
+      sessionTempModelRefBySession: this.sessionTempModelRefBySession,
+      sessionTempParamsBySession: this.sessionTempParamsBySession
     });
 
     return withGenerationState(
@@ -513,11 +523,33 @@ export class ChatController {
         selectedSession,
         pendingToolContinuation: this.pendingToolContinuation,
         getModelOption: (modelRef) => this.repository.resolveModelOption(modelRef),
-        getServerSummaries: (settings, currentAssistant) => this.mcpRuntime.getServerSummaries(settings, currentAssistant),
+        getServerSummaries: (settings, currentAssistant) => {
+          const summaries = this.mcpRuntime.getServerSummaries(settings, currentAssistant);
+          const probeCache = this.repository.getMcpProbeCache();
+          if (!probeCache || !Array.isArray(probeCache.entries)) {
+            return summaries;
+          }
+          const probeMap = new Map<string, { success: boolean; probedAt: number; error?: string }>();
+          for (const entry of probeCache.entries) {
+            if (!entry || typeof entry !== 'object') { continue; }
+            const e = entry as { serverId?: unknown; success?: unknown; probedAt?: unknown; error?: unknown };
+            if (typeof e.serverId !== 'string' || typeof e.success !== 'boolean') { continue; }
+            probeMap.set(e.serverId, {
+              success: e.success,
+              probedAt: typeof e.probedAt === 'number' ? e.probedAt : probeCache.lastProbeAt,
+              error: typeof e.error === 'string' ? e.error : undefined
+            });
+          }
+          return summaries.map((s) => {
+            const probe = probeMap.get(s.id);
+            return probe ? { ...s, lastProbe: probe } : s;
+          });
+        },
         resolveProviderConfigForAssistant: (settings, currentAssistant, sessionId) =>
           this.resolveEffectiveProviderConfig(settings, currentAssistant, sessionId),
         modelOptions: this.modelOptions,
         sessionTempModelRefBySession: this.sessionTempModelRefBySession,
+        sessionTempParamsBySession: this.sessionTempParamsBySession,
         streamingEnabled: this.streamingEnabled,
         error
       }),
@@ -548,7 +580,7 @@ export class ChatController {
     await this.generationService.sendMessage(content, images, files, context);
   }
 
-  private async regenerateReply(context?: PanelMessageContext): Promise<void> {
+  public async regenerateReply(context?: PanelMessageContext): Promise<void> {
     await this.generationService.regenerateReply(context);
   }
 

@@ -1,13 +1,16 @@
+import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
 /**
  * 生成32位随机 nonce 字符串，用于 CSP 安全策略
+ * 使用密码学安全随机数生成器
  */
 export function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = crypto.randomBytes(32);
   let text = '';
   for (let i = 0; i < 32; i += 1) {
-    text += chars.charAt(Math.floor(Math.random() * chars.length));
+    text += chars.charAt(bytes[i] % chars.length);
   }
   return text;
 }
@@ -26,6 +29,6 @@ export function buildCsp(webview: vscode.Webview, nonce: string): string {
     `script-src 'nonce-${nonce}' ${webview.cspSource}`,
     `img-src ${webview.cspSource} https: data:`,
     `media-src ${webview.cspSource} https: data:`,
-    'connect-src https:'
+    'connect-src https: wss:'
   ].join('; ');
 }

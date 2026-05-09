@@ -38,7 +38,7 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const MAX_CONTEXT_COUNT = Number.MAX_SAFE_INTEGER;
+export const MAX_CONTEXT_COUNT = 200;
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
 const LEGACY_UNTITLED_SESSION_TITLES = new Set(['新会话', 'New Chat']);
 
@@ -47,6 +47,7 @@ export const DEFAULT_SETTINGS: ChatBuddySettings = {
   defaultModels: createEmptyDefaultModels(),
   mcp: {
     servers: [],
+    groups: [],
     maxToolRounds: 8
   },
   temperature: 0.7,
@@ -151,6 +152,7 @@ export function sanitizeMcpServer(raw: unknown): McpServerProfile | undefined {
         .map((item) => (typeof item === 'string' ? item.trim() : ''))
         .filter(Boolean)
     : [];
+  const groupId = typeof source.groupId === 'string' ? source.groupId.trim() || undefined : undefined;
   return {
     id,
     name,
@@ -163,7 +165,25 @@ export function sanitizeMcpServer(raw: unknown): McpServerProfile | undefined {
     url: typeof source.url === 'string' ? source.url.trim() : '',
     headers: normalizeMcpKeyValueEntries(source.headers),
     timeoutMs: clamp(typeof source.timeoutMs === 'number' ? source.timeoutMs : 60000, 1000, 600000, 60000),
-    remotePassthroughEnabled: source.remotePassthroughEnabled === true
+    remotePassthroughEnabled: source.remotePassthroughEnabled === true,
+    groupId
+  };
+}
+
+export function sanitizeMcpGroup(raw: unknown): import('./types').McpServerGroup | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const source = raw as Partial<import('./types').McpServerGroup>;
+  const id = typeof source.id === 'string' ? source.id.trim() : '';
+  const name = typeof source.name === 'string' ? source.name.trim() : '';
+  if (!id || !name) {
+    return undefined;
+  }
+  return {
+    id,
+    name,
+    enabled: source.enabled !== false
   };
 }
 
@@ -177,8 +197,17 @@ export function sanitizeMcpSettings(raw: unknown): McpSettings {
     }
     byId.set(server.id, server);
   }
+  const groupById = new Map<string, import('./types').McpServerGroup>();
+  for (const item of Array.isArray(source.groups) ? source.groups : []) {
+    const group = sanitizeMcpGroup(item);
+    if (!group || groupById.has(group.id)) {
+      continue;
+    }
+    groupById.set(group.id, group);
+  }
   return {
     servers: [...byId.values()],
+    groups: [...groupById.values()],
     maxToolRounds: clamp(
       typeof source.maxToolRounds === 'number' ? source.maxToolRounds : DEFAULT_SETTINGS.mcp.maxToolRounds,
       1,
@@ -451,7 +480,13 @@ export function sanitizeAssistant(
         : typeof source.updatedAt === 'number'
           ? source.updatedAt
           : timestamp,
-    overrides: source.overrides
+    overrides: source.overrides,
+    failoverModelRefs: Array.isArray(source.failoverModelRefs)
+      ? source.failoverModelRefs
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item) => item.length > 0 && parseModelRef(item))
+          .filter((item, index, array) => array.indexOf(item) === index)
+      : undefined
   };
 }
 
@@ -538,6 +573,7 @@ export function createInitialState(): PersistedStateLite {
     selectedSessionIdByAssistant: {},
     sessionPanelCollapsed: false,
     collapsedGroupIds: [],
-    settings
+    settings,
+    templates: []
   };
 }

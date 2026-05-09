@@ -25,6 +25,10 @@ export function createPanelControllers(args: {
   handleExportData: () => Promise<DataActionResult | undefined>;
   handleImportData: () => Promise<DataActionResult | undefined>;
   handleImportLegacyData: () => Promise<DataActionResult | undefined>;
+  handleSelectiveExportData: (categories: string[]) => Promise<DataActionResult | undefined>;
+  getBackupPassword: () => Promise<string | undefined>;
+  setBackupPassword: (password: string) => Promise<void>;
+  clearBackupPassword: () => Promise<void>;
   refreshAll: () => void;
   updateTreeMessage: () => void;
   getRuntimeStrings: () => Record<string, string>;
@@ -41,6 +45,10 @@ export function createPanelControllers(args: {
     handleExportData,
     handleImportData,
     handleImportLegacyData,
+    handleSelectiveExportData,
+    getBackupPassword,
+    setBackupPassword,
+    clearBackupPassword,
     refreshAll,
     updateTreeMessage,
     getRuntimeStrings
@@ -54,7 +62,11 @@ export function createPanelControllers(args: {
     handleResetData,
     handleExportData,
     handleImportData,
-    handleImportLegacyData
+    handleImportLegacyData,
+    handleSelectiveExportData,
+    getBackupPassword,
+    setBackupPassword,
+    clearBackupPassword
   );
 
   const assistantEditorPanelController = new AssistantEditorPanelController(

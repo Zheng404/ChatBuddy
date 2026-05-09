@@ -199,6 +199,24 @@ export class AssistantStateService {
         .map((item) => item.trim())
         .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index && validIds.has(item));
     }
+    if (patch.overrides !== undefined) {
+      assistant.overrides = patch.overrides;
+    }
+    if (patch.stopSequences !== undefined) {
+      assistant.stopSequences = patch.stopSequences.length > 0 ? patch.stopSequences : undefined;
+    }
+    if (patch.seed !== undefined) {
+      assistant.seed = patch.seed;
+    }
+    if (patch.responseFormat !== undefined) {
+      assistant.responseFormat = patch.responseFormat;
+    }
+    if (patch.toolChoice !== undefined) {
+      assistant.toolChoice = patch.toolChoice;
+    }
+    if (patch.geminiSafetyLevel !== undefined) {
+      assistant.geminiSafetyLevel = patch.geminiSafetyLevel;
+    }
     assistant.updatedAt = nowTs();
     this.context.persistLater();
     return cloneAssistant(assistant);
@@ -255,7 +273,7 @@ export class AssistantStateService {
     return cloneAssistant(assistant);
   }
 
-  public hardDeleteAssistant(assistantId: string): boolean {
+  public async hardDeleteAssistant(assistantId: string): Promise<boolean> {
     const state = this.context.getState();
     const before = state.assistants.length;
     state.assistants = state.assistants.filter((assistant) => assistant.id !== assistantId);
@@ -263,7 +281,7 @@ export class AssistantStateService {
       return false;
     }
     if (this.context.storageReady()) {
-      this.context.storage.clearSessionsForAssistant(assistantId, true);
+      await this.context.storage.clearSessionsForAssistant(assistantId, true);
     }
     delete state.selectedSessionIdByAssistant[assistantId];
     if (state.selectedAssistantId === assistantId) {
@@ -274,7 +292,7 @@ export class AssistantStateService {
     return true;
   }
 
-  public hardDeleteDeletedAssistants(): number {
+  public async hardDeleteDeletedAssistants(): Promise<number> {
     const state = this.context.getState();
     const deletedAssistantIds = state.assistants.filter((assistant) => assistant.isDeleted).map((assistant) => assistant.id);
     if (deletedAssistantIds.length === 0) {
@@ -283,7 +301,7 @@ export class AssistantStateService {
     const deletedSet = new Set(deletedAssistantIds);
     state.assistants = state.assistants.filter((assistant) => !deletedSet.has(assistant.id));
     if (this.context.storageReady()) {
-      this.context.storage.clearSessionsForAssistants(deletedAssistantIds, true);
+      await this.context.storage.clearSessionsForAssistants(deletedAssistantIds, true);
     }
     for (const assistantId of deletedAssistantIds) {
       delete state.selectedSessionIdByAssistant[assistantId];

@@ -35,6 +35,7 @@ export function createDataActionHandlers(args: {
   handleExportData: () => Promise<DataActionResult | undefined>;
   handleImportData: () => Promise<DataActionResult | undefined>;
   handleImportLegacyData: () => Promise<DataActionResult | undefined>;
+  handleSelectiveExportData: (categories: string[]) => Promise<DataActionResult | undefined>;
 } {
   const {
     repository,
@@ -45,6 +46,30 @@ export function createDataActionHandlers(args: {
     updateTreeMessage,
     getRuntimeStrings
   } = args;
+
+  const handleSelectiveExportData = async (categories: string[]): Promise<DataActionResult | undefined> => {
+      const strings = getRuntimeStrings();
+      if (!categories.length) {
+        return { notice: strings.selectiveExportNoCategory || 'Please select at least one category.', tone: 'error' };
+      }
+      const fileName = 'chatbuddy-selective-export.json';
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+      const defaultUri = workspaceRoot
+        ? vscode.Uri.joinPath(workspaceRoot, fileName)
+        : vscode.Uri.file(path.join(os.homedir(), fileName));
+      const uri = await vscode.window.showSaveDialog({
+        saveLabel: strings.selectiveExportAction || 'Export Selected',
+        filters: { JSON: ['json'] },
+        defaultUri
+      });
+      if (!uri) { return undefined; }
+      const data = repository.exportSelectiveData(categories);
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(data, null, 2), 'utf8'));
+      return {
+        notice: formatString(strings.selectiveExportDone || 'Selective export saved to: {path}', { path: uri.fsPath }),
+        tone: 'success'
+      };
+    };
 
   return {
     handleResetData: async () => {
@@ -215,6 +240,7 @@ export function createDataActionHandlers(args: {
         notice: strings.importLegacyDataDone,
         tone: 'success'
       };
-    }
+    },
+    handleSelectiveExportData
   };
 }

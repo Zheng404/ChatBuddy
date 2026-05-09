@@ -7,6 +7,7 @@
 import {
   AssistantGroup,
   AssistantProfile,
+  AssistantTemplate,
   ChatBuddySettings,
   ChatMessage,
   ChatSessionDetail,
@@ -49,6 +50,7 @@ export type CompassValidationResult = {
 export type StructuredStateCoreFile = {
   groups: AssistantGroup[];
   assistants: AssistantProfile[];
+  templates?: AssistantTemplate[];
 };
 
 export type StructuredUiSelectionFile = {

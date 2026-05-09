@@ -129,7 +129,13 @@ export function resolveProviderConfig(
       2,
       settings.frequencyPenalty
     ),
-    timeoutMs: clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS)
+    timeoutMs: clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS),
+    topK: assistant.topK,
+    stopSequences: assistant.stopSequences?.length ? assistant.stopSequences : undefined,
+    seed: assistant.seed,
+    responseFormat: assistant.responseFormat,
+    toolChoice: assistant.toolChoice,
+    geminiSafetyLevel: assistant.geminiSafetyLevel
   };
   return {
     config,
@@ -235,6 +241,9 @@ export class OpenAICompatibleClient {
     locale: RuntimeLocale,
     signal?: AbortSignal
   ): Promise<void> {
+    const resolvedModelId = provider.modelId?.trim()
+      || PROVIDER_LIMITS.DEFAULT_TEST_MODELS_BY_KIND[provider.kind]
+      || PROVIDER_LIMITS.DEFAULT_TEST_MODEL;
     const config: ProviderConfig = {
       providerId: provider.id,
       providerKind: provider.kind,
@@ -242,9 +251,9 @@ export class OpenAICompatibleClient {
       apiType: provider.apiType,
       apiKey: provider.apiKey.trim(),
       baseUrl: provider.baseUrl.trim(),
-      modelId: provider.modelId?.trim() || PROVIDER_LIMITS.DEFAULT_TEST_MODEL,
-      modelRef: createModelRef(provider.id, provider.modelId?.trim() || PROVIDER_LIMITS.DEFAULT_TEST_MODEL),
-      modelLabel: provider.modelId?.trim() || PROVIDER_LIMITS.DEFAULT_TEST_MODEL,
+      modelId: resolvedModelId,
+      modelRef: createModelRef(provider.id, resolvedModelId),
+      modelLabel: resolvedModelId,
       temperature: 0,
       topP: 1,
       maxTokens: 1,
@@ -370,6 +379,11 @@ export class OpenAICompatibleClient {
       }
       onDone();
     } finally {
+      try {
+        reader.cancel();
+      } catch {
+        // Reader may already be cancelled or released.
+      }
       reader.releaseLock();
     }
   }
@@ -547,6 +561,87 @@ export class OpenAICompatibleClient {
       providerConfig.timeoutMs
     );
   }
+}
+
+export function resolveFailoverChain(
+  settings: ChatBuddySettings,
+  assistant: AssistantProfile
+): { config: ProviderConfig; meta: ProviderResolveMeta }[] {
+  const chain: { config: ProviderConfig; meta: ProviderResolveMeta }[] = [];
+  const seenRefs = new Set<string>();
+
+  const primary = resolveProviderConfig(settings, assistant);
+  if (!seenRefs.has(primary.config.modelRef)) {
+    chain.push(primary);
+    seenRefs.add(primary.config.modelRef);
+  }
+
+  if (!assistant.failoverModelRefs || assistant.failoverModelRefs.length === 0) {
+    return chain;
+  }
+
+  for (const modelRef of assistant.failoverModelRefs) {
+    const ref = modelRef.trim();
+    if (!ref || seenRefs.has(ref)) {
+      continue;
+    }
+    const parsed = parseModelRef(ref);
+    if (!parsed) {
+      continue;
+    }
+    const provider = settings.providers.find((p) => p.id === parsed.providerId);
+    const model = provider?.models.find((m) => m.id === parsed.modelId);
+    const config: ProviderConfig = {
+      providerId: parsed.providerId,
+      providerKind: provider?.kind ?? 'custom',
+      providerName: provider?.name ?? parsed.providerId,
+      apiType: provider?.apiType ?? 'chat_completions',
+      apiKey: (provider?.apiKey ?? '').trim(),
+      baseUrl: (provider?.baseUrl ?? '').trim(),
+      modelId: parsed.modelId,
+      modelRef: ref,
+      modelLabel: model ? getModelDisplayLabel(model.id, provider?.name ?? parsed.providerId) : ref,
+      temperature: clamp(
+        assistant.overrides?.temperature ?? assistant.temperature ?? settings.temperature,
+        0,
+        2,
+        settings.temperature
+      ),
+      topP: clamp(assistant.topP ?? settings.topP, 0, 1, settings.topP),
+      maxTokens: clamp(assistant.maxTokens ?? settings.maxTokens, 0, PROVIDER_LIMITS.MAX_TOKENS, settings.maxTokens),
+      contextCount: clamp(assistant.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, Number.MAX_SAFE_INTEGER, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
+      presencePenalty: clamp(
+        assistant.presencePenalty ?? settings.presencePenalty,
+        -2,
+        2,
+        settings.presencePenalty
+      ),
+      frequencyPenalty: clamp(
+        assistant.frequencyPenalty ?? settings.frequencyPenalty,
+        -2,
+        2,
+        settings.frequencyPenalty
+      ),
+      timeoutMs: clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS),
+      topK: assistant.topK,
+      stopSequences: assistant.stopSequences?.length ? assistant.stopSequences : undefined,
+      seed: assistant.seed,
+      responseFormat: assistant.responseFormat,
+      toolChoice: assistant.toolChoice,
+      geminiSafetyLevel: assistant.geminiSafetyLevel
+    };
+    const meta: ProviderResolveMeta = {
+      providerExists: !!provider,
+      providerEnabled: provider?.enabled === true,
+      modelExists: !!model
+    };
+    if (!validateProviderConfig(config, 'en', meta)) {
+      chain.push({ config, meta });
+      seenRefs.add(ref);
+    }
+  }
+
+  return chain;
 }
 
 export function validateProviderConfig(

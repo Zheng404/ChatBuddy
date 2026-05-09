@@ -160,7 +160,11 @@ export class ChatPanelManager {
     return {
       enableScripts: true,
       retainContextWhenHidden: true,
-      localResourceRoots: [getCodiconRootUri(), vscode.Uri.joinPath(this.deps.extensionUri, 'node_modules')]
+      localResourceRoots: [
+        getCodiconRootUri(),
+        vscode.Uri.joinPath(this.deps.extensionUri, 'node_modules', 'katex', 'dist'),
+        vscode.Uri.joinPath(this.deps.extensionUri, 'node_modules', 'mermaid', 'dist')
+      ]
     };
   }
 
@@ -193,7 +197,9 @@ export class ChatPanelManager {
     });
 
     const viewStateListener = panel.onDidChangeViewState((event) => {
-      if (!event.webviewPanel.active || !context.assistantId) {
+      const isActive = !!event.webviewPanel.active;
+      void vscode.commands.executeCommand('setContext', 'chatBuddyChatPanelFocused', isActive);
+      if (!isActive || !context.assistantId) {
         return;
       }
       this.panel = panel;
@@ -202,6 +208,7 @@ export class ChatPanelManager {
     });
 
     panel.onDidDispose(() => {
+      void vscode.commands.executeCommand('setContext', 'chatBuddyChatPanelFocused', false);
       this.deps.handlePanelDisposing(panel, context.assistantId);
       messageListener.dispose();
       viewStateListener.dispose();

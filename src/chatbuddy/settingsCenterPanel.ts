@@ -71,7 +71,11 @@ export class SettingsCenterPanelController {
     private readonly onReset: () => Promise<boolean> | boolean,
     private readonly onExportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
     private readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
-    private readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined
+    private readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
+    private readonly onSelectiveExport: (categories: string[]) => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
+    private readonly onGetBackupPassword: () => Promise<string | undefined>,
+    private readonly onSetBackupPassword: (password: string) => Promise<void>,
+    private readonly onClearBackupPassword: () => Promise<void>
   ) {
     this.handlerDeps = {
       repository: this.repository,
@@ -82,6 +86,10 @@ export class SettingsCenterPanelController {
       onExportData: this.onExportData,
       onImportData: this.onImportData,
       onImportLegacyData: this.onImportLegacyData,
+      onSelectiveExport: this.onSelectiveExport,
+      onGetBackupPassword: this.onGetBackupPassword,
+      onSetBackupPassword: this.onSetBackupPassword,
+      onClearBackupPassword: this.onClearBackupPassword,
       getLocale: () => this.getLocale(),
       getStrings: () => this.getStrings(),
       postState: (notice, tone) => this.postState(notice, tone),
@@ -119,6 +127,8 @@ export class SettingsCenterPanelController {
       });
       this.updatePanelPresentation();
       this.postState();
+      this.postCachedProbeResults();
+      this.postBackupPasswordStatus();
       void this.probeAllMcpServers().catch(() => {});
       return;
     }
@@ -162,7 +172,7 @@ export class SettingsCenterPanelController {
   private async probeAllMcpServers(): Promise<void> {
     const settings = this.repository.getSettings();
     const enabledServers = settings.mcp.servers.filter((s) => s.enabled);
-    const results = await Promise.all(
+    const results = await Promise.allSettled(
       enabledServers.map(async (server) => {
         const probe = await this.mcpRuntime.probeServer(server);
         return {
@@ -171,27 +181,76 @@ export class SettingsCenterPanelController {
           tools: probe.tools,
           resources: probe.resources,
           prompts: probe.prompts,
-          error: probe.error
+          error: probe.error,
+          probedAt: Date.now()
         };
       })
     );
-    this.postMessage({ type: 'mcpProbeResult', payload: results });
+    const probeResults = results
+      .filter((r): r is PromiseFulfilledResult<{ serverId: string; success: boolean; tools: { name: string; description: string }[]; resources: { name: string; uri: string; description?: string }[]; prompts: { name: string; description?: string }[]; error: string | undefined; probedAt: number }> => r.status === 'fulfilled')
+      .map((r) => r.value);
+    const lastProbeAt = Date.now();
+    // Merge with existing cache so single-server probes don't disappear
+    const existing = this.repository.getMcpProbeCache();
+    const merged = this.mergeProbeCache(existing?.entries ?? [], probeResults);
+    this.repository.setMcpProbeCache({ lastProbeAt, entries: merged });
+    this.postMessage({ type: 'mcpProbeResult', payload: { results: probeResults, lastProbeAt, fromCache: false } });
   }
 
   private async probeSingleMcpServer(server: McpServerProfile): Promise<void> {
     const probe = await this.mcpRuntime.probeServer(server);
+    const probedAt = Date.now();
+    const result = {
+      serverId: server.id,
+      success: probe.success,
+      tools: probe.tools,
+      resources: probe.resources,
+      prompts: probe.prompts,
+      error: probe.error,
+      probedAt
+    };
+    const existing = this.repository.getMcpProbeCache();
+    const merged = this.mergeProbeCache(existing?.entries ?? [], [result]);
+    this.repository.setMcpProbeCache({ lastProbeAt: probedAt, entries: merged });
     this.postMessage({
       type: 'mcpProbeResult',
-      payload: [
-        {
-          serverId: server.id,
-          success: probe.success,
-          tools: probe.tools,
-          resources: probe.resources,
-          prompts: probe.prompts,
-          error: probe.error
-        }
-      ]
+      payload: { results: [result], lastProbeAt: probedAt, fromCache: false }
+    });
+  }
+
+  private mergeProbeCache(existing: unknown[], updates: Array<{ serverId: string }>): unknown[] {
+    const byId = new Map<string, unknown>();
+    for (const e of existing) {
+      if (e && typeof e === 'object' && 'serverId' in e && typeof (e as { serverId: unknown }).serverId === 'string') {
+        byId.set((e as { serverId: string }).serverId, e);
+      }
+    }
+    for (const u of updates) {
+      byId.set(u.serverId, u);
+    }
+    return Array.from(byId.values());
+  }
+
+  private postCachedProbeResults(): void {
+    const cache = this.repository.getMcpProbeCache();
+    if (!cache || !cache.entries.length) { return; }
+    const settings = this.repository.getSettings();
+    const validIds = new Set(settings.mcp.servers.map((s) => s.id));
+    const filtered = cache.entries.filter((e): e is { serverId: string; success: boolean; tools: { name: string; description: string }[]; resources: { name: string; uri: string; description?: string }[]; prompts: { name: string; description?: string }[]; error?: string; probedAt?: number } => {
+      return !!e && typeof e === 'object' && 'serverId' in e && typeof (e as { serverId: unknown }).serverId === 'string' && validIds.has((e as { serverId: string }).serverId);
+    });
+    if (!filtered.length) { return; }
+    this.postMessage({
+      type: 'mcpProbeResult',
+      payload: { results: filtered, lastProbeAt: cache.lastProbeAt, fromCache: true }
+    });
+  }
+
+  private postBackupPasswordStatus(): void {
+    void this.onGetBackupPassword().then((password) => {
+      this.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: !!password } });
+    }).catch(() => {
+      this.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: false } });
     });
   }
 

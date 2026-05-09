@@ -6,8 +6,8 @@ export function getStateSyncJs(): string {
       function syncState(nextState) {
         const previousSignature = providersCollectionSignature(Object.values(persistedProvidersById));
         const nextSignature = providersCollectionSignature((nextState.settings && nextState.settings.providers) || []);
-        var previousMcpSignature = mcpServersSignature(mcpServers);
-        var nextMcpSignature = mcpServersSignature((nextState.settings && nextState.settings.mcp && nextState.settings.mcp.servers) || []);
+        var previousMcpSignature = mcpServersSignature(mcpServers) + '|' + mcpGroupsSignature(mcpGroups);
+        var nextMcpSignature = mcpServersSignature((nextState.settings && nextState.settings.mcp && nextState.settings.mcp.servers) || []) + '|' + mcpGroupsSignature((nextState.settings && nextState.settings.mcp && nextState.settings.mcp.groups) || []);
         runtimeState = nextState;
         if (previousSignature !== nextSignature || Object.keys(persistedProvidersById).length === 0) {
           syncProvidersFromState(nextState);

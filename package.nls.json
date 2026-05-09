@@ -33,5 +33,6 @@
   "chatbuddy.command.exportSession": "Export Session",
   "chatbuddy.command.askAI": "Ask AI",
   "chatbuddy.command.stopGeneration": "Stop Generation",
+  "chatbuddy.command.regenerateReply": "Regenerate Last Reply",
   "chatbuddy.command.toggleSessionPanel": "Toggle Session Panel"
 }

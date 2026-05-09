@@ -139,6 +139,9 @@ export function registerSessionCommands(ctx: ExtensionContext): vscode.Disposabl
     vscode.commands.registerCommand('chatbuddy.stopGeneration', () => {
       chatController.stopGeneration('manual');
     }),
+    vscode.commands.registerCommand('chatbuddy.regenerateReply', () => {
+      chatController.regenerateReply();
+    }),
     vscode.commands.registerCommand('chatbuddy.clearAllSessions', async () => {
       const assistant = repository.getSelectedAssistant();
       if (!assistant || assistant.isDeleted) {

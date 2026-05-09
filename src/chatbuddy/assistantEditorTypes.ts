@@ -9,7 +9,7 @@ import * as path from 'path';
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from './constants';
 import { getCodiconRootUri } from './codicon';
 import { ChatStateRepository, UpdateAssistantInput } from './stateRepository';
-import type { AssistantGroup, AssistantProfile, McpServerSummary, ProviderModelOption, RuntimeStrings } from './types';
+import type { AssistantGroup, AssistantProfile, McpServerSummary, ProviderModelOption, ProviderResponseFormat, ProviderToolChoice, RuntimeStrings } from './types';
 import { clamp } from './utils';
 
 // ─── 类型定义 ────────────────────────────────────────────────────────
@@ -42,6 +42,18 @@ export type AssistantEditorPayload = {
   contextCount: number;
   presencePenalty: number;
   frequencyPenalty: number;
+  overrides?: {
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+    temperature?: number;
+  };
+  stopSequences?: string[];
+  seed?: number;
+  responseFormat?: 'text' | 'json_object';
+  toolChoice?: 'auto' | 'none' | 'required';
+  geminiSafetyLevel?: 'default' | 'none' | 'low' | 'medium' | 'high';
+  failoverModelRefs?: string[];
 };
 
 export type AssistantEditorState = {
@@ -156,7 +168,18 @@ export function toUpdatePayload(input: AssistantEditorPayload, fallback: Assista
     maxTokens: clamp(input.maxTokens, 0, 65535, fallback.maxTokens),
     contextCount: clamp(input.contextCount, 0, Number.MAX_SAFE_INTEGER, fallback.contextCount),
     presencePenalty: clamp(input.presencePenalty, -2, 2, fallback.presencePenalty),
-    frequencyPenalty: clamp(input.frequencyPenalty, -2, 2, fallback.frequencyPenalty)
+    frequencyPenalty: clamp(input.frequencyPenalty, -2, 2, fallback.frequencyPenalty),
+    overrides: input.overrides && (input.overrides.apiKey || input.overrides.baseUrl || input.overrides.model || input.overrides.temperature !== undefined)
+      ? input.overrides
+      : undefined,
+    stopSequences: input.stopSequences && input.stopSequences.length > 0 ? input.stopSequences : undefined,
+    seed: input.seed,
+    responseFormat: input.responseFormat ? { type: input.responseFormat } as ProviderResponseFormat : undefined,
+    toolChoice: input.toolChoice as ProviderToolChoice | undefined,
+    geminiSafetyLevel: input.geminiSafetyLevel,
+    failoverModelRefs: input.failoverModelRefs && input.failoverModelRefs.length > 0
+      ? [...new Set(input.failoverModelRefs.filter((ref) => typeof ref === 'string' && ref.trim()))]
+      : undefined
   };
 }
 

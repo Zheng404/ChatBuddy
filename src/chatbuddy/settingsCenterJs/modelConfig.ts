@@ -44,7 +44,9 @@ export function getModelConfigJs(): string {
           { key: 'vision', cls: 'cap-vision', label: runtimeState.strings.capabilityVision || '' },
           { key: 'reasoning', cls: 'cap-reasoning', label: runtimeState.strings.capabilityReasoning || '' },
           { key: 'tools', cls: 'cap-tools', label: runtimeState.strings.capabilityTools || '' },
-          { key: 'webSearch', cls: 'cap-websearch', label: runtimeState.strings.capabilityWebSearch || '' }
+          { key: 'webSearch', cls: 'cap-websearch', label: runtimeState.strings.capabilityWebSearch || '' },
+          { key: 'jsonMode', cls: 'cap-json', label: runtimeState.strings.capabilityJsonMode || '' },
+          { key: 'parallelToolCalls', cls: 'cap-parallel', label: runtimeState.strings.capabilityParallelToolCalls || '' }
         ];
       }
 

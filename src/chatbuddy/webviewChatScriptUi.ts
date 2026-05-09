@@ -183,6 +183,11 @@ export function getChatUiScript(): string {
           String(state.providerLabel || ''),
           String(state.modelLabel || ''),
           String(state.sessionTempModelRef || ''),
+          String(state.sessionTempParams?.temperature ?? ''),
+          String(state.sessionTempParams?.topP ?? ''),
+          String(state.sessionTempParams?.maxTokens ?? ''),
+          String(state.sessionTempParams?.presencePenalty ?? ''),
+          String(state.sessionTempParams?.frequencyPenalty ?? ''),
           String(state.sendShortcut || ''),
           modelOptionsDigest,
           String(state.strings.composerPlaceholder || ''),
@@ -191,6 +196,7 @@ export function getChatUiScript(): string {
           String(state.strings.streaming || ''),
           String(state.strings.sendShortcutEnter || ''),
           String(state.strings.sendShortcutCtrlEnter || ''),
+          String(state.strings.sendShortcutShiftEnter || ''),
           String(state.strings.provider || ''),
           String(state.strings.model || ''),
           String(state.strings.chatModelFollowAssistant || ''),
@@ -198,14 +204,19 @@ export function getChatUiScript(): string {
           String(state.strings.mcpResourcesAction || ''),
           String(state.strings.mcpPromptsAction || ''),
           String((state.mcpServers || []).length),
+          (Array.isArray(state.mcpServers) ? state.mcpServers : []).map(function(s) { s = s || {}; return (s.id || '') + ':' + (s.lastProbe ? (s.lastProbe.success ? 'ok' : 'fail') : '?'); }).join(','),
           String(state.strings.noAssistantSelectedBody || '')
         ].join('|');
       }
 
       function getCurrentSendShortcutText() {
-        return state.sendShortcut === 'ctrlEnter'
-          ? String(state.strings.sendShortcutCtrlEnter || '')
-          : String(state.strings.sendShortcutEnter || '');
+        if (state.sendShortcut === 'ctrlEnter') {
+          return String(state.strings.sendShortcutCtrlEnter || '');
+        }
+        if (state.sendShortcut === 'shiftEnter') {
+          return String(state.strings.sendShortcutShiftEnter || '');
+        }
+        return String(state.strings.sendShortcutEnter || '');
       }
 
       function renderToolContinuationModal() {
@@ -250,6 +261,7 @@ export function getChatUiScript(): string {
       }
 
       var messageHtmlCache = {};
+      var MESSAGE_HTML_CACHE_MAX = 200;
 
       function generateMessageHtml(message, latestAssistantId, assistantDisplayName, isGenerating, lastMsg, options) {
         const suppressActions = !!(options && options.suppressActions);
@@ -362,7 +374,9 @@ export function getChatUiScript(): string {
               '<div class="message-images">' + (Array.isArray(message.images) && message.images.length > 0
                 ? message.images.map(function(img) {
                     if (!img.base64) { return ''; }
-                    return '<img class="message-image" src="data:' + img.mimeType + ';base64,' + img.base64 + '" />';
+                    var mime = String(img.mimeType || '').toLowerCase();
+                    if (['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'].indexOf(mime) === -1) { return ''; }
+                    return '<img class="message-image" src="data:' + mime + ';base64,' + img.base64 + '" />';
                   }).join('')
                 : '') + '</div>' +
               '<div class="message-files">' + (Array.isArray(message.files) && message.files.length > 0
@@ -418,6 +432,13 @@ export function getChatUiScript(): string {
               suppressActions: msg.id === 'optimistic-user-message'
             });
             messageHtmlCache[cacheKey] = html;
+            // Evict oldest entries when cache exceeds limit
+            var cacheKeys = Object.keys(messageHtmlCache);
+            if (cacheKeys.length > MESSAGE_HTML_CACHE_MAX) {
+              for (var ei = 0; ei < cacheKeys.length - MESSAGE_HTML_CACHE_MAX; ei++) {
+                delete messageHtmlCache[cacheKeys[ei]];
+              }
+            }
             htmlParts.push(html);
           }
         }
@@ -470,6 +491,91 @@ export function getChatUiScript(): string {
         const isTemporaryModel = !!state.sessionTempModelRef;
         dom.tempModelChip.textContent = state.strings.chatTemporaryModelLabel || '';
         dom.tempModelChip.classList.toggle('visible', isTemporaryModel && state.canChat);
+
+        // 临时参数
+        var tp = state.sessionTempParams || {};
+        var hasTempParams = tp.temperature !== undefined || tp.topP !== undefined || tp.maxTokens !== undefined || tp.presencePenalty !== undefined || tp.frequencyPenalty !== undefined;
+        dom.tempParamsChip.textContent = state.strings.tempParamsChipLabel || '';
+        dom.tempParamsChip.classList.toggle('visible', hasTempParams && state.canChat);
+
+        // MCP 健康指示器
+        var mcpServers = Array.isArray(state.mcpServers) ? state.mcpServers : [];
+        if (dom.mcpHealthChip) {
+          try {
+            if (!mcpServers.length || !state.canChat) {
+              dom.mcpHealthChip.classList.remove('visible');
+              dom.mcpHealthChip.classList.remove('status-ok');
+              dom.mcpHealthChip.classList.remove('status-warn');
+              dom.mcpHealthChip.classList.remove('status-error');
+              dom.mcpHealthChip.textContent = '';
+              dom.mcpHealthChip.title = '';
+            } else {
+              var okCount = 0;
+              var failCount = 0;
+              var unknownCount = 0;
+              var tooltipLines = [state.strings.mcpHealthTooltipTitle || 'MCP servers'];
+              for (var mi = 0; mi < mcpServers.length; mi++) {
+                var srv = mcpServers[mi] || {};
+                var srvName = srv.name || srv.id || '';
+                var probe = srv.lastProbe;
+                if (!probe) {
+                  unknownCount++;
+                  tooltipLines.push('• ' + srvName + ' — ' + (state.strings.mcpHealthNeverProbed || 'Not probed'));
+                } else if (probe.success) {
+                  okCount++;
+                  var okTime = probe.probedAt ? new Date(probe.probedAt).toLocaleString() : '';
+                  tooltipLines.push('✓ ' + srvName + (okTime ? ' (' + okTime + ')' : ''));
+                } else {
+                  failCount++;
+                  var failTime = probe.probedAt ? new Date(probe.probedAt).toLocaleString() : '';
+                  tooltipLines.push('✗ ' + srvName + (failTime ? ' (' + failTime + ')' : '') + (probe.error ? ' — ' + probe.error : ''));
+                }
+              }
+              var status = failCount > 0 ? 'status-error' : (unknownCount > 0 ? 'status-warn' : 'status-ok');
+              dom.mcpHealthChip.classList.remove('status-ok');
+              dom.mcpHealthChip.classList.remove('status-warn');
+              dom.mcpHealthChip.classList.remove('status-error');
+              dom.mcpHealthChip.classList.add('visible');
+              dom.mcpHealthChip.classList.add(status);
+              var statusLabel = failCount > 0
+                ? (state.strings.mcpHealthSomeFailed || 'MCP issue')
+                : (unknownCount > 0 ? (state.strings.mcpHealthUnknown || 'MCP unknown') : (state.strings.mcpHealthAllOk || 'MCP OK'));
+              dom.mcpHealthChip.textContent = '● ' + statusLabel;
+              dom.mcpHealthChip.title = tooltipLines.join('\\n');
+            }
+          } catch (e) {
+            // 保险：MCP 健康指示器渲染失败不应阻塞 composer 其余渲染
+            try {
+              dom.mcpHealthChip.classList.remove('visible');
+              dom.mcpHealthChip.textContent = '';
+              dom.mcpHealthChip.title = '';
+            } catch (ignore) {}
+          }
+        }
+        dom.tempParamsTitle.textContent = state.strings.tempParamsTitle || '';
+        dom.tempParamsTempLabel.textContent = state.strings.temperatureLabel || 'Temperature';
+        dom.tempParamsTopPLabel.textContent = state.strings.topPLabel || 'Top P';
+        dom.tempParamsMaxTokensLabel.textContent = state.strings.maxTokensLabel || 'Max Tokens';
+        dom.tempParamsPresenceLabel.textContent = state.strings.presencePenaltyLabel || 'Presence';
+        dom.tempParamsFrequencyLabel.textContent = state.strings.frequencyPenaltyLabel || 'Frequency';
+        var assistant = state.selectedAssistant || {};
+        dom.tempParamsTemp.value = tp.temperature !== undefined ? tp.temperature : '';
+        dom.tempParamsTopP.value = tp.topP !== undefined ? tp.topP : '';
+        dom.tempParamsMaxTokens.value = tp.maxTokens !== undefined ? tp.maxTokens : '';
+        dom.tempParamsPresence.value = tp.presencePenalty !== undefined ? tp.presencePenalty : '';
+        dom.tempParamsFrequency.value = tp.frequencyPenalty !== undefined ? tp.frequencyPenalty : '';
+        dom.tempParamsTemp.placeholder = assistant.temperature !== undefined ? String(assistant.temperature) : '';
+        dom.tempParamsTopP.placeholder = assistant.topP !== undefined ? String(assistant.topP) : '';
+        dom.tempParamsMaxTokens.placeholder = assistant.maxTokens !== undefined ? String(assistant.maxTokens) : '';
+        dom.tempParamsPresence.placeholder = assistant.presencePenalty !== undefined ? String(assistant.presencePenalty) : '';
+        dom.tempParamsFrequency.placeholder = assistant.frequencyPenalty !== undefined ? String(assistant.frequencyPenalty) : '';
+        dom.tempParamsBtn.disabled = !state.canChat || isBusy;
+        // Save as Template
+        if (dom.saveAsTemplateBtn) {
+          dom.saveAsTemplateBtn.title = state.strings.saveAsTemplate || 'Save as Template';
+          dom.saveAsTemplateBtn.disabled = !state.selectedAssistantId;
+          dom.saveAsTemplateBtn.style.display = state.selectedAssistantId ? '' : 'none';
+        }
         const activeLabel = modelMap.get(activeModelRef) || assistantModelLabel;
         dom.tempModelSelect.title = state.strings.model + ': ' + activeLabel;
         dom.streamingToggle.checked = !!state.streaming;

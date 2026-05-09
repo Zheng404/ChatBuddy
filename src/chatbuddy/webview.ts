@@ -49,7 +49,7 @@ export function getChatWebviewHtml(webview: vscode.Webview, extensionUri: vscode
     </script>
     <script type="module" nonce="${nonce}">
       import mermaid from '${mermaidEsmUri}';
-      mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+      mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
       window.mermaid = mermaid;
     </script>
     ${getChatScript({ nonce })}

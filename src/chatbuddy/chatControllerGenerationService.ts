@@ -21,7 +21,7 @@ import {
   ToolCallOrchestrator,
   ToolOrchestratorPanelContext
 } from './chatControllerToolOrchestrator';
-import { OpenAICompatibleClient, resolveModelBindingConfig, validateProviderConfig } from './providerClient';
+import { HttpError, OpenAICompatibleClient, resolveFailoverChain, resolveModelBindingConfig, validateProviderConfig } from './providerClient';
 import { resolveCapabilities } from './modelCapabilities';
 import { ChatStateRepository } from './stateRepository';
 import {
@@ -75,6 +75,44 @@ type ChatGenerationServiceDeps = {
   confirmDangerousAction: (message: string, actionLabel: string) => Promise<boolean>;
 };
 
+/**
+ * Determine if an error is retryable for provider failover.
+ * Retryable: network errors, timeouts, rate limits (429), 5xx server errors.
+ * Not retryable: auth errors (401), user abort, client errors (4xx except 429).
+ */
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof HttpError) {
+    // 429 = rate limit, 5xx = server error
+    return error.status === 429 || error.status >= 500;
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    // Network/fetch errors, timeouts, SSE read timeouts
+    if (msg.includes('fetch') || msg.includes('network') || msg.includes('timeout')) {
+      return true;
+    }
+    // Abort errors from user cancellation should NOT failover
+    if (msg.includes('aborted') && !msg.includes('timeout')) {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if an error is an auth error (401) - should NOT failover.
+ */
+function isAuthError(error: unknown): boolean {
+  if (error instanceof HttpError) {
+    return error.status === 401;
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes('401') || msg.includes('unauthorized');
+  }
+  return false;
+}
+
 export class ChatGenerationService {
   constructor(private readonly deps: ChatGenerationServiceDeps) {}
 
@@ -124,23 +162,30 @@ export class ChatGenerationService {
     }
 
     const settings = this.deps.repository.getSettings();
-    const resolved = this.deps.resolveEffectiveProviderConfig(settings, assistant, selectedSession.id);
-    const modelId = resolved.config.modelId || '';
+
+    // Build failover chain: primary + valid fallbacks
+    const failoverChain = resolveFailoverChain(settings, assistant);
+    if (failoverChain.length === 0) {
+      this.deps.postError(strings.providerUnavailable, context);
+      this.deps.postState(strings.providerUnavailable, context);
+      return;
+    }
+
+    // Use primary config for vision capability check and initial setup
+    const primaryResolved = failoverChain[0];
+    const modelId = primaryResolved.config.modelId || '';
     const caps = resolveCapabilities(modelId);
     const visionSupported = !!caps?.vision;
 
     // Detect if current model supports vision; if not and images are present,
     // perform OCR or downgrade to text prompt.
     if (messageImages && messageImages.length > 0 && !visionSupported) {
-      // Model does not support vision → attempt OCR using the same provider.
-      // Note: OCR requires the provider to accept image_url input. If the
-      // provider itself rejects vision content, OCR will fail gracefully.
       const ocrResults: Array<{ index: number; text: string }> = [];
       for (let i = 0; i < messageImages.length; i++) {
         const img = messageImages[i];
         if (!img.base64) { continue; }
         try {
-          const ocrText = await this.performOcr(img.base64, img.mimeType, resolved.config, locale);
+          const ocrText = await this.performOcr(img.base64, img.mimeType, primaryResolved.config, locale);
           if (ocrText) {
             ocrResults.push({ index: i, text: ocrText });
           }
@@ -156,14 +201,12 @@ export class ChatGenerationService {
           '\n</image_ocr>';
         fullContent = fullContent + ocrBlock;
       } else {
-        // OCR completely failed → remove images and show warning
         this.deps.postMessage({
           type: 'toast',
           message: strings.imagePasteUnsupportedModel || '',
           tone: 'info'
         }, context);
         messageImages = undefined;
-        // If no text content either, abort sending to avoid an empty user message
         if (!fullContent.trim()) {
           return;
         }
@@ -184,14 +227,15 @@ export class ChatGenerationService {
     };
     const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
 
-    const invalidReason = validateProviderConfig(resolved.config, locale, resolved.meta);
+    // Validate primary provider config
+    const invalidReason = validateProviderConfig(primaryResolved.config, locale, primaryResolved.meta);
     if (invalidReason) {
       this.deps.repository.appendMessage(assistant.id, selectedSession.id, {
         id: createId('msg'),
         role: 'assistant',
         content: invalidReason,
         timestamp: nowTs(),
-        model: resolved.config.modelLabel
+        model: primaryResolved.config.modelLabel
       });
       this.deps.postError(invalidReason, context);
       this.deps.postState(invalidReason, context);
@@ -199,7 +243,6 @@ export class ChatGenerationService {
     }
 
     // When the current model does not support vision, strip images from ALL messages
-    // sent to the provider to avoid API errors. Images remain in local state for display.
     const messagesForProvider = !visionSupported
       ? sessionAfterUser.messages.map((msg) =>
           msg.images && msg.images.length > 0 ? { ...msg, images: undefined } : msg
@@ -211,18 +254,13 @@ export class ChatGenerationService {
       messagesForProvider,
       assistant.contextCount
     );
-    const providerTools = await this.deps.toolOrchestrator.buildProviderTools(settings, assistant, resolved.config);
-    const useToolCalling =
-      providerTools.tools.length > 0 &&
-      this.deps.toolOrchestrator.providerSupportsToolCalling(resolved.config.modelRef, resolved.config);
-    const useStreaming = assistant.streaming && !useToolCalling;
 
     const assistantMessage: ChatMessage = {
       id: createId('msg'),
       role: 'assistant',
       content: '',
       timestamp: nowTs(),
-      model: resolved.config.modelLabel,
+      model: primaryResolved.config.modelLabel,
       reasoning: ''
     };
     this.deps.repository.appendMessage(assistant.id, selectedSession.id, assistantMessage);
@@ -232,125 +270,228 @@ export class ChatGenerationService {
     this.deps.setAbortReason(undefined);
     this.deps.setStreamingEnabled(assistant.streaming);
 
-    const timeoutHandle = setTimeout(() => {
-      this.deps.setAbortReason('timeout');
-      this.deps.getAbortController()?.abort();
-    }, resolved.config.timeoutMs);
-
     this.deps.postState(undefined, context);
 
-    const acc = createStreamAccumulator();
-    const streamParams: StreamFlushParams = {
-      assistantId: assistant.id,
-      sessionId: selectedSession.id,
-      fallbackMessageId: assistantMessage.id,
-      modelLabel: resolved.config.modelLabel,
-      context
-    };
-    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.deps.repository, strings, (persist) => {
-      if (persist) {
-        this.deps.flushScheduledStreamStatePost(context);
-        return;
+    // Attempt providers in failover chain
+    const attemptedProviders: string[] = [];
+
+    for (let chainIndex = 0; chainIndex < failoverChain.length; chainIndex++) {
+      const currentResolved = failoverChain[chainIndex];
+      attemptedProviders.push(currentResolved.config.modelLabel);
+
+      // Update model label on assistant message for current provider
+      if (chainIndex > 0) {
+        this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+          id: current?.id ?? assistantMessage.id,
+          role: 'assistant',
+          content: current?.content ?? '',
+          timestamp: nowTs(),
+          model: currentResolved.config.modelLabel,
+          reasoning: current?.reasoning ?? ''
+        }));
+        // Notify user of failover attempt
+        const failoverNotice = formatString(strings.providerFailoverAttempt || 'Failover to {provider}', {
+          provider: currentResolved.config.modelLabel
+        });
+        this.deps.postMessage({
+          type: 'toast',
+          message: failoverNotice,
+          tone: 'info'
+        }, context);
       }
-      this.deps.scheduleStreamStatePost(context);
-    });
-    const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
 
-    // 全局超时仅在「无响应」阶段生效：首个流式 token 到达后即清除，
-    // 后续由 consumeSseResponse 的 readWithTimeout 检测连接中断。
-    let responseTimeoutCleared = false;
-    const wrappedCallbacks = useStreaming ? {
-      onDelta: (delta: string) => {
-        if (!responseTimeoutCleared) {
-          clearTimeout(timeoutHandle);
-          responseTimeoutCleared = true;
-        }
-        streamCallbacks.onDelta(delta);
-      },
-      onReasoningDelta: (delta: string) => {
-        if (!responseTimeoutCleared) {
-          clearTimeout(timeoutHandle);
-          responseTimeoutCleared = true;
-        }
-        streamCallbacks.onReasoningDelta(delta);
-      },
-      onDone: streamCallbacks.onDone
-    } : streamCallbacks;
+      const providerTools = await this.deps.toolOrchestrator.buildProviderTools(settings, assistant, currentResolved.config);
+      const useToolCalling =
+        providerTools.tools.length > 0 &&
+        this.deps.toolOrchestrator.providerSupportsToolCalling(currentResolved.config.modelRef, currentResolved.config);
+      const useStreaming = assistant.streaming && !useToolCalling;
 
-    try {
-      if (useStreaming) {
-        await this.deps.providerClient.chatStream(
-          providerMessages,
-          resolved.config,
-          wrappedCallbacks,
-          locale,
-          this.deps.getAbortController()?.signal
-        );
-      } else {
-        const result = await this.deps.providerClient.chat(
-          providerMessages,
-          resolved.config,
-          locale,
-          this.deps.getAbortController()?.signal,
-          useToolCalling
-            ? {
-                tools: providerTools.tools
-              }
-            : {}
-        );
-        if (useToolCalling) {
-          const runState: PendingToolContinuation = {
-            assistant,
-            sessionId: selectedSession.id,
-            assistantMessageId: assistantMessage.id,
-            settings,
-            locale,
-            providerMessages,
-            providerTools,
-            providerConfig: resolved.config,
-            toolRounds: [],
-            result
-          };
-          await this.deps.toolOrchestrator.runToolCallingBatch(runState, context);
+      const timeoutHandle = setTimeout(() => {
+        this.deps.setAbortReason('timeout');
+        this.deps.getAbortController()?.abort();
+      }, currentResolved.config.timeoutMs);
+
+      // Create fresh accumulator for each provider attempt (clear previous partial content on failover)
+      const acc = createStreamAccumulator();
+      const streamParams: StreamFlushParams = {
+        assistantId: assistant.id,
+        sessionId: selectedSession.id,
+        fallbackMessageId: assistantMessage.id,
+        modelLabel: currentResolved.config.modelLabel,
+        context
+      };
+      const flushStreamMessage = buildStreamFlush(acc, streamParams, this.deps.repository, strings, (persist) => {
+        if (persist) {
+          this.deps.flushScheduledStreamStatePost(context);
           return;
         }
-        this.deps.toolOrchestrator.applyProviderResultToAssistantMessage(
-          assistant.id,
-          selectedSession.id,
-          assistantMessage.id,
-          result,
-          resolved.config.modelLabel,
-          {
-            fallbackContent: strings.emptyResponse
-          }
-        );
-      }
-    } catch (error) {
-      clearStreamFlush(acc);
-      const fallback = resolveGenerationErrorMessage(error, this.deps.getAbortReason(), strings);
-      const partial = buildStreamErrorContent(acc, fallback);
-      this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
-        id: current?.id ?? assistantMessage.id,
-        role: 'assistant',
-        content: partial.content,
-        timestamp: nowTs(),
-        model: resolved.config.modelLabel,
-        reasoning: partial.reasoning
-      }));
+        this.deps.scheduleStreamStatePost(context);
+      });
+      const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
 
-      this.deps.postError(fallback, context);
-      this.deps.postState(fallback, context);
-    } finally {
-      clearTimeout(timeoutHandle);
-      this.deps.setIsGenerating(false);
-      this.deps.setAbortController(undefined);
-      this.deps.setAbortReason(undefined);
-      this.deps.postState(undefined, context);
-      const currentSession = this.deps.repository.getSessionById(selectedSession.id);
-      if (currentSession && currentSession.titleSource === 'default') {
-        this.triggerTitleGeneration(assistant.id, currentSession.id).catch((error) => {
-          warn('Background title generation failed:', error);
-        });
+      let responseTimeoutCleared = false;
+      const wrappedCallbacks = useStreaming ? {
+        onDelta: (delta: string) => {
+          if (!responseTimeoutCleared) {
+            clearTimeout(timeoutHandle);
+            responseTimeoutCleared = true;
+          }
+          streamCallbacks.onDelta(delta);
+        },
+        onReasoningDelta: (delta: string) => {
+          if (!responseTimeoutCleared) {
+            clearTimeout(timeoutHandle);
+            responseTimeoutCleared = true;
+          }
+          streamCallbacks.onReasoningDelta(delta);
+        },
+        onDone: streamCallbacks.onDone
+      } : streamCallbacks;
+
+      try {
+        if (useStreaming) {
+          await this.deps.providerClient.chatStream(
+            providerMessages,
+            currentResolved.config,
+            wrappedCallbacks,
+            locale,
+            this.deps.getAbortController()?.signal
+          );
+        } else {
+          const result = await this.deps.providerClient.chat(
+            providerMessages,
+            currentResolved.config,
+            locale,
+            this.deps.getAbortController()?.signal,
+            useToolCalling
+              ? { tools: providerTools.tools }
+              : {}
+          );
+          if (useToolCalling) {
+            const runState: PendingToolContinuation = {
+              assistant,
+              sessionId: selectedSession.id,
+              assistantMessageId: assistantMessage.id,
+              settings,
+              locale,
+              providerMessages,
+              providerTools,
+              providerConfig: currentResolved.config,
+              toolRounds: [],
+              result
+            };
+            await this.deps.toolOrchestrator.runToolCallingBatch(runState, context);
+            clearTimeout(timeoutHandle);
+            this.deps.setIsGenerating(false);
+            this.deps.setAbortController(undefined);
+            this.deps.setAbortReason(undefined);
+            this.deps.postState(undefined, context);
+            const currentSession = this.deps.repository.getSessionById(selectedSession.id);
+            if (currentSession && currentSession.titleSource === 'default') {
+              this.triggerTitleGeneration(assistant.id, currentSession.id).catch((error) => {
+                warn('Background title generation failed:', error);
+              });
+            }
+            return;
+          }
+          this.deps.toolOrchestrator.applyProviderResultToAssistantMessage(
+            assistant.id,
+            selectedSession.id,
+            assistantMessage.id,
+            result,
+            currentResolved.config.modelLabel,
+            { fallbackContent: strings.emptyResponse }
+          );
+        }
+        // Success - clean up and return
+        clearTimeout(timeoutHandle);
+        this.deps.setIsGenerating(false);
+        this.deps.setAbortController(undefined);
+        this.deps.setAbortReason(undefined);
+        this.deps.postState(undefined, context);
+        const currentSession = this.deps.repository.getSessionById(selectedSession.id);
+        if (currentSession && currentSession.titleSource === 'default') {
+          this.triggerTitleGeneration(assistant.id, currentSession.id).catch((error) => {
+            warn('Background title generation failed:', error);
+          });
+        }
+        return;
+      } catch (error) {
+        clearTimeout(timeoutHandle);
+        clearStreamFlush(acc);
+
+        // Check abort reason - user manual abort should not failover
+        const abortReason = this.deps.getAbortReason();
+        if (abortReason === 'manual') {
+          const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
+          const partial = buildStreamErrorContent(acc, fallback);
+          this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+            id: current?.id ?? assistantMessage.id,
+            role: 'assistant',
+            content: partial.content,
+            timestamp: nowTs(),
+            model: currentResolved.config.modelLabel,
+            reasoning: partial.reasoning
+          }));
+          this.deps.postError(fallback, context);
+          this.deps.postState(fallback, context);
+          this.deps.setIsGenerating(false);
+          this.deps.setAbortController(undefined);
+          this.deps.setAbortReason(undefined);
+          return;
+        }
+
+        // Auth errors should not failover
+        if (isAuthError(error)) {
+          const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
+          const partial = buildStreamErrorContent(acc, fallback);
+          this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+            id: current?.id ?? assistantMessage.id,
+            role: 'assistant',
+            content: partial.content,
+            timestamp: nowTs(),
+            model: currentResolved.config.modelLabel,
+            reasoning: partial.reasoning
+          }));
+          this.deps.postError(fallback, context);
+          this.deps.postState(fallback, context);
+          this.deps.setIsGenerating(false);
+          this.deps.setAbortController(undefined);
+          this.deps.setAbortReason(undefined);
+          return;
+        }
+
+        // If not retryable or this is the last provider, show error
+        if (!isRetryableError(error) || chainIndex === failoverChain.length - 1) {
+          const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
+          // Build comprehensive error message if all providers failed
+          const finalError = chainIndex === failoverChain.length - 1 && failoverChain.length > 1
+            ? formatString(strings.allProvidersFailed || 'All providers failed. Tried: {providers}. Last error: {error}', {
+                providers: attemptedProviders.join(', '),
+                error: fallback
+              })
+            : fallback;
+          const partial = buildStreamErrorContent(acc, finalError);
+          this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+            id: current?.id ?? assistantMessage.id,
+            role: 'assistant',
+            content: partial.content,
+            timestamp: nowTs(),
+            model: currentResolved.config.modelLabel,
+            reasoning: partial.reasoning
+          }));
+          this.deps.postError(finalError, context);
+          this.deps.postState(finalError, context);
+          this.deps.setIsGenerating(false);
+          this.deps.setAbortController(undefined);
+          this.deps.setAbortReason(undefined);
+          return;
+        }
+
+        // Retryable error - reset abort controller for next attempt
+        this.deps.setAbortController(new AbortController());
+        this.deps.setAbortReason(undefined);
+        // Continue to next provider in chain
       }
     }
   }

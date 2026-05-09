@@ -99,7 +99,8 @@ function cloneStateCore(core: StructuredStateCoreFile): StructuredStateCoreFile 
       ...assistant,
       enabledMcpServerIds: [...assistant.enabledMcpServerIds],
       overrides: assistant.overrides ? { ...assistant.overrides } : undefined
-    }))
+    })),
+    templates: core.templates ? core.templates.map((t) => ({ ...t })) : undefined
   };
 }
 
@@ -141,7 +142,8 @@ function cloneSettingsMcp(mcp: StructuredSettingsMcpFile): StructuredSettingsMcp
         args: [...server.args],
         env: server.env.map((entry) => ({ ...entry })),
         headers: server.headers.map((entry) => ({ ...entry }))
-      }))
+      })),
+      groups: (mcp.mcp.groups || []).map((group) => ({ ...group }))
     }
   };
 }
@@ -229,6 +231,9 @@ function toPersistedStateLiteForStorage(
     collapsedGroupIds: Array.isArray(source.collapsedGroupIds)
       ? source.collapsedGroupIds.filter((groupId): groupId is string => typeof groupId === 'string')
       : base.collapsedGroupIds,
+    templates: Array.isArray(source.templates)
+      ? source.templates
+      : base.templates,
     settings: {
       ...base.settings,
       providers: Array.isArray(settings.providers)
@@ -267,7 +272,8 @@ export function persistedStateLiteToStructuredStateDocument(state: PersistedStat
         ...assistant,
         enabledMcpServerIds: [...assistant.enabledMcpServerIds],
         overrides: assistant.overrides ? { ...assistant.overrides } : undefined
-      }))
+      })),
+      templates: state.templates?.map((t) => ({ ...t }))
     },
     ui: {
       selectedAssistantId: state.selectedAssistantId,
@@ -308,7 +314,8 @@ export function persistedStateLiteToStructuredStateDocument(state: PersistedStat
           args: [...server.args],
           env: server.env.map((entry) => ({ ...entry })),
           headers: server.headers.map((entry) => ({ ...entry }))
-        }))
+        })),
+        groups: (state.settings.mcp.groups || []).map((group) => ({ ...group }))
       }
     }
   };
@@ -326,6 +333,7 @@ export function structuredStateDocumentToPersistedStateLite(document: Structured
     selectedSessionIdByAssistant: { ...document.ui.selectedSessionIdByAssistant },
     sessionPanelCollapsed: document.ui.sessionPanelCollapsed,
     collapsedGroupIds: [...document.ui.collapsedGroupIds],
+    templates: document.core.templates?.map((t) => ({ ...t })) ?? [],
     settings: {
       providers: document.settingsModelConfig.providers.map(cloneProvider),
       defaultModels: {
@@ -344,7 +352,8 @@ export function structuredStateDocumentToPersistedStateLite(document: Structured
           args: [...server.args],
           env: server.env.map((entry) => ({ ...entry })),
           headers: server.headers.map((entry) => ({ ...entry }))
-        }))
+        })),
+        groups: (document.settingsMcp.mcp.groups || []).map((group) => ({ ...group }))
       },
       ...document.settingsGeneral
     }

@@ -33,6 +33,7 @@ export const STRUCTURED_SETTINGS_MODEL_CONFIG_FILE_NAME = 'settings.model-config
 export const STRUCTURED_SETTINGS_DEFAULT_MODELS_FILE_NAME = 'settings.default-models.json';
 export const STRUCTURED_SETTINGS_MCP_FILE_NAME = 'settings.mcp.json';
 export const STRUCTURED_PROVIDER_API_KEYS_FILE_NAME = 'providers.api-keys.json';
+export const STRUCTURED_TEMPLATES_FILE_NAME = 'templates.json';
 
 export type CompassPaths = {
   globalStoragePath: string;
@@ -54,6 +55,7 @@ export type CompassPaths = {
   settingsDefaultModelsPath: string;
   settingsMcpPath: string;
   providerApiKeysPath: string;
+  templatesPath: string;
 };
 
 export function createCompassPaths(globalStoragePath: string): CompassPaths {
@@ -80,7 +82,8 @@ export function createCompassPaths(globalStoragePath: string): CompassPaths {
     settingsModelConfigPath: path.join(metaPath, STRUCTURED_SETTINGS_MODEL_CONFIG_FILE_NAME),
     settingsDefaultModelsPath: path.join(metaPath, STRUCTURED_SETTINGS_DEFAULT_MODELS_FILE_NAME),
     settingsMcpPath: path.join(metaPath, STRUCTURED_SETTINGS_MCP_FILE_NAME),
-    providerApiKeysPath: path.join(metaPath, STRUCTURED_PROVIDER_API_KEYS_FILE_NAME)
+    providerApiKeysPath: path.join(metaPath, STRUCTURED_PROVIDER_API_KEYS_FILE_NAME),
+    templatesPath: path.join(metaPath, STRUCTURED_TEMPLATES_FILE_NAME)
   };
 }
 

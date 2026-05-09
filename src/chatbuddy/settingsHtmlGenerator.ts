@@ -98,7 +98,6 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                           <span id="providerEnabledSwitchLabel"></span>
                         </label>
                         <button class="btn-secondary" id="testConnectionBtn" type="button"></button>
-                        <button class="btn-primary" id="saveProviderBtn" type="button" hidden></button>
                         <button class="btn-danger" id="deleteProviderBtn" type="button"></button>
                       </div>
                     </div>
@@ -193,8 +192,12 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
               <section class="section-card">
                 <div class="header-row">
                   <h2 class="section-title" id="mcpServersTitle"></h2>
-                  <button class="btn-primary" id="mcpAddServerBtn" type="button"></button>
+                  <div class="header-actions">
+                    <button class="btn-primary" id="mcpAddGroupBtn" type="button"></button>
+                    <button class="btn-primary" id="mcpAddServerBtn" type="button"></button>
+                  </div>
                 </div>
+                <div id="mcpGroupList"></div>
                 <div id="mcpServerList"></div>
               </section>
             </div>
@@ -250,6 +253,14 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                     <button class="btn-secondary" id="importBtn" type="button"></button>
                     <button class="btn-secondary" id="importLegacyBtn" type="button"></button>
                   </div>
+                  <section class="section-card selective-export-section">
+                    <h2 class="section-title" id="selectiveExportTitle"></h2>
+                    <p class="help" id="selectiveExportDescription"></p>
+                    <div class="selective-export-checks" id="selectiveExportChecks"></div>
+                    <div class="data-actions">
+                      <button class="btn-secondary" id="selectiveExportBtn" type="button"></button>
+                    </div>
+                  </section>
                 </div>
 
                 <div class="editor-pane" data-tab="local">
@@ -290,6 +301,20 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                     <div class="panel-actions">
                       <button class="btn-secondary" id="triggerBackupBtn" type="button"></button>
                       <button class="btn-secondary" id="refreshBackupListBtn" type="button"></button>
+                    </div>
+                  </section>
+
+                  <section class="section-card">
+                    <h2 class="section-title" id="backupEncryptionSectionTitle"></h2>
+                    <p class="help" id="backupEncryptionHelp"></p>
+                    <div class="field-toggle-row">
+                      <input id="backupEncryptionToggle" type="checkbox" />
+                      <label id="backupEncryptionLabel"></label>
+                    </div>
+                    <div class="backup-password-row">
+                      <span id="backupPasswordStatusLabel" class="backup-password-status"></span>
+                      <button class="btn-secondary" id="backupPasswordSetBtn" type="button"></button>
+                      <button class="btn-secondary" id="backupPasswordClearBtn" type="button"></button>
                     </div>
                   </section>
 

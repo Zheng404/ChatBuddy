@@ -172,5 +172,95 @@ export function getSettingsCenterMcpCss(): string {
         width: 14px;
         height: 14px;
         margin: 0;
+      }
+
+      .mcp-group-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        margin-bottom: 8px;
+        overflow: hidden;
+      }
+
+      .mcp-group-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        background: var(--panel-bg-strong);
+        cursor: pointer;
+      }
+
+      .mcp-group-expand {
+        font-size: 10px;
+        color: var(--muted);
+        width: 16px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+
+      .mcp-group-name {
+        font-size: 13px;
+        font-weight: 700;
+        flex: 1;
+      }
+
+      .mcp-group-count {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .mcp-group-servers {
+        padding: 8px 12px 8px 36px;
+      }
+
+      .mcp-group-servers-empty {
+        padding: 12px 12px 12px 36px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .mcp-server-in-group {
+        margin-bottom: 6px;
+      }
+
+      .mcp-server-move-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid var(--border);
+        font-size: 11px;
+      }
+
+      .mcp-server-move-row label {
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      .mcp-server-move-row select {
+        padding: 2px 6px;
+        font-size: 11px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--input-border);
+        background: var(--vscode-dropdown-background);
+        color: var(--fg);
+      }
+
+      .mcp-ungrouped-section {
+        margin-top: 12px;
+      }
+
+      .mcp-ungrouped-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 8px;
+        padding-left: 4px;
+      }
+
+      .header-actions {
+        display: flex;
+        gap: 8px;
       }`;
 }

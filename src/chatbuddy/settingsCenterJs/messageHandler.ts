@@ -45,13 +45,18 @@ export function getMessageHandlerJs(): string {
           return;
         }
         if (message && message.type === 'mcpProbeResult') {
-          var probeItems = message.payload || [];
+          var payload = message.payload || {};
+          var probeItems = (payload.results) || [];
           for (var pi = 0; pi < mcpServers.length; pi++) {
             var match = probeItems.find((r) => r.serverId === mcpServers[pi].id);
             if (match) {
               mcpProbeResults[pi] = match;
             }
           }
+          if (typeof payload.lastProbeAt === 'number') {
+            runtimeState.mcpLastProbeAt = payload.lastProbeAt;
+          }
+          renderMcpGroups();
           renderMcpServerList();
         }
         if (message && message.type === 'backupDirSelected') {
@@ -61,6 +66,10 @@ export function getMessageHandlerJs(): string {
         if (message && message.type === 'backupList') {
           runtimeState.backupFiles = message.payload.items || [];
           renderBackupList();
+        }
+        if (message && message.type === 'backupPasswordStatus') {
+          runtimeState.hasBackupPassword = !!(message.payload && message.payload.hasPassword);
+          renderBackupEncryptionSection();
         }
         if (message && message.type === 'backupOperationResult') {
           if (message.payload.message) {

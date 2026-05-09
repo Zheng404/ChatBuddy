@@ -67,7 +67,7 @@ export function registerAssistantManagementCommands(ctx: ExtensionContext): vsco
       );
       if (confirm !== strings().hardDeleteAction) { return; }
       chatController.disposePanelForAssistant(node.assistant.id);
-      repository.hardDeleteAssistant(node.assistant.id);
+      await repository.hardDeleteAssistant(node.assistant.id);
       chatController.openAssistantChat();
       refreshAll();
     }),
@@ -86,7 +86,7 @@ export function registerAssistantManagementCommands(ctx: ExtensionContext): vsco
       for (const assistant of deletedAssistants) {
         chatController.disposePanelForAssistant(assistant.id);
       }
-      const removedCount = repository.hardDeleteDeletedAssistants();
+      const removedCount = await repository.hardDeleteDeletedAssistants();
       chatController.openAssistantChat();
       refreshAll();
       void vscode.window.showInformationMessage(formatString(strings().recycleBinEmptied, { count: String(removedCount) }));

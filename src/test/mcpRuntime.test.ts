@@ -11,7 +11,7 @@ function makeSettings(servers: any[]) {
   return {
     providers: [],
     defaultModels: {},
-    mcp: { servers, maxToolRounds: 5 },
+    mcp: { servers, groups: [], maxToolRounds: 5 },
     temperature: 0.7,
     topP: 1,
     maxTokens: 2048,

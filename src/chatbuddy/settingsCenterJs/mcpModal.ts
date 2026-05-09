@@ -94,7 +94,13 @@ export function getMcpModalJs(): string {
               '<button class="mcp-add-row-btn" id="mcpModalAddHeaderBtn" type="button">' + escapeHtml(strings.mcpAddHeaderAction || '+ Header') + '</button>' +
             '</div>';
         }
+        var groupOptions = '<option value="">' + escapeHtml(strings.mcpUngroupedLabel || 'Ungrouped') + '</option>' +
+          mcpGroups.map((g) => '<option value="' + escapeHtml(g.id) + '"' + (g.id === server.groupId ? ' selected' : '') + '>' + escapeHtml(g.name) + '</option>').join('');
         fieldsHtml +=
+          '<div class="field">' +
+            '<label>' + escapeHtml(strings.mcpMoveToGroup || 'Group') + '</label>' +
+            '<select id="mcpModalGroup">' + groupOptions + '</select>' +
+          '</div>' +
           '<div class="field">' +
             '<label>' + escapeHtml(strings.mcpServerTimeoutLabel || '') + '</label>' +
             '<input id="mcpModalTimeout" type="number" min="1000" value="' + String(server.timeoutMs || 30000) + '" />' +
@@ -200,6 +206,8 @@ export function getMcpModalJs(): string {
         }
         var timeoutEl = document.getElementById('mcpModalTimeout');
         mcpModalDraft.timeoutMs = timeoutEl ? Math.max(1000, parseInt(timeoutEl.value, 10) || 30000) : 30000;
+        var groupEl = document.getElementById('mcpModalGroup');
+        mcpModalDraft.groupId = groupEl && groupEl.value ? groupEl.value : undefined;
       }
 
       function closeMcpServerModal() {
@@ -224,6 +232,7 @@ export function getMcpModalJs(): string {
           mcpServers[wasIdx] = cloneMcpServers([mcpModalDraft])[0];
         }
         closeMcpServerModal();
+        renderMcpGroups();
         renderMcpServerList();
         autoSaveMcpServers();
         var savedServer = (wasMode === 'add')

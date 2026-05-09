@@ -227,6 +227,8 @@ function buildMetaLabel(
     if (caps.reasoning) { capParts.push(strings.capabilityReasoning || ''); }
     if (caps.tools) { capParts.push(strings.capabilityTools || ''); }
     if (caps.webSearch) { capParts.push(strings.capabilityWebSearch || ''); }
+    if (caps.jsonMode) { capParts.push(strings.capabilityJsonMode || ''); }
+    if (caps.parallelToolCalls) { capParts.push(strings.capabilityParallelToolCalls || ''); }
   }
   const capStr = capParts.filter(Boolean).join(', ');
   const inner = [kindLabel, capStr].filter(Boolean).join(' | ');

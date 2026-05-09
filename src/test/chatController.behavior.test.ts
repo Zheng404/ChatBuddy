@@ -60,6 +60,7 @@ function createSettings(chatTabMode: 'single' | 'multi'): ChatBuddySettings {
     defaultModels: {},
     mcp: {
       servers: [],
+      groups: [],
       maxToolRounds: 3
     },
     temperature: 0.7,

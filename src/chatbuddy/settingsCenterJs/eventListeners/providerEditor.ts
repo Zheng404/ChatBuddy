@@ -154,15 +154,5 @@ export function getProviderEditorJs(): string {
         });
       });
 
-      dom.saveProviderBtn.addEventListener('click', () => {
-        const provider = getEditingProvider();
-        if (!provider) {
-          return;
-        }
-        if (!persistProviderDraft(provider.id, false)) {
-          showToast(validateProvider(provider), 'error');
-          renderAll();
-        }
-      });
 `;
 }

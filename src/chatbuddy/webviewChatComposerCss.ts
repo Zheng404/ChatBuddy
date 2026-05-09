@@ -135,7 +135,8 @@ export function getWebviewChatComposerCss(): string {
         gap: 8px;
         flex-shrink: 1;
         min-width: 0;
-        overflow: hidden;
+        overflow: visible;
+        position: relative;
       }
 
       .chip {
@@ -231,6 +232,107 @@ export function getWebviewChatComposerCss(): string {
 
       .temp-chip.visible {
         display: inline-flex;
+      }
+
+      .mcp-health-chip {
+        display: none;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        cursor: default;
+      }
+
+      .mcp-health-chip.visible {
+        display: inline-flex;
+      }
+
+      .mcp-health-chip.status-ok {
+        color: var(--vscode-testing-iconPassed, #16a34a);
+      }
+
+      .mcp-health-chip.status-warn {
+        color: var(--vscode-editorWarning-foreground, #facc15);
+      }
+
+      .mcp-health-chip.status-error {
+        color: var(--vscode-errorForeground, #dc2626);
+      }
+
+      .temp-params-toggle {
+        opacity: 0.7;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .temp-params-toggle:hover {
+        opacity: 1;
+      }
+      .temp-params-toggle:disabled {
+        opacity: 0.3;
+        cursor: default;
+      }
+
+      .temp-params-popup {
+        display: none;
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 6px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px 12px;
+        min-width: 220px;
+        z-index: 50;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      }
+      .temp-params-popup.visible {
+        display: block;
+      }
+
+      .temp-params-popup-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--fg);
+      }
+
+      .temp-params-popup-body {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .temp-params-field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--fg);
+      }
+      .temp-params-field span {
+        min-width: 80px;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .temp-params-field input {
+        flex: 1;
+        width: 100%;
+        min-width: 60px;
+        padding: 3px 6px;
+        font-size: 12px;
+        background: var(--input-bg);
+        color: var(--input-fg);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        outline: none;
+      }
+      .temp-params-field input:focus {
+        border-color: var(--focus-border);
       }
 
       .image-preview-bar {

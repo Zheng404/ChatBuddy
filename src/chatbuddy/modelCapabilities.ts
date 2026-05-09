@@ -12,7 +12,21 @@ export function hasAnyCapability(caps: ModelCapabilities | undefined): boolean {
   if (!caps) {
     return false;
   }
-  return !!(caps.vision || caps.reasoning || caps.tools || caps.webSearch);
+  return !!(
+    caps.vision || caps.reasoning || caps.tools || caps.webSearch ||
+    caps.jsonMode || caps.parallelToolCalls || caps.maxContextLength
+  );
+}
+
+/**
+ * Enrich capabilities with inferred defaults from existing flags.
+ * Models with tool-calling support generally also support JSON mode.
+ */
+function enrichCapabilities(caps: ModelCapabilities): ModelCapabilities {
+  if (caps.tools && caps.jsonMode === undefined) {
+    caps.jsonMode = true;
+  }
+  return caps;
 }
 
 /**
@@ -25,16 +39,19 @@ export function resolveCapabilities(
 ): ModelCapabilities | undefined {
   // 1. API response takes priority
   if (apiCaps && hasAnyCapability(apiCaps)) {
-    return apiCaps;
+    return enrichCapabilities(apiCaps);
   }
   // 2. Hardcoded registry
   const reg = resolveFromRegistry(modelId);
   if (reg?.capabilities) {
-    return reg.capabilities;
+    return enrichCapabilities(reg.capabilities);
   }
   // 3. Regex patterns
   const pat = resolveFromPatterns(modelId);
-  return pat?.capabilities;
+  if (pat?.capabilities) {
+    return enrichCapabilities(pat.capabilities);
+  }
+  return undefined;
 }
 
 /**

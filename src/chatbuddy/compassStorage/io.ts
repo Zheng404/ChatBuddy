@@ -40,7 +40,8 @@ export async function readJsonFile<T>(filePath: string): Promise<T | undefined> 
   }
   try {
     return JSON.parse(content) as T;
-  } catch {
+  } catch (parseError) {
+    console.warn(`[Compass] Failed to parse JSON file: ${filePath}`, parseError);
     return undefined;
   }
 }

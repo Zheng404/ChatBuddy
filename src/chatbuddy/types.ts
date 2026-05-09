@@ -7,13 +7,21 @@
 export type ChatRole = 'system' | 'user' | 'assistant';
 export type RuntimeLocale = 'zh-CN' | 'en';
 export type ChatBuddyLocaleSetting = 'auto' | RuntimeLocale;
-export type ChatSendShortcut = 'enter' | 'ctrlEnter';
+export type ChatSendShortcut = 'enter' | 'ctrlEnter' | 'shiftEnter';
 export type ChatTabMode = 'single' | 'multi';
 export type AssistantGroupKind = 'default' | 'deleted' | 'custom';
 export type ProviderApiType = 'chat_completions' | 'responses' | 'gemini';
 export type ProviderKind = 'openai' | 'gemini' | 'openrouter' | 'ollama' | 'custom';
 export type ProviderModelSource = 'manual' | 'fetched';
 export type McpTransportType = 'stdio' | 'streamableHttp' | 'sse';
+
+export interface SessionTempParams {
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+}
 
 export interface AssistantOverrides {
   apiKey?: string;
@@ -40,10 +48,18 @@ export interface McpServerProfile {
   headers: McpKeyValueEntry[];
   timeoutMs: number;
   remotePassthroughEnabled: boolean;
+  groupId?: string;
+}
+
+export interface McpServerGroup {
+  id: string;
+  name: string;
+  enabled: boolean;
 }
 
 export interface McpSettings {
   servers: McpServerProfile[];
+  groups: McpServerGroup[];
   maxToolRounds: number;
 }
 
@@ -54,6 +70,9 @@ export interface ModelCapabilities {
   reasoning?: boolean;
   tools?: boolean;
   webSearch?: boolean;
+  jsonMode?: boolean;
+  parallelToolCalls?: boolean;
+  maxContextLength?: number;
 }
 
 export interface ProviderModelProfile {
@@ -93,6 +112,26 @@ export interface DefaultModelSettings {
   titleSummaryPrompt?: string;
 }
 
+export interface AssistantTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  avatar?: string;
+  systemPrompt: string;
+  greeting: string;
+  questionPrefix: string;
+  temperature: number;
+  topP: number;
+  maxTokens: number;
+  contextCount: number;
+  presencePenalty: number;
+  frequencyPenalty: number;
+  enabledMcpServerIds: string[];
+  streaming: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ProviderModelOption {
   ref: string;
   providerId: string;
@@ -125,6 +164,7 @@ export interface AssistantProfile {
   modelRef: string;
   temperature: number;
   topP: number;
+  topK?: number;
   maxTokens: number;
   contextCount: number;
   presencePenalty: number;
@@ -139,6 +179,12 @@ export interface AssistantProfile {
   updatedAt: number;
   lastInteractedAt: number;
   overrides?: AssistantOverrides;
+  stopSequences?: string[];
+  seed?: number;
+  responseFormat?: ProviderResponseFormat;
+  toolChoice?: ProviderToolChoice;
+  geminiSafetyLevel?: GeminiSafetyLevel;
+  failoverModelRefs?: string[];
 }
 
 export interface ChatMessage {
@@ -218,6 +264,7 @@ export interface PersistedStateLite {
   sessionPanelCollapsed: boolean;
   collapsedGroupIds: string[];
   settings: ChatBuddySettings;
+  templates: AssistantTemplate[];
 }
 
 export interface LocalBackupSettings {
@@ -226,6 +273,7 @@ export interface LocalBackupSettings {
   intervalHours: number;
   maxCount: number;
   maxAgeDays: number;
+  encryptionEnabled?: boolean;
 }
 
 export interface BackupFileEntry {
@@ -251,6 +299,17 @@ export interface ChatBuddySettings {
   localBackup: LocalBackupSettings;
 }
 
+export type ProviderResponseFormat =
+  | { type: 'text' }
+  | { type: 'json_object' }
+  | { type: 'json_schema'; json_schema: Record<string, unknown> };
+
+export type ProviderToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } };
+
 export interface ProviderConfig {
   providerId: string;
   providerKind: ProviderKind;
@@ -263,12 +322,20 @@ export interface ProviderConfig {
   modelLabel: string;
   temperature: number;
   topP: number;
+  topK?: number;
   maxTokens: number;
   contextCount: number;
   presencePenalty: number;
   frequencyPenalty: number;
   timeoutMs: number;
+  stopSequences?: string[];
+  seed?: number;
+  responseFormat?: ProviderResponseFormat;
+  toolChoice?: ProviderToolChoice;
+  geminiSafetyLevel?: GeminiSafetyLevel;
 }
+
+export type GeminiSafetyLevel = 'default' | 'none' | 'low' | 'medium' | 'high';
 
 export type ProviderToolDefinition =
   | {
@@ -303,6 +370,11 @@ export interface McpServerSummary {
   name: string;
   enabled: boolean;
   transport: McpTransportType;
+  lastProbe?: {
+    success: boolean;
+    probedAt: number;
+    error?: string;
+  };
 }
 
 export interface McpResourceEntry {
@@ -354,6 +426,7 @@ export interface ChatStatePayload {
   modelLabel: string;
   modelOptions: ProviderModelOption[];
   sessionTempModelRef: string;
+  sessionTempParams: SessionTempParams;
   sendShortcut: ChatSendShortcut;
   streaming: boolean;
   isGenerating: boolean;
@@ -364,6 +437,7 @@ export interface ChatStatePayload {
   toolRoundLimit: number;
   readOnlyReason?: string;
   error?: string;
+  templates: AssistantTemplate[];
 }
 
 export type WebviewInboundMessage =
@@ -373,6 +447,8 @@ export type WebviewInboundMessage =
   | { type: 'renameSession'; sessionId: string; title: string }
   | { type: 'deleteSession'; sessionId: string }
   | { type: 'setSessionTempModel'; modelRef: string }
+  | { type: 'setSessionTempParams'; params: SessionTempParams }
+  | { type: 'clearSessionTempParams' }
   | { type: 'toggleSessionPanel' }
   | { type: 'regenerateReply' }
   | { type: 'regenerateFromMessage'; messageId: string }
@@ -390,7 +466,11 @@ export type WebviewInboundMessage =
   | { type: 'getMcpPrompt'; serverId: string; name: string; args: Record<string, string> }
   | { type: 'selectFiles' }
   | { type: 'selectImages' }
-  | { type: 'stopGeneration' };
+  | { type: 'stopGeneration' }
+  | { type: 'saveAsTemplate'; assistantId: string; name: string; description?: string }
+  | { type: 'createAssistantFromTemplate'; templateId: string }
+  | { type: 'deleteTemplate'; templateId: string }
+  | { type: 'renameTemplate'; templateId: string; name: string };
 
 export type WebviewOutboundMessage =
   | { type: 'state'; payload: ChatStatePayload }

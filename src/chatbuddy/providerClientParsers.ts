@@ -20,6 +20,11 @@ import {
   toVideoMarkdown
 } from './providerClientMedia';
 
+let _fallbackToolCallCounter = 0;
+function fallbackToolCallId(): string {
+  return `${Date.now().toString(36)}-${(++_fallbackToolCallCounter).toString(36)}`;
+}
+
 function extractChatCompletionToolCalls(message: {
   tool_calls?: Array<{
     id?: string;
@@ -40,7 +45,7 @@ function extractChatCompletionToolCalls(message: {
         return undefined;
       }
       return {
-        id: toTrimmedString(call?.id) || `${name}-${Math.random().toString(36).slice(2, 8)}`,
+        id: toTrimmedString(call?.id) || `${name}-${fallbackToolCallId()}`,
         name,
         argumentsText: typeof call?.function?.arguments === 'string' ? call.function.arguments : '{}'
       };
@@ -71,7 +76,7 @@ function extractResponsesToolCalls(payload: {
         id:
           toTrimmedString(item?.call_id) ||
           toTrimmedString(item?.id) ||
-          `${name}-${Math.random().toString(36).slice(2, 8)}`,
+          `${name}-${fallbackToolCallId()}`,
         name,
         argumentsText: typeof item?.arguments === 'string' ? item.arguments : '{}'
       };
@@ -391,12 +396,23 @@ function extractCapabilitiesFromStandardModel(raw: Record<string, unknown>): Mod
   if (supportedParams.some((p) => p === 'tools' || p === 'tool_choice' || p === 'function_calling')) {
     caps.tools = true;
   }
+  if (supportedParams.some((p) => p === 'response_format')) {
+    caps.jsonMode = true;
+  }
+  if (supportedParams.some((p) => p === 'parallel_tool_calls')) {
+    caps.parallelToolCalls = true;
+  }
   if (pricing && typeof pricing.internal_reasoning === 'string' && pricing.internal_reasoning !== '0' && pricing.internal_reasoning !== '') {
     caps.reasoning = true;
+  }
+  const contextLength = raw.context_length;
+  if (typeof contextLength === 'number' && contextLength > 0) {
+    caps.maxContextLength = contextLength;
   }
 
   return hasAnyCapability(caps) ? caps : undefined;
 }
+
 
 function extractCapabilitiesFromGeminiModel(raw: Record<string, unknown>): ModelCapabilities | undefined {
   const description = typeof raw.description === 'string' ? raw.description.toLowerCase() : '';
@@ -570,7 +586,7 @@ function extractGeminiToolCallsFromParts(parts: unknown[]): ProviderToolCall[] {
         return undefined;
       }
       const args = (fc as Record<string, unknown>).args;
-      const id = toTrimmedString((fc as Record<string, unknown>).id) || `${name}-${Math.random().toString(36).slice(2, 8)}`;
+      const id = toTrimmedString((fc as Record<string, unknown>).id) || `${name}-${fallbackToolCallId()}`;
       return {
         id,
         name,

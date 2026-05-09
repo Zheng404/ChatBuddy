@@ -96,6 +96,52 @@ export function getChatEventScript(): string {
         vscode.postMessage({ type: 'setSessionTempModel', modelRef: nextTempModelRef });
       });
 
+      // 临时参数面板
+      function collectTempParams() {
+        var p = {};
+        var v;
+        v = parseFloat(dom.tempParamsTemp.value);
+        if (!isNaN(v)) { p.temperature = v; }
+        v = parseFloat(dom.tempParamsTopP.value);
+        if (!isNaN(v)) { p.topP = v; }
+        v = parseFloat(dom.tempParamsMaxTokens.value);
+        if (!isNaN(v)) { p.maxTokens = Math.round(v); }
+        v = parseFloat(dom.tempParamsPresence.value);
+        if (!isNaN(v)) { p.presencePenalty = v; }
+        v = parseFloat(dom.tempParamsFrequency.value);
+        if (!isNaN(v)) { p.frequencyPenalty = v; }
+        return p;
+      }
+
+      dom.tempParamsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dom.tempParamsPopup.classList.toggle('visible');
+      });
+
+      dom.tempParamsResetBtn.addEventListener('click', () => {
+        dom.tempParamsPopup.classList.remove('visible');
+        vscode.postMessage({ type: 'clearSessionTempParams' });
+      });
+
+      function handleTempParamInput() {
+        var params = collectTempParams();
+        if (Object.keys(params).length > 0) {
+          vscode.postMessage({ type: 'setSessionTempParams', params: params });
+        } else {
+          vscode.postMessage({ type: 'clearSessionTempParams' });
+        }
+      }
+
+      [dom.tempParamsTemp, dom.tempParamsTopP, dom.tempParamsMaxTokens, dom.tempParamsPresence, dom.tempParamsFrequency].forEach(function(el) {
+        el.addEventListener('change', handleTempParamInput);
+      });
+
+      document.addEventListener('click', (e) => {
+        if (dom.tempParamsPopup.classList.contains('visible') && !dom.tempParamsPopup.contains(e.target) && e.target !== dom.tempParamsBtn) {
+          dom.tempParamsPopup.classList.remove('visible');
+        }
+      });
+
       if (dom.attachFileBtn) {
         dom.attachFileBtn.addEventListener('click', () => {
           if (!state.canChat) {
@@ -111,6 +157,16 @@ export function getChatEventScript(): string {
             return;
           }
           vscode.postMessage({ type: 'selectImages' });
+        });
+      }
+
+      if (dom.saveAsTemplateBtn) {
+        dom.saveAsTemplateBtn.addEventListener('click', () => {
+          if (!state.selectedAssistantId) {
+            return;
+          }
+          const name = state.selectedAssistant?.name || state.selectedAssistantId;
+          vscode.postMessage({ type: 'saveAsTemplate', assistantId: state.selectedAssistantId, name });
         });
       }
 
@@ -184,10 +240,15 @@ export function getChatEventScript(): string {
         if (!state.canChat) {
           return;
         }
-        const isCtrlEnterMode = state.sendShortcut === 'ctrlEnter';
-        const shouldSend = isCtrlEnterMode
-          ? event.key === 'Enter' && event.ctrlKey && !event.shiftKey && !event.metaKey
-          : event.key === 'Enter' && !event.ctrlKey && !event.shiftKey && !event.metaKey;
+        const shortcutMode = state.sendShortcut;
+        let shouldSend = false;
+        if (shortcutMode === 'ctrlEnter') {
+          shouldSend = event.key === 'Enter' && event.ctrlKey && !event.shiftKey && !event.metaKey;
+        } else if (shortcutMode === 'shiftEnter') {
+          shouldSend = event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.metaKey;
+        } else {
+          shouldSend = event.key === 'Enter' && !event.ctrlKey && !event.shiftKey && !event.metaKey;
+        }
         if (event.key === 'Escape' && editingMessageId) {
           event.preventDefault();
           clearMessageEditState(true);

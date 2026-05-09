@@ -372,6 +372,54 @@ export function getSettingsCenterBaseCss(): string {
         padding: 16px;
       }
 
+      .selective-export-section {
+        margin-top: 16px;
+      }
+
+      .selective-export-checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 18px;
+        margin: 8px 0 12px 0;
+      }
+
+      .selective-export-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .selective-export-check input[type="checkbox"] {
+        cursor: pointer;
+      }
+
+      .mcp-last-probe {
+        font-style: italic;
+        margin: 0 0 8px 0;
+        opacity: 0.7;
+      }
+
+      .backup-password-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      .backup-password-status {
+        font-size: 13px;
+        opacity: 0.7;
+      }
+
+      .backup-password-status.has-password {
+        color: var(--success, #10b981);
+        opacity: 1;
+        font-weight: 500;
+      }
+
       .field-toggle-row {
         display: inline-flex;
         align-items: center;

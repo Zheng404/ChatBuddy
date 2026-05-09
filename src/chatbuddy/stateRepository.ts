@@ -15,6 +15,7 @@ import { cloneDefaultModels, getProviderModelOptions, resolveModelOption } from 
 import {
   AssistantGroup,
   AssistantProfile,
+  AssistantTemplate,
   ChatBuddyLocaleSetting,
   ChatBuddySettings,
   ChatMessage,
@@ -24,10 +25,11 @@ import {
   ProviderProfile
 } from './types';
 import { ChatStorage } from './chatStorage';
-import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider } from './stateClone';
+import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider, cloneTemplate } from './stateClone';
 import { unwrapImportedState, unwrapImportedStorageBackup } from './stateHelpers';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
 import { AssistantStateService } from './stateRepositoryAssistantService';
+import { createId, nowTs } from './utils';
 import {
   applyProviderApiKeysToSettings,
   extractProviderApiKeys,
@@ -81,6 +83,13 @@ export interface UpdateAssistantInput {
   streaming?: boolean;
   avatar?: string;
   enabledMcpServerIds?: string[];
+  overrides?: AssistantProfile['overrides'];
+  stopSequences?: string[];
+  seed?: number;
+  responseFormat?: AssistantProfile['responseFormat'];
+  toolChoice?: AssistantProfile['toolChoice'];
+  geminiSafetyLevel?: AssistantProfile['geminiSafetyLevel'];
+  failoverModelRefs?: string[];
 }
 
 export class ChatStateRepository {
@@ -163,6 +172,7 @@ export class ChatStateRepository {
       groups: this.state.groups.map(cloneGroup),
       assistants: this.state.assistants.map(cloneAssistant),
       selectedSessionIdByAssistant: { ...this.state.selectedSessionIdByAssistant },
+      templates: this.state.templates.map(cloneTemplate),
       settings: this.getSettings()
     };
     this.cachedState = cloned;
@@ -228,16 +238,148 @@ export class ChatStateRepository {
     return this.state.settings.mcp.servers.map(cloneMcpServer);
   }
 
+  // ─── Template methods ─────────────────────────────────────────────────────
+
+  public getTemplates(): AssistantTemplate[] {
+    return this.state.templates.map(cloneTemplate);
+  }
+
+  public saveAsTemplate(assistantId: string, name: string, description?: string): AssistantTemplate | undefined {
+    const assistant = this.state.assistants.find((a) => a.id === assistantId);
+    if (!assistant) {
+      return undefined;
+    }
+    const timestamp = nowTs();
+    const template: AssistantTemplate = {
+      id: createId('tpl'),
+      name,
+      description,
+      avatar: assistant.avatar,
+      systemPrompt: assistant.systemPrompt,
+      greeting: assistant.greeting,
+      questionPrefix: assistant.questionPrefix,
+      temperature: assistant.temperature,
+      topP: assistant.topP,
+      maxTokens: assistant.maxTokens,
+      contextCount: assistant.contextCount,
+      presencePenalty: assistant.presencePenalty,
+      frequencyPenalty: assistant.frequencyPenalty,
+      enabledMcpServerIds: [...assistant.enabledMcpServerIds],
+      streaming: assistant.streaming,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    this.state.templates.push(template);
+    void this.persistenceService.persist();
+    return cloneTemplate(template);
+  }
+
+  public createAssistantFromTemplate(templateId: string): AssistantProfile | undefined {
+    const template = this.state.templates.find((t) => t.id === templateId);
+    if (!template) {
+      return undefined;
+    }
+    const assistant = this.assistantStateService.createAssistant({
+      name: template.name,
+      note: template.description
+    });
+    // Apply template configuration
+    this.assistantStateService.updateAssistant(assistant.id, {
+      avatar: template.avatar,
+      systemPrompt: template.systemPrompt,
+      greeting: template.greeting,
+      questionPrefix: template.questionPrefix,
+      temperature: template.temperature,
+      topP: template.topP,
+      maxTokens: template.maxTokens,
+      contextCount: template.contextCount,
+      presencePenalty: template.presencePenalty,
+      frequencyPenalty: template.frequencyPenalty,
+      enabledMcpServerIds: template.enabledMcpServerIds,
+      streaming: template.streaming
+    });
+    return this.state.assistants.find((a) => a.id === assistant.id);
+  }
+
+  public deleteTemplate(templateId: string): boolean {
+    const index = this.state.templates.findIndex((t) => t.id === templateId);
+    if (index === -1) {
+      return false;
+    }
+    this.state.templates.splice(index, 1);
+    void this.persistenceService.persist();
+    return true;
+  }
+
+  public renameTemplate(templateId: string, name: string): boolean {
+    const template = this.state.templates.find((t) => t.id === templateId);
+    if (!template || !name.trim()) {
+      return false;
+    }
+    template.name = name.trim();
+    template.updatedAt = nowTs();
+    void this.persistenceService.persist();
+    return true;
+  }
+
   public async resetState(): Promise<void> {
     this.state = createInitialState();
     this.providerApiKeys = {};
     if (this.storageReady) {
       this.storage.replaceAllSessions([], false);
       this.storage.replaceAllKv({}, false);
+      await this.storage.cleanupAllImages();
       await this.storage.flush();
     }
     await this.persistenceService.persistSecrets();
     await this.persistenceService.persist();
+  }
+
+  public getMcpProbeCache(): { lastProbeAt: number; entries: unknown[] } | undefined {
+    if (!this.storageReady) { return undefined; }
+    const raw = this.storage.getKv('mcp.probeCache');
+    if (!raw) { return undefined; }
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.entries) && typeof parsed.lastProbeAt === 'number') {
+        return parsed;
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  public setMcpProbeCache(cache: { lastProbeAt: number; entries: unknown[] }): void {
+    if (!this.storageReady) { return; }
+    this.storage.setKv('mcp.probeCache', JSON.stringify(cache));
+  }
+
+  public exportSelectiveData(categories: string[]): Record<string, unknown> {
+    const state = this.getState();
+    const result: Record<string, unknown> = {
+      schema: 'chatbuddy-selective-export',
+      version: 1,
+      exportedAt: new Date().toISOString()
+    };
+    const settings = state.settings;
+    if (categories.includes('providers')) {
+      result.providers = settings.providers.map((p) => ({ ...cloneProvider(p) }));
+      result.providerApiKeys = { ...this.providerApiKeys };
+    }
+    if (categories.includes('mcp')) {
+      result.mcp = { ...settings.mcp };
+    }
+    if (categories.includes('assistants')) {
+      result.assistants = state.assistants.map((a) => ({ ...a }));
+      result.groups = state.groups.map((g) => ({ ...g }));
+      result.templates = state.templates?.map((t) => ({ ...t })) ?? [];
+    }
+    if (categories.includes('settings')) {
+      const { providers: _p, mcp: _m, ...rest } = settings;
+      result.settings = rest;
+    }
+    return result;
   }
 
   public exportBackupData(): ChatBuddyBackupData {
@@ -353,11 +495,11 @@ export class ChatStateRepository {
     return this.assistantStateService.restoreAssistant(assistantId);
   }
 
-  public hardDeleteAssistant(assistantId: string): boolean {
+  public async hardDeleteAssistant(assistantId: string): Promise<boolean> {
     return this.assistantStateService.hardDeleteAssistant(assistantId);
   }
 
-  public hardDeleteDeletedAssistants(): number {
+  public async hardDeleteDeletedAssistants(): Promise<number> {
     return this.assistantStateService.hardDeleteDeletedAssistants();
   }
 

@@ -38,6 +38,10 @@ export interface SettingsMessageHandlerDeps {
   readonly onExportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
   readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
   readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
+  readonly onSelectiveExport: (categories: string[]) => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
+  readonly onGetBackupPassword: () => Promise<string | undefined>;
+  readonly onSetBackupPassword: (password: string) => Promise<void>;
+  readonly onClearBackupPassword: () => Promise<void>;
   getLocale(): RuntimeLocale;
   getStrings(): RuntimeStrings;
   postState(notice?: string, tone?: 'success' | 'error' | 'info'): void;
@@ -70,7 +74,9 @@ export async function handleSettingsMessage(
   }
 
   if (message.type === 'saveSendShortcut') {
-    const sendShortcut = message.payload.sendShortcut === 'ctrlEnter' ? 'ctrlEnter' : 'enter';
+    const validShortcuts = ['enter', 'ctrlEnter', 'shiftEnter'] as const;
+    const raw = message.payload.sendShortcut;
+    const sendShortcut = validShortcuts.includes(raw) ? raw : 'enter';
     const next: ChatBuddySettings = { ...deps.repository.getSettings(), sendShortcut };
     deps.onSave(next);
     deps.postState(deps.getStrings().sendShortcutSaved, 'success');
@@ -424,6 +430,19 @@ export async function handleSettingsMessage(
     return;
   }
 
+  if (message.type === 'selectiveExport') {
+    try {
+      const categories = message.payload.categories;
+      const result = await deps.onSelectiveExport(categories);
+      if (result?.notice) {
+        deps.postState(result.notice, result.tone ?? 'success');
+      }
+    } catch {
+      deps.postState(deps.getStrings().unknownError, 'error');
+    }
+    return;
+  }
+
   if (message.type === 'browseBackupDir') {
     const result = await vscode.window.showOpenDialog({
       canSelectFiles: false,
@@ -451,7 +470,15 @@ export async function handleSettingsMessage(
         deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupDirNotSet } });
         return;
       }
-      await createLocalBackup(deps.repository, settings.directory);
+      let password: string | undefined;
+      if (settings.encryptionEnabled) {
+        password = await deps.onGetBackupPassword();
+        if (!password) {
+          deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupPasswordRequired || 'Backup password is required' } });
+          return;
+        }
+      }
+      await createLocalBackup(deps.repository, settings.directory, password);
       await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
       const items = await listLocalBackups(settings.directory);
       deps.postMessage({ type: 'backupList', payload: { items } });
@@ -465,11 +492,65 @@ export async function handleSettingsMessage(
   if (message.type === 'restoreLocalBackup') {
     try {
       const settings = deps.repository.getSettings().localBackup;
-      await restoreLocalBackup(deps.repository, settings.directory, message.payload.fileName);
+      const fileName = message.payload.fileName;
+      let password: string | undefined;
+      if (fileName.endsWith('.enc.zip')) {
+        password = await deps.onGetBackupPassword();
+        if (!password) {
+          const inputPassword = await vscode.window.showInputBox({
+            prompt: deps.getStrings().backupPasswordPrompt || 'Enter backup password',
+            password: true,
+            ignoreFocusOut: true
+          });
+          if (!inputPassword) {
+            deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupPasswordRequired || 'Backup password is required' } });
+            return;
+          }
+          password = inputPassword;
+        }
+      }
+      await restoreLocalBackup(deps.repository, settings.directory, fileName, password);
       deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupRestored } });
       deps.postState(deps.getStrings().backupRestored, 'success');
     } catch (err) {
       deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
+    }
+    return;
+  }
+
+  if (message.type === 'setBackupPassword') {
+    try {
+      const password = message.payload.password;
+      if (!password) {
+        deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupPasswordEmpty || 'Password cannot be empty' } });
+        return;
+      }
+      await deps.onSetBackupPassword(password);
+      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: true } });
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupPasswordSaved || 'Backup password saved' } });
+    } catch (err) {
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
+    }
+    return;
+  }
+
+  if (message.type === 'clearBackupPassword') {
+    try {
+      await deps.onClearBackupPassword();
+      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: false } });
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupPasswordCleared || 'Backup password cleared' } });
+    } catch (err) {
+      deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
+    }
+    return;
+  }
+
+  if (message.type === 'queryBackupPasswordStatus') {
+    try {
+      const password = await deps.onGetBackupPassword();
+      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: !!password } });
+    } catch {
+      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: false } });
     }
     return;
   }

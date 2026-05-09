@@ -33,5 +33,6 @@
   "chatbuddy.command.exportSession": "导出会话",
   "chatbuddy.command.askAI": "问 AI",
   "chatbuddy.command.stopGeneration": "停止生成",
+  "chatbuddy.command.regenerateReply": "重新生成最后回复",
   "chatbuddy.command.toggleSessionPanel": "切换会话面板"
 }

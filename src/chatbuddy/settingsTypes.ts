@@ -73,7 +73,8 @@ export type SettingsCenterMessage =
   | { type: 'exportData' }
   | { type: 'importData' }
   | { type: 'importLegacyData' }
-  | { type: 'saveMcpServers'; payload: McpServerProfile[] }
+  | { type: 'selectiveExport'; payload: { categories: string[] } }
+  | { type: 'saveMcpServers'; payload: McpServerProfile[] | { servers: McpServerProfile[]; groups?: import('./types').McpServerGroup[]; maxToolRounds?: number } }
   | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
   | { type: 'probeMcpServers' }
   | { type: 'testMcpServer'; payload: { server: McpServerProfile } }
@@ -89,7 +90,10 @@ export type SettingsCenterMessage =
   | { type: 'triggerLocalBackup' }
   | { type: 'restoreLocalBackup'; payload: { fileName: string } }
   | { type: 'deleteLocalBackup'; payload: { fileName: string } }
-  | { type: 'refreshBackupList' };
+  | { type: 'refreshBackupList' }
+  | { type: 'setBackupPassword'; payload: { password: string } }
+  | { type: 'clearBackupPassword' }
+  | { type: 'queryBackupPasswordStatus' };
 
 export type SettingsCenterState = {
   strings: RuntimeStrings;
@@ -150,18 +154,24 @@ export type SettingsCenterOutbound =
     }
   | {
       type: 'mcpProbeResult';
-      payload: Array<{
-        serverId: string;
-        success: boolean;
-        tools: Array<{ name: string; description: string }>;
-        resources: Array<{ name: string; uri: string; description?: string }>;
-        prompts: Array<{ name: string; description?: string }>;
-        error?: string;
-      }>;
+      payload: {
+        results: Array<{
+          serverId: string;
+          success: boolean;
+          tools: Array<{ name: string; description: string }>;
+          resources: Array<{ name: string; uri: string; description?: string }>;
+          prompts: Array<{ name: string; description?: string }>;
+          error?: string;
+          probedAt?: number;
+        }>;
+        lastProbeAt?: number;
+        fromCache?: boolean;
+      };
     }
   | { type: 'backupDirSelected'; payload: { dir: string } }
   | { type: 'backupList'; payload: { items: import('./types').BackupFileEntry[] } }
-  | { type: 'backupOperationResult'; payload: { success: boolean; message: string } };
+  | { type: 'backupOperationResult'; payload: { success: boolean; message: string } }
+  | { type: 'backupPasswordStatus'; payload: { hasPassword: boolean } };
 
 // ─── 工具函数 ────────────────────────────────────────────────────────
 
@@ -179,12 +189,30 @@ export function normalizeSection(section: SettingsCenterSection | string | undef
   return 'general';
 }
 
-export function normalizeMcpServers(servers: McpServerProfile[], fallback: ChatBuddySettings): ChatBuddySettings {
+export function normalizeMcpServers(
+  payload: McpServerProfile[] | { servers: McpServerProfile[]; groups?: import('./types').McpServerGroup[]; maxToolRounds?: number },
+  fallback: ChatBuddySettings
+): ChatBuddySettings {
+  if (Array.isArray(payload)) {
+    return {
+      ...fallback,
+      mcp: {
+        ...fallback.mcp,
+        servers: payload,
+        groups: fallback.mcp.groups || []
+      }
+    };
+  }
   return {
     ...fallback,
     mcp: {
       ...fallback.mcp,
-      servers
+      servers: payload.servers,
+      groups: payload.groups ?? fallback.mcp.groups ?? [],
+      maxToolRounds:
+        typeof payload.maxToolRounds === 'number'
+          ? Math.max(1, Math.min(20, payload.maxToolRounds))
+          : fallback.mcp.maxToolRounds
     }
   };
 }

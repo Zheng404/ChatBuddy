@@ -5,7 +5,8 @@
  * 以及备份数据解包和会话标题生成工具。
  */
 import { createModelRef, dedupeModels, parseModelRef } from './modelCatalog';
-import { COMPASS_LAYOUT_VERSION, StructuredStateDocument } from './compassStorage';
+import type { StructuredStateDocument } from './compassStorage';
+import { COMPASS_LAYOUT_VERSION } from './compassStorage';
 import { cloneProvider } from './stateClone';
 import { PersistedStateLiteSchema } from './schemas';
 import { warn } from './utils';

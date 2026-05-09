@@ -364,6 +364,8 @@ export function getSettingsCenterProviderCss(): string {
       .cap-pill.active.cap-reasoning { border-color: var(--color-purple); color: var(--color-purple); }
       .cap-pill.active.cap-websearch { border-color: var(--color-info); color: var(--color-info); }
       .cap-pill.active.cap-tools { border-color: #f59e0b; color: #f59e0b; }
+      .cap-pill.active.cap-json { border-color: #10b981; color: #10b981; }
+      .cap-pill.active.cap-parallel { border-color: #8b5cf6; color: #8b5cf6; }
 
       .selected-model-row {
         display: grid;

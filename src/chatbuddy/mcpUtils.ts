@@ -50,7 +50,19 @@ export function validateStdioLaunchConfig(server: McpServerProfile): { command: 
 
 export function getEnabledServers(settings: ChatBuddySettings, assistant: AssistantProfile): McpServerProfile[] {
   const enabledIds = new Set(assistant.enabledMcpServerIds);
-  return settings.mcp.servers.filter((server) => server.enabled && enabledIds.has(server.id));
+  const groupEnabled = new Map<string, boolean>();
+  for (const group of settings.mcp.groups || []) {
+    groupEnabled.set(group.id, group.enabled !== false);
+  }
+  return settings.mcp.servers.filter((server) => {
+    if (!server.enabled || !enabledIds.has(server.id)) {
+      return false;
+    }
+    if (!server.groupId) {
+      return true;
+    }
+    return groupEnabled.get(server.groupId) !== false;
+  });
 }
 
 export function toTransportLabel(transport: McpServerProfile['transport']): string {

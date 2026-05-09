@@ -16,7 +16,8 @@ import {
   PersistedStateLite,
   ProviderModelOption,
   ProviderToolCall,
-  RuntimeLocale
+  RuntimeLocale,
+  SessionTempParams
 } from './types';
 import { parseModelRef } from './modelCatalog';
 import { getStrings } from './i18n';
@@ -34,14 +35,16 @@ export function syncSessionScopedState(args: {
   selectedSessionId?: string;
   lastSelectedSessionIdByAssistant: Record<string, string | undefined>;
   sessionTempModelRefBySession: Record<string, string>;
+  sessionTempParamsBySession: Record<string, SessionTempParams>;
 }): void {
-  const { assistantId, selectedSessionId, lastSelectedSessionIdByAssistant, sessionTempModelRefBySession } = args;
+  const { assistantId, selectedSessionId, lastSelectedSessionIdByAssistant, sessionTempModelRefBySession, sessionTempParamsBySession } = args;
   if (!assistantId) {
     return;
   }
   const lastSelectedSessionId = lastSelectedSessionIdByAssistant[assistantId];
   if (lastSelectedSessionId && lastSelectedSessionId !== selectedSessionId) {
     delete sessionTempModelRefBySession[lastSelectedSessionId];
+    delete sessionTempParamsBySession[lastSelectedSessionId];
   }
   lastSelectedSessionIdByAssistant[assistantId] = selectedSessionId;
 }
@@ -51,14 +54,13 @@ export function resolveEffectiveProviderConfig(args: {
   assistant: AssistantProfile;
   sessionId?: string;
   sessionTempModelRefBySession: Record<string, string>;
+  sessionTempParamsBySession: Record<string, SessionTempParams>;
 }): ResolvedProviderConfig {
-  const { settings, assistant, sessionId, sessionTempModelRefBySession } = args;
+  const { settings, assistant, sessionId, sessionTempModelRefBySession, sessionTempParamsBySession } = args;
   const tempModelRef = sessionId ? sessionTempModelRefBySession[sessionId] : '';
+  const tempParams = sessionId ? sessionTempParamsBySession[sessionId] : undefined;
   const parsedTemp = parseModelRef(tempModelRef);
-  if (!parsedTemp) {
-    return resolveProviderConfig(settings, assistant);
-  }
-  return resolveModelBindingConfig(settings, parsedTemp, {
+  const baseFallback = {
     temperature: assistant.temperature,
     topP: assistant.topP,
     maxTokens: assistant.maxTokens,
@@ -66,7 +68,24 @@ export function resolveEffectiveProviderConfig(args: {
     presencePenalty: assistant.presencePenalty,
     frequencyPenalty: assistant.frequencyPenalty,
     timeoutMs: settings.timeoutMs
-  });
+  };
+  const resolved = parsedTemp
+    ? resolveModelBindingConfig(settings, parsedTemp, baseFallback)
+    : resolveProviderConfig(settings, assistant);
+  if (!tempParams) {
+    return resolved;
+  }
+  return {
+    config: {
+      ...resolved.config,
+      ...(tempParams.temperature !== undefined && { temperature: tempParams.temperature }),
+      ...(tempParams.topP !== undefined && { topP: tempParams.topP }),
+      ...(tempParams.maxTokens !== undefined && { maxTokens: tempParams.maxTokens }),
+      ...(tempParams.presencePenalty !== undefined && { presencePenalty: tempParams.presencePenalty }),
+      ...(tempParams.frequencyPenalty !== undefined && { frequencyPenalty: tempParams.frequencyPenalty }),
+    },
+    meta: resolved.meta,
+  };
 }
 
 export function buildChatStatePayload(args: {
@@ -85,6 +104,7 @@ export function buildChatStatePayload(args: {
   ) => ResolvedProviderConfig;
   modelOptions: ProviderModelOption[];
   sessionTempModelRefBySession: Record<string, string>;
+  sessionTempParamsBySession: Record<string, SessionTempParams>;
   streamingEnabled: boolean;
   error?: string;
 }): ChatStatePayload {
@@ -100,6 +120,7 @@ export function buildChatStatePayload(args: {
     resolveProviderConfigForAssistant,
     modelOptions,
     sessionTempModelRefBySession,
+    sessionTempParamsBySession,
     streamingEnabled,
     error
   } = args;
@@ -150,6 +171,7 @@ export function buildChatStatePayload(args: {
     modelLabel,
     modelOptions,
     sessionTempModelRef: selectedSessionId ? sessionTempModelRefBySession[selectedSessionId] ?? '' : '',
+    sessionTempParams: selectedSessionId ? sessionTempParamsBySession[selectedSessionId] ?? {} : {},
     sendShortcut: settings.sendShortcut,
     streaming: assistant?.streaming ?? streamingEnabled,
     isGenerating: false,
@@ -159,7 +181,8 @@ export function buildChatStatePayload(args: {
     pendingToolCallCount,
     toolRoundLimit: settings.mcp.maxToolRounds,
     readOnlyReason,
-    error
+    error,
+    templates: rawState.templates
   };
 }
 

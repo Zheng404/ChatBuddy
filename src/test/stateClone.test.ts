@@ -198,7 +198,8 @@ test('cloneMcpServer mutations do not affect original', () => {
 test('cloneMcpSettings deep copies server list', () => {
   const settings: McpSettings = {
     maxToolRounds: 8,
-    servers: [makeMcpServer()]
+    servers: [makeMcpServer()],
+    groups: []
   };
   const cloned = cloneMcpSettings(settings);
 

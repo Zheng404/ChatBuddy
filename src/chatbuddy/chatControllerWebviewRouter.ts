@@ -7,7 +7,7 @@
 import * as vscode from 'vscode';
 
 import { formatString, getStrings } from './i18n';
-import { AssistantProfile, ChatSessionSummary, RuntimeLocale, WebviewInboundMessage } from './types';
+import { AssistantProfile, AssistantTemplate, ChatSessionSummary, RuntimeLocale, SessionTempParams, WebviewInboundMessage } from './types';
 
 export type ChatControllerPanelMessageContext = {
   panel: vscode.WebviewPanel;
@@ -25,6 +25,10 @@ type RouterRepository = {
   setSessionPanelCollapsed: (collapsed: boolean) => void;
   resolveModelOption: (modelRef: string) => { ref: string } | undefined;
   setAssistantStreaming: (assistantId: string, enabled: boolean) => void;
+  saveAsTemplate: (assistantId: string, name: string, description?: string) => AssistantTemplate | undefined;
+  createAssistantFromTemplate: (templateId: string) => AssistantProfile | undefined;
+  deleteTemplate: (templateId: string) => boolean;
+  renameTemplate: (templateId: string, name: string) => boolean;
 };
 
 export type ChatControllerWebviewRouterArgs = {
@@ -39,6 +43,7 @@ export type ChatControllerWebviewRouterArgs = {
   createSessionForAssistant: (assistantId: string) => string | undefined;
   ensureSession: (assistantId: string) => void;
   sessionTempModelRefBySession: Record<string, string>;
+  sessionTempParamsBySession: Record<string, SessionTempParams>;
   setStreamingEnabled: (enabled: boolean) => void;
   regenerateReply: (context?: ChatControllerPanelMessageContext) => Promise<void>;
   regenerateFromMessage: (messageId: string, context?: ChatControllerPanelMessageContext) => Promise<void>;
@@ -77,6 +82,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
     createSessionForAssistant,
     ensureSession,
     sessionTempModelRefBySession,
+    sessionTempParamsBySession,
     setStreamingEnabled,
     regenerateReply,
     regenerateFromMessage,
@@ -132,6 +138,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       repository.selectSession(assistant.id, message.sessionId);
       if (previousSessionId && previousSessionId !== message.sessionId) {
         delete sessionTempModelRefBySession[previousSessionId];
+        delete sessionTempParamsBySession[previousSessionId];
       }
       postState();
       return;
@@ -165,6 +172,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       }
       repository.deleteSession(assistant.id, message.sessionId);
       delete sessionTempModelRefBySession[message.sessionId];
+      delete sessionTempParamsBySession[message.sessionId];
       ensureSession(assistant.id);
       postState();
       return;
@@ -190,6 +198,32 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
         return;
       }
       sessionTempModelRefBySession[session.id] = option.ref;
+      postState();
+      return;
+    }
+    case 'setSessionTempParams': {
+      const assistant = repository.getSelectedAssistant();
+      if (!assistant || assistant.isDeleted) {
+        return;
+      }
+      const session = repository.getSelectedSession(assistant.id);
+      if (!session) {
+        return;
+      }
+      sessionTempParamsBySession[session.id] = message.params;
+      postState();
+      return;
+    }
+    case 'clearSessionTempParams': {
+      const assistant = repository.getSelectedAssistant();
+      if (!assistant || assistant.isDeleted) {
+        return;
+      }
+      const session = repository.getSelectedSession(assistant.id);
+      if (!session) {
+        return;
+      }
+      delete sessionTempParamsBySession[session.id];
       postState();
       return;
     }
@@ -258,6 +292,28 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       stopGeneration('manual');
       postState(undefined, context);
       return;
+    case 'saveAsTemplate': {
+      repository.saveAsTemplate(message.assistantId, message.name, message.description);
+      postState(undefined, context);
+      return;
+    }
+    case 'createAssistantFromTemplate': {
+      const newAssistant = repository.createAssistantFromTemplate(message.templateId);
+      if (newAssistant) {
+        postState(undefined, context);
+      }
+      return;
+    }
+    case 'deleteTemplate': {
+      repository.deleteTemplate(message.templateId);
+      postState(undefined, context);
+      return;
+    }
+    case 'renameTemplate': {
+      repository.renameTemplate(message.templateId, message.name);
+      postState(undefined, context);
+      return;
+    }
     default:
       return;
   }

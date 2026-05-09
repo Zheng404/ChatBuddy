@@ -28,6 +28,14 @@ export const PROVIDER_LIMITS = {
   DEFAULT_CONTEXT_COUNT: 16,
   /** Fallback model ID for connection testing. */
   DEFAULT_TEST_MODEL: 'gpt-4o-mini',
+  /** Per-provider-kind fallback models for connection testing. */
+  DEFAULT_TEST_MODELS_BY_KIND: {
+    openai: 'gpt-4o-mini',
+    gemini: 'gemini-2.0-flash',
+    openrouter: 'openai/gpt-4o-mini',
+    ollama: 'llama3',
+    custom: 'gpt-4o-mini',
+  } as Record<string, string>,
   /** Maximum length of error response preview in characters. */
   ERROR_RESPONSE_TRUNCATE_LENGTH: 500,
 } as const;

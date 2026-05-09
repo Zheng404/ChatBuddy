@@ -66,7 +66,7 @@ function makeSettings(overrides: Partial<ChatBuddySettings> = {}): ChatBuddySett
       }
     ],
     defaultModels: {},
-    mcp: { servers: [], maxToolRounds: 5 },
+    mcp: { servers: [], groups: [], maxToolRounds: 5 },
     temperature: 0.7,
     topP: 1,
     maxTokens: 2048,
@@ -90,6 +90,7 @@ function makeRawState(overrides: Partial<PersistedStateLite> = {}): PersistedSta
     selectedSessionIdByAssistant: {},
     sessionPanelCollapsed: false,
     collapsedGroupIds: [],
+    templates: [],
     settings: makeSettings(),
     ...overrides
   };
@@ -105,7 +106,8 @@ describe('syncSessionScopedState', () => {
       assistantId: '',
       selectedSessionId: 's1',
       lastSelectedSessionIdByAssistant: lastSelected,
-      sessionTempModelRefBySession: tempModels
+      sessionTempModelRefBySession: tempModels,
+      sessionTempParamsBySession: {}
     });
     assert.deepEqual(lastSelected, {});
     assert.deepEqual(tempModels, { s1: 'p1:m2' });
@@ -117,7 +119,8 @@ describe('syncSessionScopedState', () => {
       assistantId: undefined,
       selectedSessionId: 's1',
       lastSelectedSessionIdByAssistant: lastSelected,
-      sessionTempModelRefBySession: {}
+      sessionTempModelRefBySession: {},
+      sessionTempParamsBySession: {}
     });
     assert.deepEqual(lastSelected, {});
   });
@@ -129,7 +132,8 @@ describe('syncSessionScopedState', () => {
       assistantId: 'a1',
       selectedSessionId: 's2',
       lastSelectedSessionIdByAssistant: lastSelected,
-      sessionTempModelRefBySession: tempModels
+      sessionTempModelRefBySession: tempModels,
+      sessionTempParamsBySession: {}
     });
     assert.equal(lastSelected.a1, 's2');
     assert.equal(tempModels.s1, undefined);
@@ -143,7 +147,8 @@ describe('syncSessionScopedState', () => {
       assistantId: 'a1',
       selectedSessionId: 's1',
       lastSelectedSessionIdByAssistant: lastSelected,
-      sessionTempModelRefBySession: tempModels
+      sessionTempModelRefBySession: tempModels,
+      sessionTempParamsBySession: {}
     });
     assert.equal(tempModels.s1, 'p1:m2');
   });
@@ -154,7 +159,8 @@ describe('syncSessionScopedState', () => {
       assistantId: 'a2',
       selectedSessionId: 's3',
       lastSelectedSessionIdByAssistant: lastSelected,
-      sessionTempModelRefBySession: {}
+      sessionTempModelRefBySession: {},
+      sessionTempParamsBySession: {}
     });
     assert.equal(lastSelected.a2, 's3');
   });
@@ -166,7 +172,8 @@ describe('syncSessionScopedState', () => {
       assistantId: 'a1',
       selectedSessionId: undefined,
       lastSelectedSessionIdByAssistant: lastSelected,
-      sessionTempModelRefBySession: tempModels
+      sessionTempModelRefBySession: tempModels,
+      sessionTempParamsBySession: {}
     });
     assert.equal(lastSelected.a1, undefined);
     assert.equal(tempModels.s1, undefined);
@@ -183,7 +190,8 @@ describe('resolveEffectiveProviderConfig', () => {
       settings,
       assistant,
       sessionId: 's1',
-      sessionTempModelRefBySession: {}
+      sessionTempModelRefBySession: {},
+      sessionTempParamsBySession: {}
     });
     assert.ok(result.config);
     assert.equal(result.config.providerName, 'Test Provider');
@@ -197,7 +205,8 @@ describe('resolveEffectiveProviderConfig', () => {
       settings,
       assistant,
       sessionId: 's1',
-      sessionTempModelRefBySession: { s1: 'p1:m2' }
+      sessionTempModelRefBySession: { s1: 'p1:m2' },
+      sessionTempParamsBySession: {}
     });
     assert.ok(result.config);
     assert.equal(result.config.modelLabel, 'm2 | Test Provider');
@@ -209,7 +218,8 @@ describe('resolveEffectiveProviderConfig', () => {
     const result = resolveEffectiveProviderConfig({
       settings,
       assistant,
-      sessionTempModelRefBySession: { s1: 'p1:m2' }
+      sessionTempModelRefBySession: { s1: 'p1:m2' },
+      sessionTempParamsBySession: {}
     });
     assert.ok(result.config);
     assert.equal(result.config.modelLabel, 'm1 | Test Provider');
@@ -222,7 +232,8 @@ describe('resolveEffectiveProviderConfig', () => {
       settings,
       assistant,
       sessionId: 's1',
-      sessionTempModelRefBySession: { s1: 'invalid' }
+      sessionTempModelRefBySession: { s1: 'invalid' },
+      sessionTempParamsBySession: {}
     });
     assert.ok(result.config);
     assert.equal(result.config.providerName, 'Test Provider');
@@ -278,6 +289,7 @@ describe('buildChatStatePayload', () => {
         { ref: 'p1:m2', providerId: 'p1', providerName: 'Test Provider', modelId: 'm2', label: 'Model Two' }
       ],
       sessionTempModelRefBySession: {},
+      sessionTempParamsBySession: {},
       streamingEnabled: false,
       error: undefined
     };
@@ -401,6 +413,7 @@ describe('withGenerationState', () => {
       modelLabel: '-',
       modelOptions: [],
       sessionTempModelRef: '',
+      sessionTempParams: {},
       sendShortcut: 'enter' as const,
       streaming: false,
       isGenerating: false,
@@ -408,7 +421,8 @@ describe('withGenerationState', () => {
       mcpServers: [],
       awaitingToolContinuation: false,
       pendingToolCallCount: 0,
-      toolRoundLimit: 5
+      toolRoundLimit: 5,
+      templates: []
     };
     const result = withGenerationState(payload, true);
     assert.equal(result.isGenerating, true);
@@ -427,6 +441,7 @@ describe('withGenerationState', () => {
       modelLabel: '-',
       modelOptions: [],
       sessionTempModelRef: '',
+      sessionTempParams: {},
       sendShortcut: 'enter' as const,
       streaming: false,
       isGenerating: true,
@@ -434,7 +449,8 @@ describe('withGenerationState', () => {
       mcpServers: [],
       awaitingToolContinuation: false,
       pendingToolCallCount: 0,
-      toolRoundLimit: 5
+      toolRoundLimit: 5,
+      templates: []
     };
     const result = withGenerationState(payload, false);
     assert.equal(result.isGenerating, false);
@@ -455,6 +471,7 @@ describe('withGenerationState', () => {
       modelLabel: 'Model',
       modelOptions: [{ ref: 'p1:m1', providerId: 'p1', providerName: 'Test', modelId: 'm1', label: 'M1' }],
       sessionTempModelRef: 'p1:m2',
+      sessionTempParams: {},
       sendShortcut: 'ctrlEnter' as const,
       streaming: true,
       isGenerating: false,
@@ -463,7 +480,8 @@ describe('withGenerationState', () => {
       awaitingToolContinuation: true,
       pendingToolCallCount: 3,
       toolRoundLimit: 10,
-      readOnlyReason: 'test'
+      readOnlyReason: 'test',
+      templates: []
     };
     const result = withGenerationState(payload, true);
     assert.equal(result.isGenerating, true);

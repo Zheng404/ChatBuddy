@@ -156,6 +156,103 @@ export function getAssistantEditorStyles(): string {
         color: var(--muted);
       }
 
+      .failover-help {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 8px;
+        line-height: 1.5;
+      }
+
+      .failover-check-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px;
+      }
+
+      .failover-check-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 0;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .failover-check-item input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .failover-check-item span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .collapsible-section {
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .collapsible-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 16px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+      }
+
+      .collapsible-header .section-title {
+        margin: 0;
+      }
+
+      .collapsible-icon {
+        font-size: 14px;
+        color: var(--muted);
+        transition: transform 0.15s ease;
+      }
+
+      .collapsible-header.collapsed .collapsible-icon {
+        transform: rotate(-90deg);
+      }
+
+      .collapsible-body {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.25s ease;
+      }
+
+      .collapsible-body.open {
+        max-height: 800px;
+      }
+
+      .collapsible-body .field-grid {
+        padding: 0 16px 16px;
+      }
+
+      .sub-section-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 8px;
+      }
+
 ${SHARED_TOAST_STYLE}
 
       @media (max-width: 760px) {

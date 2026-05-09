@@ -142,7 +142,7 @@ export async function activate(context: vscode.ExtensionContext) {
     updateTreeMessage();
   };
 
-  const { handleResetData, handleExportData, handleImportData, handleImportLegacyData } = createDataActionHandlers({
+  const { handleResetData, handleExportData, handleImportData, handleImportLegacyData, handleSelectiveExportData } = createDataActionHandlers({
     repository,
     chatController,
     getAssistantsTreeProvider: () => assistantsTreeProvider,
@@ -164,6 +164,10 @@ export async function activate(context: vscode.ExtensionContext) {
     handleExportData,
     handleImportData,
     handleImportLegacyData,
+    handleSelectiveExportData,
+    getBackupPassword: async () => context.secrets.get('chatbuddy.backupPassword'),
+    setBackupPassword: async (password: string) => context.secrets.store('chatbuddy.backupPassword', password),
+    clearBackupPassword: async () => context.secrets.delete('chatbuddy.backupPassword'),
     refreshAll,
     updateTreeMessage,
     getRuntimeStrings

@@ -16,7 +16,7 @@ import type {
   McpServerProfile,
   McpServerSummary
 } from './types';
-import { toErrorMessage } from './utils';
+import { toErrorMessage, warn } from './utils';
 import type {
   McpClient,
   McpPrompt,
@@ -74,8 +74,8 @@ export class McpRuntime {
             uri: typeof r.uri === 'string' ? r.uri.trim() : '',
             description: typeof r.description === 'string' ? r.description.trim() : undefined
           }));
-      } catch {
-        // Server may not support resources.
+      } catch (resourceError) {
+        warn('[MCP] Failed to list resources during probe:', resourceError);
       }
 
       let prompts: import('./mcpTypes').McpProbeResult['prompts'] = [];
@@ -90,8 +90,8 @@ export class McpRuntime {
             name: p.name!.trim(),
             description: typeof p.description === 'string' ? p.description.trim() : undefined
           }));
-      } catch {
-        // Server may not support prompts.
+      } catch (promptError) {
+        warn('[MCP] Failed to list prompts during probe:', promptError);
       }
 
       return {
@@ -118,8 +118,8 @@ export class McpRuntime {
         try {
           await connection.transport.close();
           await connection.client.close();
-        } catch {
-          // Ignore cleanup errors.
+        } catch (cleanupError) {
+          warn('[MCP] Cleanup error during probe:', cleanupError);
         }
       }
     }
@@ -147,8 +147,8 @@ export class McpRuntime {
           const connection = await entry.promise;
           await connection.transport.close();
           await connection.client.close();
-        } catch {
-          // Ignore shutdown failures.
+        } catch (shutdownError) {
+          warn('[MCP] Shutdown error during dispose:', shutdownError);
         }
       })
     );
@@ -179,8 +179,8 @@ export class McpRuntime {
           const connection = await entry.promise;
           await connection.transport.close();
           await connection.client.close();
-        } catch {
-          // Ignore shutdown failures.
+        } catch (shutdownError) {
+          warn('[MCP] Shutdown error during prune:', shutdownError);
         }
       }
     }
@@ -392,6 +392,11 @@ export class McpRuntime {
       this.connections.delete(server.id);
       this.closeConnectionGracefully(existing.promise);
     }
+    // Dedup: reuse any pending creation that was started by a concurrent call
+    const current = this.connections.get(server.id);
+    if (current) {
+      return current.promise;
+    }
     const pending = this.createConnection(server);
     this.connections.set(server.id, { promise: pending, createdAt: Date.now() });
     try {
@@ -408,8 +413,8 @@ export class McpRuntime {
         try {
           await connection.transport.close();
           await connection.client.close();
-        } catch {
-          // Ignore shutdown failures.
+        } catch (shutdownError) {
+          warn('[MCP] Graceful close error:', shutdownError);
         }
       },
       () => {
@@ -464,8 +469,9 @@ export class McpRuntime {
       const transport = new StreamableHTTPClientTransport(url, { requestInit });
       await serverClient.connect(transport);
       return transport;
-    } catch {
+    } catch (streamableError) {
       // Streamable HTTP failed; fall back to SSE transport.
+      warn('[MCP] StreamableHTTP failed, falling back to SSE:', streamableError);
       const transport = new SSEClientTransport(url, { requestInit });
       await serverClient.connect(transport);
       return transport;

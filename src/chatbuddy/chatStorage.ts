@@ -207,7 +207,7 @@ export class ChatStorage {
     return removed;
   }
 
-  public clearSessionsForAssistants(assistantIds: string[], persist = true): void {
+  public async clearSessionsForAssistants(assistantIds: string[], persist = true): Promise<void> {
     const paths = this.paths;
     const sessionIds: string[] = [];
     if (paths) {
@@ -221,7 +221,7 @@ export class ChatStorage {
     this.sessionStore.clearSessionsForAssistants(assistantIds);
     if (paths) {
       for (const sessionId of sessionIds) {
-        void this.sessionStore.cleanupImagesForSession(sessionId, paths);
+        await this.sessionStore.cleanupImagesForSession(sessionId, paths);
       }
     }
     if (persist) {
@@ -233,6 +233,22 @@ export class ChatStorage {
     this.sessionStore.replaceAllSessions(sessions);
     if (persist) {
       this.schedulePersist();
+    }
+  }
+
+  public async cleanupAllImages(): Promise<void> {
+    const paths = this.paths;
+    if (!paths) {
+      return;
+    }
+    try {
+      const imagesDir = paths.imagesPath;
+      const entries = await fs.promises.readdir(imagesDir).catch(() => [] as string[]);
+      for (const entry of entries) {
+        await fs.promises.unlink(path.join(imagesDir, entry)).catch(() => {});
+      }
+    } catch {
+      // Ignore cleanup errors during reset.
     }
   }
 
