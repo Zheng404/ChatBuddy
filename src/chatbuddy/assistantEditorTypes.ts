@@ -23,6 +23,11 @@ export type AssistantEditorMessage =
   | {
       type: 'save';
       payload: AssistantEditorPayload;
+    }
+  | {
+      type: 'saveAsTemplate';
+      name: string;
+      description?: string;
     };
 
 export type AssistantEditorPayload = {

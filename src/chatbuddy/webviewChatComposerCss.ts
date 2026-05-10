@@ -273,16 +273,13 @@ export function getWebviewChatComposerCss(): string {
 
       .temp-params-popup {
         display: none;
-        position: absolute;
-        bottom: 100%;
-        left: 0;
-        margin-bottom: 6px;
+        position: fixed;
         background: var(--bg);
         border: 1px solid var(--border);
         border-radius: 6px;
         padding: 10px 12px;
-        min-width: 220px;
-        z-index: 50;
+        min-width: 240px;
+        z-index: 9999;
         box-shadow: 0 4px 16px rgba(0,0,0,0.25);
       }
       .temp-params-popup.visible {

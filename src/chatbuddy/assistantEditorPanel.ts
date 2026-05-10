@@ -107,6 +107,15 @@ export class AssistantEditorPanelController {
           }
           this.onSave(this.editingAssistantId, patch);
           this.postState(this.getStrings().assistantSaved);
+          return;
+        }
+        if (message.type === 'saveAsTemplate') {
+          const current = this.getCurrentAssistant();
+          if (!current) {
+            return;
+          }
+          this.repository.saveAsTemplate(current.id, message.name, message.description);
+          this.postState(this.getStrings().templateSaved || 'Template saved');
         }
       });
       this.panel.onDidDispose(() => {

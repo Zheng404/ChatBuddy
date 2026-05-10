@@ -113,9 +113,29 @@ export function getChatEventScript(): string {
         return p;
       }
 
+      function positionTempParamsPopup() {
+        try {
+          var btnRect = dom.tempParamsBtn.getBoundingClientRect();
+          var popupWidth = dom.tempParamsPopup.offsetWidth || 240;
+          var popupHeight = dom.tempParamsPopup.offsetHeight || 200;
+          var viewportW = window.innerWidth;
+          var left = Math.min(Math.max(8, btnRect.left), viewportW - popupWidth - 8);
+          var top = btnRect.top - popupHeight - 6;
+          if (top < 8) { top = btnRect.bottom + 6; }
+          dom.tempParamsPopup.style.left = left + 'px';
+          dom.tempParamsPopup.style.top = top + 'px';
+        } catch (err) {}
+      }
+
       dom.tempParamsBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        var willShow = !dom.tempParamsPopup.classList.contains('visible');
         dom.tempParamsPopup.classList.toggle('visible');
+        if (willShow) { positionTempParamsPopup(); }
+      });
+
+      window.addEventListener('resize', () => {
+        if (dom.tempParamsPopup.classList.contains('visible')) { positionTempParamsPopup(); }
       });
 
       dom.tempParamsResetBtn.addEventListener('click', () => {
@@ -157,16 +177,6 @@ export function getChatEventScript(): string {
             return;
           }
           vscode.postMessage({ type: 'selectImages' });
-        });
-      }
-
-      if (dom.saveAsTemplateBtn) {
-        dom.saveAsTemplateBtn.addEventListener('click', () => {
-          if (!state.selectedAssistantId) {
-            return;
-          }
-          const name = state.selectedAssistant?.name || state.selectedAssistantId;
-          vscode.postMessage({ type: 'saveAsTemplate', assistantId: state.selectedAssistantId, name });
         });
       }
 

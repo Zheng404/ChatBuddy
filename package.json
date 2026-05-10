@@ -93,6 +93,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "chatbuddy.createAssistantFromTemplate",
+        "title": "%chatbuddy.command.createAssistantFromTemplate%",
+        "icon": "$(file-symlink-file)"
+      },
+      {
         "command": "chatbuddy.createGroup",
         "title": "%chatbuddy.command.createGroup%",
         "icon": "$(new-folder)"

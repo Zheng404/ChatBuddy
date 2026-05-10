@@ -253,6 +253,29 @@ export function getAssistantEditorStyles(): string {
         margin-top: 8px;
       }
 
+      .hero-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+      }
+
+      .raw-modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:1000 }
+      .raw-modal-overlay.visible { display:flex }
+      .raw-modal { width:min(520px,90%);max-height:none;border:1px solid var(--border);border-radius:12px;background:var(--bg);display:flex;flex-direction:column;overflow:hidden }
+      .raw-modal-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border) }
+      .raw-modal-title { font-weight:600; font-size:14px }
+      .raw-modal-close { display:flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--muted); cursor:pointer; width:28px; height:28px; border-radius:4px }
+      .raw-modal-close:hover { background:var(--hover-bg) }
+      .raw-modal-body { padding:16px; overflow-y:auto; flex:1; min-height:0 }
+      .confirm-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px }
+      .save-template-field { display:flex; flex-direction:column; gap:4px; margin-bottom:12px }
+      .save-template-field label { font-size:12px; color:var(--muted); font-weight:500 }
+      .save-template-field input, .save-template-field textarea { padding:6px 8px; border:1px solid var(--border); border-radius:4px; background:var(--input-bg); color:var(--fg); font-family:inherit; font-size:13px; resize:vertical }
+      .save-template-preview { margin-bottom:8px }
+      .save-template-preview > div { font-size:12px; color:var(--muted); margin-bottom:4px }
+      .save-template-preview pre { margin:0; padding:8px 10px; border:1px solid var(--border); border-radius:4px; background:var(--input-bg); color:var(--muted); font-size:12px; max-height:160px; overflow:auto; white-space:pre-wrap; word-break:break-word }
+
 ${SHARED_TOAST_STYLE}
 
       @media (max-width: 760px) {

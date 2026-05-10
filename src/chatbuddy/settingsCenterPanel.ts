@@ -293,7 +293,8 @@ export class SettingsCenterPanelController {
         changelogMarkdown: this.loadChangelogPreview(),
         notice,
         noticeTone: notice ? noticeTone : undefined,
-        backupFiles: []
+        backupFiles: [],
+        templates: this.repository.getTemplates()
       }
     });
   }

@@ -21,8 +21,70 @@ export function registerAssistantTreeCommands(ctx: ExtensionContext): vscode.Dis
   const strings = getRuntimeStrings;
 
   return [
-    vscode.commands.registerCommand('chatbuddy.createAssistant', () => {
-      assistantEditorPanelController.openCreateAssistantEditor();
+    vscode.commands.registerCommand('chatbuddy.createAssistant', async () => {
+      const choice = await vscode.window.showQuickPick(
+        [
+          { label: strings().createAssistantChoiceFromTemplate, value: 'template' },
+          { label: strings().createAssistantChoiceNew, value: 'new' }
+        ],
+        {
+          title: strings().createAssistantChoiceTitle,
+          ignoreFocusOut: true
+        }
+      );
+      if (!choice) { return; }
+      if (choice.value === 'new') {
+        assistantEditorPanelController.openCreateAssistantEditor();
+        return;
+      }
+      const templates = repository.getTemplates();
+      if (!templates.length) {
+        void vscode.window.showInformationMessage(strings().noTemplatesAvailable);
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        templates.map((t) => ({
+          label: t.name,
+          description: t.description || '',
+          templateId: t.id
+        })),
+        {
+          placeHolder: strings().templatePickerPlaceholder,
+          ignoreFocusOut: true
+        }
+      );
+      if (!picked) { return; }
+      const created = repository.createAssistantFromTemplate(picked.templateId);
+      if (!created) { return; }
+      refreshAll();
+      updateTreeMessage();
+      assistantEditorPanelController.openAssistantEditor(created.id);
+      void vscode.window.showInformationMessage(formatString(strings().templateCreatedAssistant, { name: created.name }));
+    }),
+    vscode.commands.registerCommand('chatbuddy.createAssistantFromTemplate', async () => {
+      const templates = repository.getTemplates();
+      if (!templates.length) {
+        void vscode.window.showInformationMessage(strings().noTemplatesAvailable);
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        templates.map((t) => ({
+          label: t.name,
+          description: t.description || '',
+          templateId: t.id
+        })),
+        {
+          placeHolder: strings().templatePickerPlaceholder,
+          ignoreFocusOut: true
+        }
+      );
+      if (!picked) { return; }
+      const created = repository.createAssistantFromTemplate(picked.templateId);
+      if (!created) { return; }
+      refreshAll();
+      updateTreeMessage();
+      assistantEditorPanelController.openAssistantEditor(created.id);
+      void vscode.window.showInformationMessage(formatString(strings().templateCreatedAssistant, { name: created.name }));
     }),
     vscode.commands.registerCommand('chatbuddy.createGroup', async () => {
       const name = await vscode.window.showInputBox({

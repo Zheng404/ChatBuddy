@@ -378,9 +378,10 @@ export function getSettingsCenterBaseCss(): string {
 
       .selective-export-checks {
         display: flex;
-        flex-wrap: wrap;
-        gap: 12px 18px;
+        flex-wrap: nowrap;
+        gap: 8px 16px;
         margin: 8px 0 12px 0;
+        overflow-x: auto;
       }
 
       .selective-export-check {
@@ -389,6 +390,8 @@ export function getSettingsCenterBaseCss(): string {
         gap: 6px;
         cursor: pointer;
         font-size: 13px;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
 
       .selective-export-check input[type="checkbox"] {

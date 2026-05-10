@@ -50,6 +50,36 @@ export function getDataManagementJs(): string {
       dom.dataTabLocal.addEventListener('click', () => {
         switchDataTab('local');
       });
+      if (dom.dataTabTemplates) {
+        dom.dataTabTemplates.addEventListener('click', () => {
+          switchDataTab('templates');
+        });
+      }
+      if (dom.templatesListContainer) {
+        dom.templatesListContainer.addEventListener('click', (event) => {
+          var target = event.target;
+          if (!(target instanceof HTMLElement)) { return; }
+          var actionEl = target.closest('[data-template-action]');
+          if (!actionEl) { return; }
+          var action = actionEl.getAttribute('data-template-action');
+          var templateId = actionEl.getAttribute('data-template-id');
+          if (!templateId) { return; }
+          var strings = runtimeState.strings || {};
+          var template = (runtimeState.templates || []).find(function(t) { return t && t.id === templateId; });
+          if (!template) { return; }
+          if (action === 'rename') {
+            var newName = window.prompt(strings.templateRenamePrompt || 'Enter new template name', template.name || '');
+            if (newName && newName.trim() && newName.trim() !== template.name) {
+              vscode.postMessage({ type: 'renameTemplate', templateId: templateId, name: newName.trim() });
+            }
+          } else if (action === 'delete') {
+            var confirmMsg = (strings.templateDeleteConfirm || 'Delete template "{name}"?').replace('{name}', template.name || '');
+            if (window.confirm(confirmMsg)) {
+              vscode.postMessage({ type: 'deleteTemplate', templateId: templateId });
+            }
+          }
+        });
+      }
 
       // Local backup controls
       var backupAutoSaveTimer = undefined;

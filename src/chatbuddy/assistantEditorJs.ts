@@ -13,7 +13,10 @@ export function getAssistantEditorHtmlBody(): string {
           <h1 class="hero-title" id="title"></h1>
           <div class="hero-copy" id="description"></div>
         </div>
-        <button class="btn-primary" id="saveBtn" type="button"></button>
+        <div class="hero-actions">
+          <button class="btn-primary" id="saveBtn" type="button"></button>
+          <button class="btn-secondary" id="saveAsTemplateBtn" type="button"></button>
+        </div>
       </div>
 
       <div class="grid">
@@ -196,6 +199,32 @@ export function getAssistantEditorHtmlBody(): string {
       </div>
 
     </div>
+    <div class="raw-modal-overlay" id="saveAsTemplateOverlay">
+      <div class="raw-modal" style="width:min(520px,90%);max-height:none;">
+        <div class="raw-modal-header">
+          <span class="raw-modal-title" id="saveAsTemplateTitle"></span>
+          <button class="raw-modal-close" id="saveAsTemplateClose" type="button"><span class="codicon codicon-close"></span></button>
+        </div>
+        <div class="raw-modal-body">
+          <div class="save-template-field">
+            <label for="saveAsTemplateName" id="saveAsTemplateNameLabel"></label>
+            <input type="text" id="saveAsTemplateName" />
+          </div>
+          <div class="save-template-field">
+            <label for="saveAsTemplateDescription" id="saveAsTemplateDescriptionLabel"></label>
+            <textarea id="saveAsTemplateDescription" rows="2"></textarea>
+          </div>
+          <div class="save-template-preview">
+            <div id="saveAsTemplatePreviewLabel"></div>
+            <pre id="saveAsTemplatePreview"></pre>
+          </div>
+          <div class="confirm-actions">
+            <button class="btn-secondary" id="saveAsTemplateCancelBtn" type="button"></button>
+            <button class="btn-primary" id="saveAsTemplateConfirmBtn" type="button"></button>
+          </div>
+        </div>
+      </div>
+    </div>
 ${TOAST_CONTAINER_HTML}`;
 }
 
@@ -272,7 +301,19 @@ export function getAssistantEditorJs(): string {
         seed: document.getElementById('seed'),
         responseFormat: document.getElementById('responseFormat'),
         toolChoice: document.getElementById('toolChoice'),
-        geminiSafetyLevel: document.getElementById('geminiSafetyLevel')
+        geminiSafetyLevel: document.getElementById('geminiSafetyLevel'),
+        saveAsTemplateBtn: document.getElementById('saveAsTemplateBtn'),
+        saveAsTemplateOverlay: document.getElementById('saveAsTemplateOverlay'),
+        saveAsTemplateTitle: document.getElementById('saveAsTemplateTitle'),
+        saveAsTemplateClose: document.getElementById('saveAsTemplateClose'),
+        saveAsTemplateName: document.getElementById('saveAsTemplateName'),
+        saveAsTemplateNameLabel: document.getElementById('saveAsTemplateNameLabel'),
+        saveAsTemplateDescription: document.getElementById('saveAsTemplateDescription'),
+        saveAsTemplateDescriptionLabel: document.getElementById('saveAsTemplateDescriptionLabel'),
+        saveAsTemplatePreviewLabel: document.getElementById('saveAsTemplatePreviewLabel'),
+        saveAsTemplatePreview: document.getElementById('saveAsTemplatePreview'),
+        saveAsTemplateCancelBtn: document.getElementById('saveAsTemplateCancelBtn'),
+        saveAsTemplateConfirmBtn: document.getElementById('saveAsTemplateConfirmBtn')
       };
 
       let state = null;
@@ -325,6 +366,16 @@ ${getHtmlEscaperScript()}
         dom.avatarSelectBtn.title = strings.assistantAvatarSelectAction;
         dom.groupId.title = strings.assistantGroupLabel;
         dom.modelRef.title = strings.assistantModelLabel;
+        if (dom.saveAsTemplateBtn) {
+          dom.saveAsTemplateBtn.textContent = strings.saveAsTemplate || 'Save as Template';
+          dom.saveAsTemplateBtn.title = strings.saveAsTemplate || 'Save as Template';
+        }
+        if (dom.saveAsTemplateTitle) { dom.saveAsTemplateTitle.textContent = strings.saveAsTemplateModalTitle || 'Save as Template'; }
+        if (dom.saveAsTemplateNameLabel) { dom.saveAsTemplateNameLabel.textContent = strings.templateName || 'Template Name'; }
+        if (dom.saveAsTemplateDescriptionLabel) { dom.saveAsTemplateDescriptionLabel.textContent = strings.templateDescription || 'Description (optional)'; }
+        if (dom.saveAsTemplatePreviewLabel) { dom.saveAsTemplatePreviewLabel.textContent = strings.saveAsTemplatePreviewLabel || ''; }
+        if (dom.saveAsTemplateCancelBtn) { dom.saveAsTemplateCancelBtn.textContent = strings.saveAsTemplateCancel || 'Cancel'; }
+        if (dom.saveAsTemplateConfirmBtn) { dom.saveAsTemplateConfirmBtn.textContent = strings.saveAsTemplateConfirm || 'Save'; }
       }
 
       function renderOptions() {
@@ -529,6 +580,55 @@ ${getHtmlEscaperScript()}
           payload: collectPayload()
         });
       });
+
+      if (dom.saveAsTemplateBtn) {
+        dom.saveAsTemplateBtn.addEventListener('click', () => {
+          var assistant = state.assistant || {};
+          dom.saveAsTemplateName.value = assistant.name || '';
+          dom.saveAsTemplateDescription.value = '';
+          var lines = [];
+          if (assistant.systemPrompt) {
+            var sp = String(assistant.systemPrompt);
+            lines.push('System Prompt: ' + (sp.length > 100 ? sp.slice(0, 100) + '...' : sp));
+          }
+          if (assistant.modelRef) { lines.push('Model: ' + assistant.modelRef); }
+          if (assistant.temperature !== undefined) { lines.push('Temperature: ' + assistant.temperature); }
+          if (assistant.topP !== undefined) { lines.push('Top P: ' + assistant.topP); }
+          if (assistant.maxTokens !== undefined) { lines.push('Max Tokens: ' + assistant.maxTokens); }
+          if (assistant.contextCount !== undefined) { lines.push('Context Count: ' + assistant.contextCount); }
+          if (assistant.streaming !== undefined) { lines.push('Streaming: ' + assistant.streaming); }
+          if (Array.isArray(assistant.enabledMcpServerIds) && assistant.enabledMcpServerIds.length) {
+            lines.push('MCP Servers: ' + assistant.enabledMcpServerIds.length);
+          }
+          dom.saveAsTemplatePreview.textContent = lines.join('\\n');
+          dom.saveAsTemplateOverlay.classList.add('visible');
+          setTimeout(function() { dom.saveAsTemplateName.focus(); dom.saveAsTemplateName.select(); }, 30);
+        });
+      }
+      function closeSaveAsTemplateModal() {
+        if (dom.saveAsTemplateOverlay) { dom.saveAsTemplateOverlay.classList.remove('visible'); }
+      }
+      if (dom.saveAsTemplateClose) { dom.saveAsTemplateClose.addEventListener('click', closeSaveAsTemplateModal); }
+      if (dom.saveAsTemplateCancelBtn) { dom.saveAsTemplateCancelBtn.addEventListener('click', closeSaveAsTemplateModal); }
+      if (dom.saveAsTemplateOverlay) {
+        dom.saveAsTemplateOverlay.addEventListener('click', function(e) {
+          if (e.target === dom.saveAsTemplateOverlay) { closeSaveAsTemplateModal(); }
+        });
+      }
+      if (dom.saveAsTemplateConfirmBtn) {
+        dom.saveAsTemplateConfirmBtn.addEventListener('click', function() {
+          var name = (dom.saveAsTemplateName.value || '').trim();
+          if (!name) {
+            dom.saveAsTemplateName.focus();
+            return;
+          }
+          var description = (dom.saveAsTemplateDescription.value || '').trim();
+          var payload = { type: 'saveAsTemplate', name: name };
+          if (description) { payload.description = description; }
+          vscode.postMessage(payload);
+          closeSaveAsTemplateModal();
+        });
+      }
 
       dom.advancedToggle.addEventListener('click', () => {
         const isOpen = dom.advancedBody.classList.toggle('open');

@@ -34,9 +34,11 @@ export function getChatBodyHtml(): string {
                 <button class="action-btn-icon" id="searchBtn" type="button" title="Search (Ctrl+F)"><span class="codicon codicon-search"></span></button>
                 <button class="action-btn-icon" id="attachFileBtn" type="button" title="Attach file"><span class="codicon codicon-file-add"></span></button>
                 <button class="action-btn-icon" id="attachImageBtn" type="button" title="Attach image"><span class="codicon codicon-device-camera"></span></button>
-                <button class="action-btn-icon" id="saveAsTemplateBtn" type="button" title=""><span class="codicon codicon-save-as"></span></button>
+                <button class="action-btn-icon temp-params-toggle" id="tempParamsBtn" type="button"><span class="codicon codicon-settings-gear"></span></button>
+                <span class="chip temp-chip" id="tempParamsChip"></span>
               </div>
               <div class="composer-toolbar-right">
+                <span class="chip mcp-health-chip" id="mcpHealthChip" title=""></span>
                 <label class="toggle">
                   <input type="checkbox" id="streamingToggle" />
                   <span id="streamingLabel"></span>
@@ -50,9 +52,7 @@ export function getChatBodyHtml(): string {
               <div class="composer-inline-controls">
                 <select id="tempModelSelect" class="model-select"></select>
                 <span class="chip temp-chip" id="tempModelChip"></span>
-                <button class="action-btn-icon temp-params-toggle" id="tempParamsBtn" type="button"><span class="codicon codicon-settings-gear"></span></button>
                 <span class="chip temp-chip" id="tempParamsChip"></span>
-                <span class="chip mcp-health-chip" id="mcpHealthChip" title=""></span>
                 <div class="temp-params-popup" id="tempParamsPopup">
                   <div class="temp-params-popup-header">
                     <span id="tempParamsTitle"></span>

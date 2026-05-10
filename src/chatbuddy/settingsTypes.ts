@@ -74,6 +74,8 @@ export type SettingsCenterMessage =
   | { type: 'importData' }
   | { type: 'importLegacyData' }
   | { type: 'selectiveExport'; payload: { categories: string[] } }
+  | { type: 'deleteTemplate'; templateId: string }
+  | { type: 'renameTemplate'; templateId: string; name: string }
   | { type: 'saveMcpServers'; payload: McpServerProfile[] | { servers: McpServerProfile[]; groups?: import('./types').McpServerGroup[]; maxToolRounds?: number } }
   | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
   | { type: 'probeMcpServers' }
@@ -124,6 +126,7 @@ export type SettingsCenterState = {
   notice?: string;
   noticeTone?: 'success' | 'error' | 'info';
   backupFiles: import('./types').BackupFileEntry[];
+  templates?: import('./types').AssistantTemplate[];
 };
 
 export type SettingsCenterOutbound =

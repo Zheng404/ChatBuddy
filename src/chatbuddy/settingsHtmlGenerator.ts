@@ -244,6 +244,7 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                 <div class="editor-tabs" id="dataTabs">
                   <button class="editor-tab active" id="dataTabTransfer" data-tab="transfer"></button>
                   <button class="editor-tab" id="dataTabLocal" data-tab="local"></button>
+                  <button class="editor-tab" id="dataTabTemplates" data-tab="templates"></button>
                 </div>
 
                 <div class="editor-pane active" data-tab="transfer">
@@ -321,6 +322,14 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                   <section class="section-card">
                     <h2 class="section-title" id="backupHistoryTitle"></h2>
                     <div id="backupListContainer"></div>
+                  </section>
+                </div>
+
+                <div class="editor-pane" data-tab="templates">
+                  <section class="section-card">
+                    <h2 class="section-title" id="templatesSectionTitle"></h2>
+                    <p class="help" id="templatesSectionDescription"></p>
+                    <div id="templatesListContainer"></div>
                   </section>
                 </div>
               </div>

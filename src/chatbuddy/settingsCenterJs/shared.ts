@@ -42,6 +42,10 @@ export function getSharedJs(): string {
         resetBtn: document.getElementById('resetBtn'),
         dataTabTransfer: document.getElementById('dataTabTransfer'),
         dataTabLocal: document.getElementById('dataTabLocal'),
+        dataTabTemplates: document.getElementById('dataTabTemplates'),
+        templatesSectionTitle: document.getElementById('templatesSectionTitle'),
+        templatesSectionDescription: document.getElementById('templatesSectionDescription'),
+        templatesListContainer: document.getElementById('templatesListContainer'),
         backupDirLabel: document.getElementById('backupDirLabel'),
         backupDirInput: document.getElementById('backupDirInput'),
         browseBackupDirBtn: document.getElementById('browseBackupDirBtn'),
@@ -221,7 +225,8 @@ export function getSharedJs(): string {
         noticeTone: 'info',
         backupFiles: [],
         mcpLastProbeAt: 0,
-        hasBackupPassword: false
+        hasBackupPassword: false,
+        templates: []
       };
       let activeSection = 'general';
       let activeDataTab = 'transfer';

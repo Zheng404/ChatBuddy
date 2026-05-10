@@ -14,6 +14,7 @@
   "chatbuddy.command.openAbout": "About",
   "chatbuddy.command.openAssistantChat": "Open Chat",
   "chatbuddy.command.createAssistant": "New Assistant",
+  "chatbuddy.command.createAssistantFromTemplate": "New Assistant from Template",
   "chatbuddy.command.createGroup": "New Group",
   "chatbuddy.command.searchAssistants": "Search Assistants",
   "chatbuddy.command.clearAssistantSearch": "Clear Search",

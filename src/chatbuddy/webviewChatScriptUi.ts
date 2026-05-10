@@ -570,12 +570,6 @@ export function getChatUiScript(): string {
         dom.tempParamsPresence.placeholder = assistant.presencePenalty !== undefined ? String(assistant.presencePenalty) : '';
         dom.tempParamsFrequency.placeholder = assistant.frequencyPenalty !== undefined ? String(assistant.frequencyPenalty) : '';
         dom.tempParamsBtn.disabled = !state.canChat || isBusy;
-        // Save as Template
-        if (dom.saveAsTemplateBtn) {
-          dom.saveAsTemplateBtn.title = state.strings.saveAsTemplate || 'Save as Template';
-          dom.saveAsTemplateBtn.disabled = !state.selectedAssistantId;
-          dom.saveAsTemplateBtn.style.display = state.selectedAssistantId ? '' : 'none';
-        }
         const activeLabel = modelMap.get(activeModelRef) || assistantModelLabel;
         dom.tempModelSelect.title = state.strings.model + ': ' + activeLabel;
         dom.streamingToggle.checked = !!state.streaming;

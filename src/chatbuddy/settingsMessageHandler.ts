@@ -443,6 +443,20 @@ export async function handleSettingsMessage(
     return;
   }
 
+  if (message.type === 'deleteTemplate') {
+    deps.repository.deleteTemplate(message.templateId);
+    deps.postState();
+    return;
+  }
+
+  if (message.type === 'renameTemplate') {
+    if (message.name?.trim()) {
+      deps.repository.renameTemplate(message.templateId, message.name.trim());
+    }
+    deps.postState();
+    return;
+  }
+
   if (message.type === 'browseBackupDir') {
     const result = await vscode.window.showOpenDialog({
       canSelectFiles: false,

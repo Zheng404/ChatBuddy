@@ -14,6 +14,7 @@
   "chatbuddy.command.openAbout": "关于",
   "chatbuddy.command.openAssistantChat": "打开聊天",
   "chatbuddy.command.createAssistant": "新建助手",
+  "chatbuddy.command.createAssistantFromTemplate": "从模板新建助手",
   "chatbuddy.command.createGroup": "新建分组",
   "chatbuddy.command.searchAssistants": "搜索助手",
   "chatbuddy.command.clearAssistantSearch": "清除搜索",

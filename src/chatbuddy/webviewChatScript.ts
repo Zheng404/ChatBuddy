@@ -45,7 +45,6 @@ export function getChatScript(args: { nonce: string }): string {
         clearBtn: document.getElementById('clearBtn'),
         attachFileBtn: document.getElementById('attachFileBtn'),
         attachImageBtn: document.getElementById('attachImageBtn'),
-        saveAsTemplateBtn: document.getElementById('saveAsTemplateBtn'),
         tempModelSelect: document.getElementById('tempModelSelect'),
         tempModelChip: document.getElementById('tempModelChip'),
         tempParamsBtn: document.getElementById('tempParamsBtn'),
