@@ -35,6 +35,7 @@ export function getStateSyncJs(): string {
         renderDataTabVisibility();
         renderLocalBackupSettings();
         renderManualBackupSection();
+        renderBackupEncryptionSection();
         renderBackupList();
         ensureProviderEditorId();
         renderProviderList();

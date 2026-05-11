@@ -68,15 +68,9 @@ export function getDataManagementJs(): string {
           var template = (runtimeState.templates || []).find(function(t) { return t && t.id === templateId; });
           if (!template) { return; }
           if (action === 'rename') {
-            var newName = window.prompt(strings.templateRenamePrompt || 'Enter new template name', template.name || '');
-            if (newName && newName.trim() && newName.trim() !== template.name) {
-              vscode.postMessage({ type: 'renameTemplate', templateId: templateId, name: newName.trim() });
-            }
+            vscode.postMessage({ type: 'renameTemplate', templateId: templateId, currentName: template.name || '' });
           } else if (action === 'delete') {
-            var confirmMsg = (strings.templateDeleteConfirm || 'Delete template "{name}"?').replace('{name}', template.name || '');
-            if (window.confirm(confirmMsg)) {
-              vscode.postMessage({ type: 'deleteTemplate', templateId: templateId });
-            }
+            vscode.postMessage({ type: 'deleteTemplate', templateId: templateId, templateName: template.name || '' });
           }
         });
       }
@@ -113,34 +107,16 @@ export function getDataManagementJs(): string {
       // Backup encryption controls
       if (dom.backupEncryptionToggle) {
         dom.backupEncryptionToggle.addEventListener('change', () => {
-          var settings = (runtimeState.settings && runtimeState.settings.localBackup) || {};
-          vscode.postMessage({
-            type: 'saveLocalBackupSettings',
-            payload: {
-              enabled: dom.autoBackupToggle.checked,
-              directory: dom.backupDirInput.value.trim(),
-              intervalHours: parseInt(dom.intervalInput.value, 10) || 24,
-              maxCount: parseInt(dom.maxCountInput.value, 10) || 0,
-              maxAgeDays: parseInt(dom.maxAgeInput.value, 10) || 0,
-              encryptionEnabled: dom.backupEncryptionToggle.checked
-            }
-          });
+          if (backupAutoSaveTimer) { clearTimeout(backupAutoSaveTimer); }
           if (!runtimeState.settings) { runtimeState.settings = {}; }
           if (!runtimeState.settings.localBackup) { runtimeState.settings.localBackup = {}; }
           runtimeState.settings.localBackup.encryptionEnabled = dom.backupEncryptionToggle.checked;
+          autoSaveBackupSettings();
         });
       }
       if (dom.backupPasswordSetBtn) {
         dom.backupPasswordSetBtn.addEventListener('click', () => {
-          var strings = runtimeState.strings || {};
-          var input = window.prompt(strings.backupPasswordPrompt || 'Enter backup password');
-          if (input === null) { return; }
-          var trimmed = input.trim();
-          if (!trimmed) {
-            showToast(strings.backupPasswordEmpty || 'Password cannot be empty.', 'error');
-            return;
-          }
-          vscode.postMessage({ type: 'setBackupPassword', payload: { password: trimmed } });
+          vscode.postMessage({ type: 'setBackupPassword' });
         });
       }
       if (dom.backupPasswordClearBtn) {

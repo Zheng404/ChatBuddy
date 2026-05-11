@@ -22,6 +22,7 @@ import type {
   McpPrompt,
   McpResource,
   McpTool,
+  McpTransport,
   ManagedConnection,
   McpToolBinding
 } from './mcpTypes';
@@ -44,27 +45,28 @@ export { describeAssistantMcpServers, buildRemotePassthroughTools } from './mcpU
 
 export class McpRuntime {
   private readonly connections = new Map<string, { promise: Promise<ManagedConnection>; createdAt: number }>();
+  private readonly connectionLocks = new Map<string, Promise<ManagedConnection>>();
   private toolBindingsCache = new Map<string, { bindings: McpToolBinding[]; expiresAt: number }>();
   private static readonly TOOL_BINDINGS_TTL_MS = 60_000;
   private static readonly CONNECTION_TTL_MS = 30 * 60 * 1000; // 30分钟
 
   public async probeServer(server: McpServerProfile): Promise<import('./mcpTypes').McpProbeResult> {
-    let connection: ManagedConnection | undefined;
+    let client: McpClient | undefined;
+    let transport: McpTransport | undefined;
     try {
       const { Client } = await loadMcpModule();
-      const client = new Client(CLIENT_INFO);
-      const transport = await this.connectTransport(client, server);
-      connection = { client, transport, server };
+      client = new Client(CLIENT_INFO);
+      transport = await this.connectTransport(client, server);
 
       const tools = await collectPaginated<McpTool>(async (cursor) => {
-        const response = await client.listTools(cursor ? { cursor } : undefined);
+        const response = await client!.listTools(cursor ? { cursor } : undefined);
         return { items: response.tools ?? [], nextCursor: response.nextCursor };
       });
 
       let resources: import('./mcpTypes').McpProbeResult['resources'] = [];
       try {
         const resourceList = await collectPaginated<McpResource>(async (cursor) => {
-          const response = await client.listResources(cursor ? { cursor } : undefined);
+          const response = await client!.listResources(cursor ? { cursor } : undefined);
           return { items: response.resources ?? [], nextCursor: response.nextCursor };
         });
         resources = resourceList
@@ -81,7 +83,7 @@ export class McpRuntime {
       let prompts: import('./mcpTypes').McpProbeResult['prompts'] = [];
       try {
         const promptList = await collectPaginated<McpPrompt>(async (cursor) => {
-          const response = await client.listPrompts(cursor ? { cursor } : undefined);
+          const response = await client!.listPrompts(cursor ? { cursor } : undefined);
           return { items: response.prompts ?? [], nextCursor: response.nextCursor };
         });
         prompts = promptList
@@ -114,12 +116,14 @@ export class McpRuntime {
         error: toErrorMessage(error, 'Probe failed.')
       };
     } finally {
-      if (connection) {
-        try {
-          await connection.transport.close();
-          await connection.client.close();
-        } catch (cleanupError) {
-          warn('[MCP] Cleanup error during probe:', cleanupError);
+      if (transport) {
+        try { await transport.close(); } catch (cleanupError) {
+          warn('[MCP] Cleanup error during probe (transport):', cleanupError);
+        }
+      }
+      if (client) {
+        try { await client.close(); } catch (cleanupError) {
+          warn('[MCP] Cleanup error during probe (client):', cleanupError);
         }
       }
     }
@@ -139,6 +143,7 @@ export class McpRuntime {
 
   public async dispose(): Promise<void> {
     this.toolBindingsCache.clear();
+    this.connectionLocks.clear();
     const entries = [...this.connections.values()];
     this.connections.clear();
     await Promise.all(
@@ -270,13 +275,14 @@ export class McpRuntime {
     }
     const connection = await this.getConnection(server);
     const parsedArgs = this.parseToolArguments(argsText);
+    const timeout = Math.max(1000, server.timeoutMs || 30000);
     const result = await connection.client.callTool(
       {
         name: binding.toolName,
         arguments: parsedArgs
       },
       {
-        timeout: server.timeoutMs
+        timeout
       }
     );
     return stringifyToolResult(result);
@@ -387,15 +393,29 @@ export class McpRuntime {
     if (existing && Date.now() - existing.createdAt <= McpRuntime.CONNECTION_TTL_MS) {
       return existing.promise;
     }
-    // TTL 过期或首次连接：清理旧条目（如有）并创建新连接
+    // 使用锁防止并发创建
+    const lock = this.connectionLocks.get(server.id);
+    if (lock) {
+      return lock;
+    }
+    const pending = this.doGetConnection(server);
+    this.connectionLocks.set(server.id, pending);
+    try {
+      return await pending;
+    } finally {
+      this.connectionLocks.delete(server.id);
+    }
+  }
+
+  private async doGetConnection(server: McpServerProfile): Promise<ManagedConnection> {
+    // 双重检查
+    const existing = this.connections.get(server.id);
+    if (existing && Date.now() - existing.createdAt <= McpRuntime.CONNECTION_TTL_MS) {
+      return existing.promise;
+    }
     if (existing) {
       this.connections.delete(server.id);
       this.closeConnectionGracefully(existing.promise);
-    }
-    // Dedup: reuse any pending creation that was started by a concurrent call
-    const current = this.connections.get(server.id);
-    if (current) {
-      return current.promise;
     }
     const pending = this.createConnection(server);
     this.connections.set(server.id, { promise: pending, createdAt: Date.now() });

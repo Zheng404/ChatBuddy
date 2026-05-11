@@ -31,8 +31,9 @@
 |------|------|------|------|
 | **状态仓库** | `stateRepository.ts` | 单一状态源、助手/会话 CRUD | `compassStorage/` |
 | **聊天控制器** | `chatController.ts` | 消息路由、流式响应 | `stateRepository`, `providerClient`, `mcpRuntime` |
-| **提供商客户端** | `providerClient.ts` | OpenAI 兼容 API 调用 | 无 |
+| **提供商客户端** | `providerClient.ts` | OpenAI 兼容 API 调用、故障转移链 | 无 |
 | **MCP 运行时** | `mcpRuntime.ts` | MCP 服务器连接管理 | 无（ESM-only） |
+| **备份加密** | `localBackupEncryption.ts` | AES-256-GCM 加密/解密备份 | 无 |
 
 ### 存储层
 
@@ -162,7 +163,8 @@ stateRepository
     ├── compassStorage/ (存储层)
     ├── stateClone (状态克隆)
     ├── stateSanitizers (状态清理)
-    └── stateHelpers (状态辅助)
+    ├── stateHelpers (状态辅助)
+    └── localBackupEncryption (备份加密)
 
 chatController
     ├── stateRepository (状态管理)
@@ -231,6 +233,7 @@ mcpRuntime
 - `chatController.ts`: 聊天控制器
 - `providerClient.ts`: 提供商客户端
 - `mcpRuntime.ts`: MCP 运行时
+- `localBackupEncryption.ts`: 备份加密
 - `types.ts`: 核心类型定义
 - `constants.ts`: 常量定义
 - `schemas.ts`: Zod 模式定义

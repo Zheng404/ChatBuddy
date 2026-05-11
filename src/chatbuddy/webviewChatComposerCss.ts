@@ -429,6 +429,6 @@ export function getWebviewChatComposerCss(): string {
         font-size: 12px;
       }
 
-      // Note: File drag-and-drop is not supported in VS Code WebViews.
+      /* Note: File drag-and-drop is not supported in VS Code WebViews. */
   `;
 }

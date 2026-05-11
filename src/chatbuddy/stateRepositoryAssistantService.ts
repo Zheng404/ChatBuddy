@@ -217,6 +217,12 @@ export class AssistantStateService {
     if (patch.geminiSafetyLevel !== undefined) {
       assistant.geminiSafetyLevel = patch.geminiSafetyLevel;
     }
+    if (typeof patch.topK === 'number') {
+      assistant.topK = clamp(patch.topK, 0, 1000, assistant.topK ?? 0);
+    }
+    if (patch.failoverModelRefs !== undefined) {
+      assistant.failoverModelRefs = patch.failoverModelRefs.length > 0 ? [...patch.failoverModelRefs] : undefined;
+    }
     assistant.updatedAt = nowTs();
     this.context.persistLater();
     return cloneAssistant(assistant);
@@ -246,9 +252,8 @@ export class AssistantStateService {
     assistant.deletedAt = nowTs();
     assistant.pinned = false;
     assistant.updatedAt = nowTs();
-    if (state.selectedAssistantId === assistant.id) {
-      state.selectedAssistantId = assistant.id;
-    }
+    // 软删除后保持选中状态（由调用方决定是否切换）
+    // selectedAssistantId 保持不变
     this.context.persistLater();
     return cloneAssistant(assistant);
   }

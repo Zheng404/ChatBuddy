@@ -211,7 +211,8 @@ export class SettingsCenterPanelController {
     };
     const existing = this.repository.getMcpProbeCache();
     const merged = this.mergeProbeCache(existing?.entries ?? [], [result]);
-    this.repository.setMcpProbeCache({ lastProbeAt: probedAt, entries: merged });
+    // 单服务器探测时保留原来的 lastProbeAt（完整探测时才更新）
+    this.repository.setMcpProbeCache({ lastProbeAt: existing?.lastProbeAt ?? probedAt, entries: merged });
     this.postMessage({
       type: 'mcpProbeResult',
       payload: { results: [result], lastProbeAt: probedAt, fromCache: false }

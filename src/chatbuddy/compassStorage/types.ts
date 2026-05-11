@@ -156,39 +156,40 @@ export function cloneSummary(summary: SessionSummaryInternal): ChatSessionSummar
 }
 
 export function cloneMessage(message: ChatMessage): ChatMessage {
-  return {
+  const cloned: ChatMessage = {
     id: message.id,
     role: message.role,
     content: message.content,
-    timestamp: message.timestamp,
-    model: message.model,
-    reasoning: message.reasoning,
-    toolRounds: message.toolRounds
-      ? message.toolRounds.map((round) => ({
-          reasoning: round.reasoning,
-          calls: round.calls.map((call) => ({
-            id: call.id,
-            name: call.name,
-            argumentsText: call.argumentsText,
-            output: call.output
-          }))
-        }))
-      : undefined,
-    images: message.images
-      ? message.images.map((image) => ({
-          base64: image.base64,
-          mimeType: image.mimeType,
-          path: image.path
-        }))
-      : undefined,
-    files: message.files
-      ? message.files.map((file) => ({
-          name: file.name,
-          content: file.content,
-          language: file.language
-        }))
-      : undefined
+    timestamp: message.timestamp
   };
+  if (message.model !== undefined) { cloned.model = message.model; }
+  if (message.reasoning !== undefined) { cloned.reasoning = message.reasoning; }
+  if (message.toolRounds) {
+    cloned.toolRounds = message.toolRounds.map((round) => ({
+      reasoning: round.reasoning,
+      calls: round.calls.map((call) => ({
+        id: call.id,
+        name: call.name,
+        argumentsText: call.argumentsText,
+        output: call.output
+      }))
+    }));
+  }
+  if (message.images) {
+    cloned.images = message.images.map((image) => ({
+      base64: image.base64,
+      mimeType: image.mimeType,
+      path: image.path
+    }));
+  }
+  if (message.files) {
+    cloned.files = message.files.map((file) => ({
+      name: file.name,
+      content: file.content,
+      language: file.language
+    }));
+  }
+  return cloned;
 }
 
 export function normalizeMessageInput(message: ChatMessage, now: number): ChatMessage {

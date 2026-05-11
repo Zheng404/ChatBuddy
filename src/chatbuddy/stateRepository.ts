@@ -27,6 +27,7 @@ import {
 import { ChatStorage } from './chatStorage';
 import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider, cloneTemplate } from './stateClone';
 import { unwrapImportedState, unwrapImportedStorageBackup } from './stateHelpers';
+import { sanitizeAssistantName } from './security';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
 import { AssistantStateService } from './stateRepositoryAssistantService';
 import { createId, nowTs } from './utils';
@@ -77,6 +78,7 @@ export interface UpdateAssistantInput {
   temperature?: number;
   topP?: number;
   maxTokens?: number;
+  topK?: number;
   contextCount?: number;
   presencePenalty?: number;
   frequencyPenalty?: number;
@@ -108,7 +110,7 @@ export class ChatStateRepository {
     storage: this.storage,
     storageReady: () => this.storageReady,
     persistLater: () => {
-      void this.persistenceService.persist();
+      this.schedulePersist();
     },
     isWritableGroup: (groupId) => this.isWritableGroup(groupId),
     defaultAssistantSystemPrompt: DEFAULT_ASSISTANT_SYSTEM_PROMPT
@@ -118,7 +120,7 @@ export class ChatStateRepository {
     storage: this.storage,
     storageReady: () => this.storageReady,
     persistLater: () => {
-      void this.persistenceService.persist();
+      this.schedulePersist();
     },
     ensureStorageReady: () => this.ensureStorageReady(),
     getSelectedAssistantId: () => this.getSelectedAssistantId(),
@@ -140,6 +142,12 @@ export class ChatStateRepository {
 
   private bump(): void {
     this.version++;
+  }
+
+  private schedulePersist(): void {
+    void this.persistenceService.persist().catch((err) => {
+      console.error('[ChatBuddy] persist error:', err);
+    });
   }
 
   constructor(private readonly context: vscode.ExtensionContext) {
@@ -172,6 +180,7 @@ export class ChatStateRepository {
       groups: this.state.groups.map(cloneGroup),
       assistants: this.state.assistants.map(cloneAssistant),
       selectedSessionIdByAssistant: { ...this.state.selectedSessionIdByAssistant },
+      collapsedGroupIds: [...this.state.collapsedGroupIds],
       templates: this.state.templates.map(cloneTemplate),
       settings: this.getSettings()
     };
@@ -230,8 +239,10 @@ export class ChatStateRepository {
       enabledMcpServerIds: assistant.enabledMcpServerIds.filter((serverId) => validMcpServerIds.has(serverId))
     }));
     normalizeLocalizedDefaultTitles(this.storage, normalized.locale);
-    void this.persistenceService.persistSecrets();
-    void this.persistenceService.persist();
+    void this.persistenceService.persistSecrets().catch((err) => {
+      console.error('[ChatBuddy] persistSecrets error:', err);
+    });
+    this.schedulePersist();
   }
 
   public getMcpServers(): import('./types').McpServerProfile[] {
@@ -250,10 +261,11 @@ export class ChatStateRepository {
       return undefined;
     }
     const timestamp = nowTs();
+    const sanitizedName = sanitizeAssistantName(name) || 'Untitled Template';
     const template: AssistantTemplate = {
       id: createId('tpl'),
-      name,
-      description,
+      name: sanitizedName,
+      description: description ? sanitizeAssistantName(description) : undefined,
       avatar: assistant.avatar,
       systemPrompt: assistant.systemPrompt,
       greeting: assistant.greeting,
@@ -270,7 +282,7 @@ export class ChatStateRepository {
       updatedAt: timestamp
     };
     this.state.templates.push(template);
-    void this.persistenceService.persist();
+    this.schedulePersist();
     return cloneTemplate(template);
   }
 
@@ -298,7 +310,8 @@ export class ChatStateRepository {
       enabledMcpServerIds: template.enabledMcpServerIds,
       streaming: template.streaming
     });
-    return this.state.assistants.find((a) => a.id === assistant.id);
+    const result = this.state.assistants.find((a) => a.id === assistant.id);
+    return result ? cloneAssistant(result) : undefined;
   }
 
   public deleteTemplate(templateId: string): boolean {
@@ -307,7 +320,7 @@ export class ChatStateRepository {
       return false;
     }
     this.state.templates.splice(index, 1);
-    void this.persistenceService.persist();
+    this.schedulePersist();
     return true;
   }
 
@@ -316,9 +329,9 @@ export class ChatStateRepository {
     if (!template || !name.trim()) {
       return false;
     }
-    template.name = name.trim();
+    template.name = sanitizeAssistantName(name) || template.name;
     template.updatedAt = nowTs();
-    void this.persistenceService.persist();
+    this.schedulePersist();
     return true;
   }
 
@@ -601,11 +614,11 @@ export class ChatStateRepository {
       if (collapsed) {
         if (index < 0) {
           ids.push(groupId);
-          void this.persistenceService.persist();
+          this.schedulePersist();
         }
       } else if (index >= 0) {
         ids.splice(index, 1);
-        void this.persistenceService.persist();
+        this.schedulePersist();
       }
   }
 

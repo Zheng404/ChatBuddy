@@ -294,7 +294,7 @@ export function getChatScript(args: { nonce: string }): string {
       function handleFilePaste(e) {
         var items = e.clipboardData && e.clipboardData.items;
         if (!items) { return; }
-        var handled = false;
+        var hasTextFile = false;
         var maxSize = 100 * 1024;
         var maxLines = 500;
         for (var i = 0; i < items.length; i++) {
@@ -302,7 +302,17 @@ export function getChatScript(args: { nonce: string }): string {
           var file = items[i].getAsFile();
           if (!file) { continue; }
           if (!isTextFile(file)) { continue; }
-          e.preventDefault();
+          hasTextFile = true;
+          break;
+        }
+        if (!hasTextFile) { return; }
+        e.preventDefault();
+        var handled = false;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].kind !== 'file') { continue; }
+          var file = items[i].getAsFile();
+          if (!file) { continue; }
+          if (!isTextFile(file)) { continue; }
           handled = true;
           (function(f) {
             var reader = new FileReader();

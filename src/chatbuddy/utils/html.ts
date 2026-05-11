@@ -8,7 +8,7 @@ export function escapeHtml(input: string): string {
 }
 
 export function escapeHtmlAttr(input: string): string {
-  return escapeHtml(input);
+  return escapeHtml(input).replace(/\n/g, '&#10;').replace(/\r/g, '&#13;');
 }
 
 export function getHtmlEscaperScript(): string {
@@ -23,7 +23,9 @@ export function getHtmlEscaperScript(): string {
       }
 
       function escapeHtmlAttr(input) {
-        return escapeHtml(String(input));
+        return escapeHtml(String(input))
+          .replace(/\\n/g, '&#10;')
+          .replace(/\\r/g, '&#13;');
       }
 `;
 }

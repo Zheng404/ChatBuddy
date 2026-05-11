@@ -20,9 +20,9 @@ import {
   toVideoMarkdown
 } from './providerClientMedia';
 
-let _fallbackToolCallCounter = 0;
+let fallbackToolCallSeq = 0;
 function fallbackToolCallId(): string {
-  return `${Date.now().toString(36)}-${(++_fallbackToolCallCounter).toString(36)}`;
+  return `fallback_${Date.now().toString(36)}_${(++fallbackToolCallSeq).toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function extractChatCompletionToolCalls(message: {

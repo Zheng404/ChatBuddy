@@ -3,6 +3,7 @@
  *
  * 提供所有核心数据类型的不可变克隆函数，确保状态变更时不会意外修改共享引用。
  */
+import { cloneMessage } from './compassStorage/types';
 import type { AssistantGroup, AssistantProfile, AssistantTemplate, ChatSession, ChatSessionSummary, McpKeyValueEntry, McpServerProfile, McpSettings, ProviderProfile } from './types';
 
 export function cloneProvider(provider: ProviderProfile): ProviderProfile {
@@ -61,7 +62,7 @@ export function cloneMcpSettings(settings: McpSettings): McpSettings {
 export function cloneSession(session: ChatSession): ChatSession {
   return {
     ...session,
-    messages: [...session.messages]
+    messages: session.messages.map(cloneMessage)
   };
 }
 

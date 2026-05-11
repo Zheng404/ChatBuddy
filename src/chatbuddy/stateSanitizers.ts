@@ -65,7 +65,8 @@ export const DEFAULT_SETTINGS: ChatBuddySettings = {
     directory: '',
     intervalHours: LOCAL_BACKUP.DEFAULT_INTERVAL_HOURS,
     maxCount: LOCAL_BACKUP.DEFAULT_MAX_COUNT,
-    maxAgeDays: LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS
+    maxAgeDays: LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS,
+    encryptionEnabled: false
   }
 };
 
@@ -336,7 +337,8 @@ export function sanitizeLocalBackupSettings(raw: unknown): import('./types').Loc
       0,
       3650,
       LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS
-    )
+    ),
+    encryptionEnabled: source.encryptionEnabled === true
   };
 }
 

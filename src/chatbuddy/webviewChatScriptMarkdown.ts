@@ -482,6 +482,7 @@ export function getChatMarkdownRendererScript(args: {
               resolve(ready);
             } else if (attempts >= maxAttempts) {
               clearInterval(interval);
+              mermaidLoadPromise = null; // 允许下次重试
               console.error('[Mermaid] timeout waiting for ESM module after 10s');
               resolve(false);
             }
@@ -495,23 +496,38 @@ export function getChatMarkdownRendererScript(args: {
        * Strips <script>, <iframe>, <object>, <embed> tags and on* event handlers.
        */
       function sanitizeSvg(svg) {
-        var temp = document.createElement('div');
-        temp.innerHTML = svg;
-        var dangerous = temp.querySelectorAll('script, iframe, object, embed, foreignObject');
+        // 使用 DOMParser 在 SVG 命名空间下解析，避免命名空间丢失
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(svg, 'image/svg+xml');
+        var root = doc.documentElement;
+        if (!root || root.tagName.toLowerCase() !== 'svg') {
+          // 解析失败或非 SVG，返回原始内容（由调用方处理）
+          return svg;
+        }
+        var dangerous = root.querySelectorAll('script, iframe, object, embed, foreignObject');
         for (var i = 0; i < dangerous.length; i++) { dangerous[i].remove(); }
-        var all = temp.querySelectorAll('*');
+        // Only remove <use> elements with external references (not internal #id refs)
+        var useElements = root.querySelectorAll('use');
+        for (var u = 0; u < useElements.length; u++) {
+          var href = useElements[u].getAttribute('href') || useElements[u].getAttribute('xlink:href') || '';
+          if (href && !href.startsWith('#')) {
+            useElements[u].remove();
+          }
+        }
+        var all = root.querySelectorAll('*');
         for (var j = 0; j < all.length; j++) {
           var attrs = all[j].attributes;
           for (var k = attrs.length - 1; k >= 0; k--) {
             var name = attrs[k].name.toLowerCase();
             var value = String(attrs[k].value || '').trim().toLowerCase();
             if (name.indexOf('on') === 0 ||
-                ((name === 'href' || name === 'xlink:href') && value.indexOf('javascript:') === 0)) {
+                ((name === 'href' || name === 'xlink:href') && value.indexOf('javascript:') === 0) ||
+                (name === 'href' && value.indexOf('data:') === 0)) {
               all[j].removeAttribute(attrs[k].name);
             }
           }
         }
-        return temp.innerHTML;
+        return new XMLSerializer().serializeToString(root);
       }
 
       function replaceMermaidWithCode(el, errorMessage) {

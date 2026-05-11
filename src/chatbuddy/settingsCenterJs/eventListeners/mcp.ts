@@ -48,7 +48,7 @@ export function getMcpJs(): string {
           return;
         }
         if (action === 'toggle-tools') {
-          var probe = mcpProbeResults[idx];
+          var probe = getProbeByServerIdx(idx);
           if (probe && probe.success) {
             expandedToolServerIdx = expandedToolServerIdx === idx ? -1 : idx;
             renderMcpGroups();
@@ -123,7 +123,7 @@ export function getMcpJs(): string {
           return;
         }
         if (action === 'toggle-tools') {
-          var probe = mcpProbeResults[idx];
+          var probe = getProbeByServerIdx(idx);
           if (probe && probe.success) {
             expandedToolServerIdx = expandedToolServerIdx === idx ? -1 : idx;
             renderMcpGroups();

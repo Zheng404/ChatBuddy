@@ -76,6 +76,20 @@ export function getMessageHandlerJs(): string {
             showToast(message.payload.message, message.payload.success ? 'success' : 'error');
           }
         }
+        if (message && message.type === 'mcpGroupAdded') {
+          if (message.payload && message.payload.name && message.payload.name.trim()) {
+            var id = 'mcpg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+            mcpGroups.push({ id: id, name: message.payload.name.trim(), enabled: true });
+            renderMcpGroups();
+            renderMcpServerList();
+            autoSaveMcpGroups();
+          }
+        }
+        if (message && message.type === 'mcpGroupDeleted') {
+          if (message.payload && message.payload.groupId) {
+            doDeleteMcpGroup(message.payload.groupId);
+          }
+        }
       });
 `;
 }

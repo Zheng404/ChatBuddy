@@ -4,6 +4,94 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
+## [0.3.5] - 2026-05-11
+
+### English
+
+#### Added
+
+- Assistant templates: save any assistant as a reusable template with name, description, and full parameter preview. Create new assistants from templates via command palette or assistant tree context menu.
+- Template Management tab in Settings > Data Management: rename and delete existing templates.
+- Provider failover chain: configure fallback model refs on each assistant. When the primary model fails with a retryable error, the system automatically tries the next model in the chain.
+- MCP server groups: organize MCP servers into named groups with enable/disable cascade. Group members inherit the group's enabled state.
+- MCP probe cache: probe results are cached and persisted across sessions. A health indicator chip in the chat toolbar shows the last probe status.
+- AES-256-GCM backup encryption: protect local backups with a password. PBKDF2-SHA256 key derivation (100k iterations) runs asynchronously to avoid blocking the UI.
+- Session-level temporary parameter and model overrides: adjust temperature, topP, maxTokens, presencePenalty, frequencyPenalty per session without modifying the assistant's defaults.
+- Selective data export: choose which categories (providers, MCP servers, assistants, settings) to include when exporting backup JSON.
+- Advanced model parameters in assistant editor: response_format, tool_choice, stop sequences, seed, Gemini topK and safety settings.
+- Assistant overrides UI: per-assistant API key, base URL, and model overrides exposed in the editor.
+- Model capability metadata: maxContextLength, jsonMode, parallelToolCalls fields in the capability registry.
+- Keyboard shortcuts: Ctrl+Alt+N/R/S for createSession, regenerateReply, stopGeneration with context-aware `when` clauses.
+- MCP health chip in chat toolbar showing last probe status at a glance.
+
+#### Changed
+
+- Move "Save as Template" from chat toolbar to assistant editor hero section with a full modal dialog.
+- Change "New Assistant" command to prompt user: "From Template" vs "Create New".
+- Temp-params popup now uses fixed overlay with dynamic placement to avoid viewport clipping.
+- Selective-export checkboxes now use single-line nowrap layout.
+- Connection test model is resolved per provider kind for accurate connectivity checks.
+- Tests: 390/390 pass, TypeScript 0 errors.
+
+#### Fixed
+
+- Fixed WebView script re-injection guard using `return` at `<script>` top-level scope, which silently terminated the entire script and prevented chat UI from rendering on panel re-open.
+- Fixed MCP probe results filtering by array index instead of server ID, causing stale or mismatched results after server reordering.
+- Fixed `cloneMessage` using spread operator that could carry unexpected prototype properties; now explicitly copies only known fields.
+- Fixed dead code in `doGetConnection` (unreachable second `connections.get` check after deletion).
+- Fixed `connectionLocks` not being cleared in `dispose`, potentially leaking Promise references.
+- Fixed hardcoded `'en'` locale in failover chain validation; now uses `resolveLocale(settings.locale)`.
+- Fixed `fallbackToolCallId` collision risk when multiple tool calls arrive in the same millisecond; added monotonically increasing sequence number.
+- Fixed `sanitizeSvg` removing all `<use>` elements including valid internal SVG references (`#id`); now only removes elements with external `href` values.
+- Fixed `void persist()` calls silently swallowing errors; all persist operations now have `.catch()` error logging.
+- Fixed backup encryption using synchronous `pbkdf2Sync` which blocked the main thread; now uses async `pbkdf2`.
+- Fixed WebView template string newline escaping (`\n` → `\\n`) to prevent JS SyntaxError in injected scripts.
+- Fixed CSS comment using `//` instead of `/* */` in WebView stylesheet.
+- Fixed `escapeHtmlAttr` not encoding newline and carriage return characters.
+
+### 中文
+
+#### 新增
+
+- 助手模板：将任意助手保存为可复用模板，包含名称、描述和完整参数预览。可通过命令面板或助手树上下文菜单从模板创建新助手。
+- 设置中心「数据管理」新增模板管理标签页：支持重命名和删除已有模板。
+- 提供商故障转移链：为每个助手配置备选模型引用。当主模型遇到可重试错误时，系统自动尝试链中的下一个模型。
+- MCP 服务器分组：将 MCP 服务器组织为命名分组，支持启用/禁用级联。组成员继承分组的启用状态。
+- MCP 探测缓存：探测结果跨会话缓存并持久化。聊天工具栏中的健康指示芯片显示上次探测状态。
+- AES-256-GCM 备份加密：使用密码保护本地备份。PBKDF2-SHA256 密钥派生（10 万次迭代）以异步方式运行，避免阻塞 UI。
+- 会话级临时参数和模型覆盖：按会话调整 temperature、topP、maxTokens、presencePenalty、frequencyPenalty，无需修改助手默认值。
+- 选择性数据导出：导出备份 JSON 时可选择包含的类别（提供商、MCP 服务器、助手、设置）。
+- 助手编辑器新增高级模型参数：response_format、tool_choice、stop sequences、seed、Gemini topK 和安全设置。
+- 助手覆盖 UI：在编辑器中暴露每个助手的 API Key、Base URL 和模型覆盖。
+- 模型能力元数据：能力注册表新增 maxContextLength、jsonMode、parallelToolCalls 字段。
+- 键盘快捷键：Ctrl+Alt+N/R/S 分别对应 createSession、regenerateReply、stopGeneration，带有上下文感知 `when` 子句。
+- 聊天工具栏新增 MCP 健康状态芯片，一目了然查看上次探测状态。
+
+#### 变更
+
+- 「保存为模板」从聊天工具栏移至助手编辑器顶部区域，提供完整模态对话框。
+- 「新建助手」命令改为提示用户选择「从模板创建」或「全新创建」。
+- 临时参数弹窗改为固定覆盖层加动态定位，避免超出可视区域。
+- 选择性导出复选框改为单行不换行布局。
+- 连接测试模型按提供商类型解析，确保连接检查准确。
+- 测试：390/390 通过，TypeScript 0 错误。
+
+#### 修复
+
+- 修复 WebView 脚本重新注入守卫在 `<script>` 顶层作用域使用 `return`，静默终止整个脚本导致聊天面板重新打开时无法渲染。
+- 修复 MCP 探测结果按数组索引而非服务器 ID 过滤，导致服务器重排序后结果错位或丢失。
+- 修复 `cloneMessage` 使用展开运算符可能携带意外原型属性；现显式复制仅已知字段。
+- 修复 `doGetConnection` 中的死代码（删除后不可能执行的二次 `connections.get` 检查）。
+- 修复 `connectionLocks` 在 `dispose` 中未清除，可能泄漏 Promise 引用。
+- 修复故障转移链验证中硬编码 `'en'` 区域设置；现使用 `resolveLocale(settings.locale)`。
+- 修复 `fallbackToolCallId` 在同一毫秒内多个工具调用到达时碰撞风险；添加单调递增序列号。
+- 修复 `sanitizeSvg` 移除所有 `<use>` 元素（包括有效的内部 SVG 引用 `#id`）；现仅移除外部 `href` 引用。
+- 修复 `void persist()` 调用静默吞掉错误；所有持久化操作现带 `.catch()` 错误日志。
+- 修复备份加密使用同步 `pbkdf2Sync` 阻塞主线程；现改为异步 `pbkdf2`。
+- 修复 WebView 模板字符串换行转义（`\n` → `\\n`），防止注入脚本中的 JS SyntaxError。
+- 修复 WebView 样式表中 CSS 注释使用 `//` 而非 `/* */`。
+- 修复 `escapeHtmlAttr` 未编码换行符和回车符。
+
 ## [0.3.4] - 2026-04-30
 
 ### English

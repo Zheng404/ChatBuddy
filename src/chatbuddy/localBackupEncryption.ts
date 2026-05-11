@@ -5,7 +5,10 @@
  * 文件结构: [magic 8B "CBENCv01"][salt 16B][iv 12B][authTag 16B][ciphertext...]
  * 密码通过 PBKDF2-SHA256 派生为 256-bit 密钥（100000 次迭代）。
  */
-import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, pbkdf2, randomBytes } from 'crypto';
+import { promisify } from 'util';
+
+const pbkdf2Async = promisify(pbkdf2);
 
 const MAGIC = Buffer.from('CBENCv01', 'utf8'); // 8 bytes
 const MAGIC_LENGTH = MAGIC.length;
@@ -36,13 +39,13 @@ export function isEncryptedBackup(bytes: Uint8Array): boolean {
 /**
  * 加密备份字节流。
  */
-export function encryptBackup(plaintext: Uint8Array, password: string): Uint8Array {
+export async function encryptBackup(plaintext: Uint8Array, password: string): Promise<Uint8Array> {
   if (!password) {
     throw new Error('Encryption password is required');
   }
   const salt = randomBytes(SALT_LENGTH);
   const iv = randomBytes(IV_LENGTH);
-  const key = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, KEY_LENGTH, PBKDF2_DIGEST);
+  const key = await pbkdf2Async(password, salt, PBKDF2_ITERATIONS, KEY_LENGTH, PBKDF2_DIGEST);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(Buffer.from(plaintext)), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -52,7 +55,7 @@ export function encryptBackup(plaintext: Uint8Array, password: string): Uint8Arr
 /**
  * 解密备份字节流。失败时抛出错误（密码错误、数据损坏等）。
  */
-export function decryptBackup(ciphertext: Uint8Array, password: string): Uint8Array {
+export async function decryptBackup(ciphertext: Uint8Array, password: string): Promise<Uint8Array> {
   if (!isEncryptedBackup(ciphertext)) {
     throw new Error('Not an encrypted backup');
   }
@@ -68,7 +71,7 @@ export function decryptBackup(ciphertext: Uint8Array, password: string): Uint8Ar
   const tag = buf.subarray(offset, offset + TAG_LENGTH);
   offset += TAG_LENGTH;
   const encrypted = buf.subarray(offset);
-  const key = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, KEY_LENGTH, PBKDF2_DIGEST);
+  const key = await pbkdf2Async(password, salt, PBKDF2_ITERATIONS, KEY_LENGTH, PBKDF2_DIGEST);
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]);

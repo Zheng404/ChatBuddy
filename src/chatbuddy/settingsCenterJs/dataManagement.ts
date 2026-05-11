@@ -127,6 +127,9 @@ export function getDataManagementJs(): string {
         dom.intervalInput.value = settings.intervalHours || 24;
         dom.maxCountInput.value = settings.maxCount !== undefined ? settings.maxCount : 10;
         dom.maxAgeInput.value = settings.maxAgeDays !== undefined ? settings.maxAgeDays : 30;
+        if (dom.backupEncryptionToggle) {
+          dom.backupEncryptionToggle.checked = !!settings.encryptionEnabled;
+        }
       }
 
       function renderManualBackupSection() {

@@ -34,7 +34,7 @@ export async function createLocalBackup(
   const filePath = path.join(directory, fileName);
   const backup = repository.exportBackupData();
   const archive = createBackupArchive(backup);
-  const finalBytes = useEncryption ? encryptBackup(archive, encryptionPassword!) : archive;
+  const finalBytes = useEncryption ? await encryptBackup(archive, encryptionPassword!) : archive;
 
   await fs.promises.writeFile(filePath, Buffer.from(finalBytes));
   return fileName;
@@ -72,15 +72,58 @@ export async function listLocalBackups(directory: string): Promise<BackupFileEnt
       continue;
     }
 
+    // 优先从文件名解析创建时间（避免 mtime 因文件复制/移动而改变）
+    const createdAt = parseBackupTimestampFromFileName(entry.name) ?? stat.mtime.toISOString();
+
     results.push({
       fileName: entry.name,
       fileSize: stat.size,
-      createdAt: stat.mtime.toISOString()
+      createdAt
     });
   }
 
   results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return results;
+}
+
+/**
+ * 从备份文件名解析时间戳。
+ * 文件名格式: chatbuddy-backup-YYYYMMDD-HHMMSS.zip[.enc]
+ * 返回 ISO 8601 字符串，解析失败返回 undefined。
+ */
+function parseBackupTimestampFromFileName(fileName: string): string | undefined {
+  // 去掉扩展名: .zip 或 .enc.zip
+  let stem = fileName;
+  if (stem.endsWith(BACKUP_ENCRYPTED_EXTENSION)) {
+    stem = stem.slice(0, -BACKUP_ENCRYPTED_EXTENSION.length);
+  } else if (stem.endsWith(BACKUP_FILE_EXTENSION)) {
+    stem = stem.slice(0, -BACKUP_FILE_EXTENSION.length);
+  }
+  if (!stem.startsWith(BACKUP_FILE_PREFIX)) {
+    return undefined;
+  }
+  const tsPart = stem.slice(BACKUP_FILE_PREFIX.length); // YYYYMMDD-HHMMSS
+  if (tsPart.length !== 15 || tsPart[8] !== '-') {
+    return undefined;
+  }
+  const year = parseInt(tsPart.slice(0, 4), 10);
+  const month = parseInt(tsPart.slice(4, 6), 10) - 1;
+  const day = parseInt(tsPart.slice(6, 8), 10);
+  const hour = parseInt(tsPart.slice(9, 11), 10);
+  const minute = parseInt(tsPart.slice(11, 13), 10);
+  const second = parseInt(tsPart.slice(13, 15), 10);
+  const date = new Date(year, month, day, hour, minute, second);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month ||
+    date.getDate() !== day ||
+    date.getHours() !== hour ||
+    date.getMinutes() !== minute ||
+    date.getSeconds() !== second
+  ) {
+    return undefined;
+  }
+  return date.toISOString();
 }
 
 /**
@@ -109,7 +152,7 @@ export async function restoreLocalBackup(
     if (!decryptionPassword) {
       throw new Error('Encrypted backup requires a password');
     }
-    archiveBytes = decryptBackup(archiveBytes, decryptionPassword);
+    archiveBytes = await decryptBackup(archiveBytes, decryptionPassword);
   }
   const parsed = extractBackupPayloadFromArchive(archiveBytes);
   await repository.importBackupData(parsed);
@@ -175,7 +218,14 @@ export async function runScheduledBackup(
     return;
   }
 
-  const password = settings.encryptionEnabled ? encryptionPassword : undefined;
+  let password: string | undefined;
+  if (settings.encryptionEnabled) {
+    if (!encryptionPassword) {
+      console.warn('[ChatBuddy] Scheduled backup skipped: encryption enabled but no password set.');
+      return;
+    }
+    password = encryptionPassword;
+  }
   await createLocalBackup(repository, settings.directory, password);
   await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
 }

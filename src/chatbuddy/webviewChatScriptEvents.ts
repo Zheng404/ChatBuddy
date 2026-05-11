@@ -6,6 +6,12 @@
  */
 export function getChatEventScript(): string {
   return `
+      if (window.__chatBuddyListenersAttached) {
+        // 脚本被重复注入时，重新发送 ready 以触发状态同步
+        vscode.postMessage({ type: 'ready' });
+      }
+      window.__chatBuddyListenersAttached = true;
+
       window.addEventListener('message', (event) => {
         const message = event.data;
         if (!message || !message.type) {

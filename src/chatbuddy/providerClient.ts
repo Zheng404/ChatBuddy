@@ -7,9 +7,10 @@
  * 提供流式和非流式两种调用模式，内置指数退避重试、HTTP 状态码错误处理、
  * 以及模型列表自动获取能力。
  */
-import { getStrings } from './i18n';
+import { getStrings, resolveLocale } from './i18n';
 import { createModelRef, getModelDisplayLabel, parseModelRef } from './modelCatalog';
 import { PROVIDER_LIMITS, TIMEOUT } from './constants';
+import { MAX_CONTEXT_COUNT } from './stateSanitizers';
 import {
   AssistantProfile,
   ChatBuddySettings,
@@ -116,7 +117,7 @@ export function resolveProviderConfig(
     ),
     topP: clamp(assistant.topP ?? settings.topP, 0, 1, settings.topP),
     maxTokens: clamp(assistant.maxTokens ?? settings.maxTokens, 0, PROVIDER_LIMITS.MAX_TOKENS, settings.maxTokens),
-    contextCount: clamp(assistant.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, Number.MAX_SAFE_INTEGER, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
+    contextCount: clamp(assistant.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, MAX_CONTEXT_COUNT, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
     presencePenalty: clamp(
       assistant.presencePenalty ?? settings.presencePenalty,
       -2,
@@ -336,16 +337,19 @@ export class OpenAICompatibleClient {
     let buffer = '';
     const readTimeout = (timeoutMs && timeoutMs > 0 ? timeoutMs : TIMEOUT.DEFAULT_MS);
     const readWithTimeout = () => {
-      let timer: ReturnType<typeof setTimeout>;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(resolveLocaleString(locale, 'SSE 读取超时。', 'SSE read timeout.'))),
+          readTimeout
+        );
+      });
       return Promise.race([
         reader.read(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(resolveLocaleString(locale, 'SSE 读取超时。', 'SSE read timeout.'))),
-            readTimeout
-          );
-        })
-      ]).finally(() => clearTimeout(timer));
+        timeoutPromise
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
     };
     try {
       let readResult = await readWithTimeout();
@@ -609,7 +613,7 @@ export function resolveFailoverChain(
       ),
       topP: clamp(assistant.topP ?? settings.topP, 0, 1, settings.topP),
       maxTokens: clamp(assistant.maxTokens ?? settings.maxTokens, 0, PROVIDER_LIMITS.MAX_TOKENS, settings.maxTokens),
-      contextCount: clamp(assistant.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, Number.MAX_SAFE_INTEGER, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
+      contextCount: clamp(assistant.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, MAX_CONTEXT_COUNT, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
       presencePenalty: clamp(
         assistant.presencePenalty ?? settings.presencePenalty,
         -2,
@@ -635,7 +639,8 @@ export function resolveFailoverChain(
       providerEnabled: provider?.enabled === true,
       modelExists: !!model
     };
-    if (!validateProviderConfig(config, 'en', meta)) {
+    const locale = resolveLocale(settings.locale, 'en');
+    if (!validateProviderConfig(config, locale, meta)) {
       chain.push({ config, meta });
       seenRefs.add(ref);
     }

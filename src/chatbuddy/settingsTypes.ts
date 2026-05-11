@@ -74,8 +74,8 @@ export type SettingsCenterMessage =
   | { type: 'importData' }
   | { type: 'importLegacyData' }
   | { type: 'selectiveExport'; payload: { categories: string[] } }
-  | { type: 'deleteTemplate'; templateId: string }
-  | { type: 'renameTemplate'; templateId: string; name: string }
+  | { type: 'deleteTemplate'; templateId: string; templateName: string }
+  | { type: 'renameTemplate'; templateId: string; name?: string; currentName?: string }
   | { type: 'saveMcpServers'; payload: McpServerProfile[] | { servers: McpServerProfile[]; groups?: import('./types').McpServerGroup[]; maxToolRounds?: number } }
   | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
   | { type: 'probeMcpServers' }
@@ -93,9 +93,11 @@ export type SettingsCenterMessage =
   | { type: 'restoreLocalBackup'; payload: { fileName: string } }
   | { type: 'deleteLocalBackup'; payload: { fileName: string } }
   | { type: 'refreshBackupList' }
-  | { type: 'setBackupPassword'; payload: { password: string } }
+  | { type: 'setBackupPassword'; payload?: { password: string } }
   | { type: 'clearBackupPassword' }
-  | { type: 'queryBackupPasswordStatus' };
+  | { type: 'queryBackupPasswordStatus' }
+  | { type: 'requestAddMcpGroup' }
+  | { type: 'requestDeleteMcpGroup'; payload: { groupId: string; groupName: string } };
 
 export type SettingsCenterState = {
   strings: RuntimeStrings;
@@ -174,7 +176,9 @@ export type SettingsCenterOutbound =
   | { type: 'backupDirSelected'; payload: { dir: string } }
   | { type: 'backupList'; payload: { items: import('./types').BackupFileEntry[] } }
   | { type: 'backupOperationResult'; payload: { success: boolean; message: string } }
-  | { type: 'backupPasswordStatus'; payload: { hasPassword: boolean } };
+  | { type: 'backupPasswordStatus'; payload: { hasPassword: boolean } }
+  | { type: 'mcpGroupAdded'; payload: { name: string } }
+  | { type: 'mcpGroupDeleted'; payload: { groupId: string } };
 
 // ─── 工具函数 ────────────────────────────────────────────────────────
 

@@ -100,7 +100,11 @@ function toResponsesInput(messages: ProviderMessage[], toolRounds: ProviderToolR
       if (part.type === 'text') {
         return { type: 'input_text', text: part.text };
       }
-      return { type: 'input_image', image_url: part.image_url.url };
+      if (part.type === 'image_url' && part.image_url?.url) {
+        return { type: 'input_image', image_url: part.image_url.url };
+      }
+      // 安全回退：忽略未知类型
+      return { type: 'input_text', text: '' };
     });
     return { role: message.role, content: mapped };
   });
@@ -285,13 +289,13 @@ function extractGeminiSystemInstruction(messages: ProviderMessage[]): Record<str
 
 function toGeminiGenerationConfig(providerConfig: ProviderConfig): Record<string, unknown> {
   const config: Record<string, unknown> = {};
-  if (providerConfig.temperature > 0) {
+  if (providerConfig.temperature >= 0) {
     config.temperature = providerConfig.temperature;
   }
-  if (providerConfig.topP > 0) {
+  if (providerConfig.topP >= 0) {
     config.topP = providerConfig.topP;
   }
-  if (providerConfig.topK != null && providerConfig.topK > 0) {
+  if (providerConfig.topK != null && providerConfig.topK >= 0) {
     config.topK = providerConfig.topK;
   }
   if (providerConfig.maxTokens > 0) {

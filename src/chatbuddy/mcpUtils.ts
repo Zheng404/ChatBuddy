@@ -14,7 +14,12 @@ let cachedMcpModule: Promise<McpModule> | undefined;
 export async function loadMcpModule(): Promise<McpModule> {
   if (!cachedMcpModule) {
     // @modelcontextprotocol/client is ESM-only; dynamic import() resolves at runtime
-    cachedMcpModule = import('@modelcontextprotocol/client') as Promise<McpModule>;
+    cachedMcpModule = import('@modelcontextprotocol/client')
+      .then((mod) => mod as McpModule)
+      .catch((err) => {
+        cachedMcpModule = undefined; // 清除缓存允许重试
+        throw err;
+      });
   }
   return cachedMcpModule;
 }

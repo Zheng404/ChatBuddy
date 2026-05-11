@@ -82,8 +82,8 @@ type ChatGenerationServiceDeps = {
  */
 function isRetryableError(error: unknown): boolean {
   if (error instanceof HttpError) {
-    // 429 = rate limit, 5xx = server error
-    return error.status === 429 || error.status >= 500;
+    // 408 = request timeout, 429 = rate limit, 5xx = server error
+    return error.status === 408 || error.status === 429 || error.status >= 500;
   }
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
@@ -154,7 +154,9 @@ export class ChatGenerationService {
     if (files && files.length > 0) {
       const fileBlocks = files.map(f => {
         const lang = f.language || '';
-        return '```' + lang + '\n// File: ' + f.name + '\n' + f.content + '\n```';
+        // 转义文件内容中的代码块结束标记，防止破坏 Markdown 结构
+        const safeContent = f.content.replace(/```/g, '\\`\\`\\`');
+        return '```' + lang + '\n// File: ' + f.name + '\n' + safeContent + '\n```';
       }).join('\n\n');
       fullContent = normalizedWithPrefix
         ? normalizedWithPrefix + '\n\n' + fileBlocks
@@ -227,21 +229,6 @@ export class ChatGenerationService {
     };
     const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
 
-    // Validate primary provider config
-    const invalidReason = validateProviderConfig(primaryResolved.config, locale, primaryResolved.meta);
-    if (invalidReason) {
-      this.deps.repository.appendMessage(assistant.id, selectedSession.id, {
-        id: createId('msg'),
-        role: 'assistant',
-        content: invalidReason,
-        timestamp: nowTs(),
-        model: primaryResolved.config.modelLabel
-      });
-      this.deps.postError(invalidReason, context);
-      this.deps.postState(invalidReason, context);
-      return;
-    }
-
     // When the current model does not support vision, strip images from ALL messages
     const messagesForProvider = !visionSupported
       ? sessionAfterUser.messages.map((msg) =>
@@ -277,6 +264,31 @@ export class ChatGenerationService {
 
     for (let chainIndex = 0; chainIndex < failoverChain.length; chainIndex++) {
       const currentResolved = failoverChain[chainIndex];
+
+      // Skip invalid provider configs and try next in chain
+      const invalidReason = validateProviderConfig(currentResolved.config, locale, currentResolved.meta);
+      if (invalidReason) {
+        attemptedProviders.push(currentResolved.config.modelLabel + ' (invalid)');
+        if (chainIndex === failoverChain.length - 1) {
+          // Last provider also invalid - show error
+          this.deps.repository.appendMessage(assistant.id, selectedSession.id, {
+            id: createId('msg'),
+            role: 'assistant',
+            content: invalidReason,
+            timestamp: nowTs(),
+            model: currentResolved.config.modelLabel
+          });
+          this.deps.postError(invalidReason, context);
+          this.deps.postState(invalidReason, context);
+          this.deps.setIsGenerating(false);
+          this.deps.setAbortController(undefined);
+          this.deps.setAbortReason(undefined);
+          return;
+        }
+        // Not the last - continue to next provider
+        continue;
+      }
+
       attemptedProviders.push(currentResolved.config.modelLabel);
 
       // Update model label on assistant message for current provider
@@ -619,7 +631,12 @@ export class ChatGenerationService {
         ]
       }
     ];
-    const result = await this.deps.providerClient.chat(messages, providerConfig, locale);
+    const result = await this.deps.providerClient.chat(
+      messages,
+      providerConfig,
+      locale,
+      this.deps.getAbortController()?.signal
+    );
     return result.text?.trim() || undefined;
   }
 

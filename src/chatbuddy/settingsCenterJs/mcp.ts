@@ -39,13 +39,31 @@ export function getMcpJs(): string {
         return JSON.stringify(cloneMcpGroups(items));
       }
 
+      function getProbeByServerIdx(idx) {
+        var server = mcpServers[idx];
+        if (!server || !server.id) { return undefined; }
+        for (var i = 0; i < mcpProbeResults.length; i++) {
+          if (mcpProbeResults[i] && mcpProbeResults[i].serverId === server.id) {
+            return mcpProbeResults[i];
+          }
+        }
+        return undefined;
+      }
+
       function syncMcpServersFromState(state) {
         var servers = (state.settings && state.settings.mcp && state.settings.mcp.servers) || [];
         var groups = (state.settings && state.settings.mcp && state.settings.mcp.groups) || [];
+        // 保留仍存在的服务器的探测结果（按 serverId 匹配，不依赖索引）
+        var oldProbeResults = mcpProbeResults;
+        var newServerIds = new Set(cloneMcpServers(servers).map(function(s) { return s.id; }));
         mcpServers = cloneMcpServers(servers);
         mcpGroups = cloneMcpGroups(groups);
-        mcpProbeResults = [];
-        expandedToolServerIdx = -1;
+        mcpProbeResults = oldProbeResults.filter(function(r) {
+          return r && r.serverId && newServerIds.has(r.serverId);
+        });
+        if (expandedToolServerIdx >= mcpServers.length) {
+          expandedToolServerIdx = -1;
+        }
       }
 
       function renderMcp() {
@@ -102,7 +120,7 @@ export function getMcpJs(): string {
         }
         return '<div class="mcp-group-servers">' + groupServers.map((server) => {
           var idx = mcpServers.indexOf(server);
-          var probe = mcpProbeResults[idx];
+          var probe = getProbeByServerIdx(idx);
           var statusDot = '';
           if (probe) {
             statusDot = probe.success
@@ -171,7 +189,7 @@ export function getMcpJs(): string {
           '<h3 class="mcp-ungrouped-title">' + escapeHtml(ungroupedLabel) + '</h3>' +
           ungroupedServers.map((server) => {
             var idx = mcpServers.indexOf(server);
-            var probe = mcpProbeResults[idx];
+            var probe = getProbeByServerIdx(idx);
             var statusDot = '';
             if (probe) {
               statusDot = probe.success
@@ -215,7 +233,7 @@ export function getMcpJs(): string {
       function renderMcpToolsSection(idx) {
         var strings = runtimeState.strings || {};
         if (idx !== expandedToolServerIdx) { return ''; }
-        var probe = mcpProbeResults[idx];
+        var probe = getProbeByServerIdx(idx);
         if (!probe || !probe.success) { return ''; }
         var html = '<div class="mcp-tools-section">';
         html += '<h4 class="mcp-tools-heading">' + escapeHtml(strings.mcpToolsTitle || 'Tools') + '</h4>';
@@ -261,22 +279,16 @@ export function getMcpJs(): string {
       }
 
       function addMcpGroup() {
-        var strings = runtimeState.strings || {};
-        var name = prompt(strings.mcpGroupNameLabel || 'Group Name', 'New Group');
-        if (!name || !name.trim()) { return; }
-        var id = 'mcpg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
-        mcpGroups.push({ id: id, name: name.trim(), enabled: true });
-        renderMcpGroups();
-        renderMcpServerList();
-        autoSaveMcpGroups();
+        vscode.postMessage({ type: 'requestAddMcpGroup' });
       }
 
       function deleteMcpGroup(groupId) {
-        var strings = runtimeState.strings || {};
         var group = mcpGroups.find((g) => g.id === groupId);
         if (!group) { return; }
-        var confirmMsg = (strings.mcpDeleteGroupConfirm || 'Delete group "{name}"?').replace('{name}', group.name);
-        if (!confirm(confirmMsg)) { return; }
+        vscode.postMessage({ type: 'requestDeleteMcpGroup', payload: { groupId: groupId, groupName: group.name } });
+      }
+
+      function doDeleteMcpGroup(groupId) {
         for (var i = 0; i < mcpServers.length; i++) {
           if (mcpServers[i].groupId === groupId) {
             mcpServers[i].groupId = undefined;

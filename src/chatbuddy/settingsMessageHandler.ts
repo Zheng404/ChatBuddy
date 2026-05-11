@@ -153,6 +153,39 @@ export async function handleSettingsMessage(
     return;
   }
 
+  if (message.type === 'requestAddMcpGroup') {
+    const strings = deps.getStrings();
+    const input = await vscode.window.showInputBox({
+      prompt: strings.mcpGroupNameLabel || 'Group Name',
+      value: 'New Group',
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        if (!value || !value.trim()) {
+          return strings.mcpGroupNameRequired || 'Group name is required';
+        }
+        return undefined;
+      }
+    });
+    if (input?.trim()) {
+      deps.postMessage({ type: 'mcpGroupAdded', payload: { name: input.trim() } });
+    }
+    return;
+  }
+
+  if (message.type === 'requestDeleteMcpGroup') {
+    const strings = deps.getStrings();
+    const groupName = message.payload.groupName || message.payload.groupId;
+    const confirmDelete = await vscode.window.showWarningMessage(
+      formatString(strings.mcpDeleteGroupConfirm || 'Delete group "{name}"?', { name: groupName }),
+      { modal: true },
+      strings.deleteAction || 'Delete'
+    );
+    if (confirmDelete === (strings.deleteAction || 'Delete')) {
+      deps.postMessage({ type: 'mcpGroupDeleted', payload: { groupId: message.payload.groupId } });
+    }
+    return;
+  }
+
   if (message.type === 'probeMcpServers') {
     void deps.probeAllMcpServers().catch(() => {});
     return;
@@ -444,14 +477,44 @@ export async function handleSettingsMessage(
   }
 
   if (message.type === 'deleteTemplate') {
+    const strings = deps.getStrings();
+    const confirmDelete = await vscode.window.showWarningMessage(
+      formatString(strings.templateDeleteConfirm || 'Are you sure you want to delete template "{name}"?', {
+        name: message.templateName || message.templateId
+      }),
+      { modal: true },
+      strings.deleteAction || 'Delete'
+    );
+    if (confirmDelete !== (strings.deleteAction || 'Delete')) {
+      return;
+    }
     deps.repository.deleteTemplate(message.templateId);
     deps.postState();
     return;
   }
 
   if (message.type === 'renameTemplate') {
-    if (message.name?.trim()) {
-      deps.repository.renameTemplate(message.templateId, message.name.trim());
+    const strings = deps.getStrings();
+    let name = message.name;
+    if (!name?.trim()) {
+      const input = await vscode.window.showInputBox({
+        prompt: strings.templateRenamePrompt || 'Enter new template name',
+        value: message.currentName || '',
+        ignoreFocusOut: true,
+        validateInput: (value) => {
+          if (!value || !value.trim()) {
+            return strings.templateRenamePrompt || 'Name cannot be empty';
+          }
+          return undefined;
+        }
+      });
+      if (!input) {
+        return;
+      }
+      name = input.trim();
+    }
+    if (name?.trim()) {
+      deps.repository.renameTemplate(message.templateId, name.trim());
     }
     deps.postState();
     return;
@@ -534,12 +597,22 @@ export async function handleSettingsMessage(
 
   if (message.type === 'setBackupPassword') {
     try {
-      const password = message.payload.password;
+      let password = message.payload?.password;
       if (!password) {
-        deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupPasswordEmpty || 'Password cannot be empty' } });
-        return;
+        password = await vscode.window.showInputBox({
+          prompt: deps.getStrings().backupPasswordPrompt || 'Enter backup password',
+          password: true,
+          ignoreFocusOut: true,
+          validateInput: (value) => {
+            if (!value || !value.trim()) {
+              return deps.getStrings().backupPasswordEmpty || 'Password cannot be empty';
+            }
+            return undefined;
+          }
+        });
+        if (!password) { return; }
       }
-      await deps.onSetBackupPassword(password);
+      await deps.onSetBackupPassword(password.trim());
       deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: true } });
       deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupPasswordSaved || 'Backup password saved' } });
     } catch (err) {
