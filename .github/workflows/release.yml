@@ -102,7 +102,7 @@ jobs:
 
       - name: Publish to Open VSX
         run: |
-          ovsx publish -p ${{ secrets.OPENVSX_PAT }}
+          ovsx publish ${{ steps.get_filename.outputs.VSIX_FILE }} -p ${{ secrets.OPENVSX_PAT }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
