@@ -434,6 +434,49 @@ export function getSettingsCenterBaseCss(): string {
         margin-top: 14px;
       }
 
+      .field-radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 4px;
+      }
+
+      .radio-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        cursor: pointer;
+      }
+
+      .radio-option input[type="radio"] {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        margin: 2px 0 0 0;
+        padding: 0;
+        accent-color: var(--focus-border, #007fd4);
+        cursor: pointer;
+      }
+
+      .radio-option-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .radio-option-title {
+        font-weight: 500;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .radio-option-desc {
+        font-size: 12px;
+        opacity: 0.65;
+        line-height: 1.4;
+      }
+
       #autoBackupSectionTitle ~ .field + .field {
         margin-top: 14px;
       }

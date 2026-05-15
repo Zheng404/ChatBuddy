@@ -39,6 +39,11 @@ async function createRepository(): Promise<TestRepositoryHandle> {
       fsPath: tmpDir,
       path: tmpDir,
       toString: () => tmpDir
+    },
+    globalState: {
+      get: () => undefined,
+      update: () => Promise.resolve(),
+      keys: () => []
     }
   } as unknown as ExtensionContext);
   await repository.initialize();

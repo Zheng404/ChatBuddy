@@ -19,6 +19,8 @@ import {
   restoreLocalBackup
 } from './localBackup';
 import type { ChatBuddySettings, McpServerProfile, RuntimeLocale, RuntimeStrings } from './types';
+import { migrateStorage, validateStorageData } from './syncMigration';
+import { ensureStorageDir, getSharedStoragePath, hasCompassData, type StorageMode } from './syncConfig';
 import { normalizeProvider, toErrorMessage } from './utils';
 import type {
   SettingsActionResult,
@@ -42,6 +44,8 @@ export interface SettingsMessageHandlerDeps {
   readonly onGetBackupPassword: () => Promise<string | undefined>;
   readonly onSetBackupPassword: (password: string) => Promise<void>;
   readonly onClearBackupPassword: () => Promise<void>;
+  /** 备份设置变更后回调（用于重启自动备份定时器） */
+  onBackupSettingsChanged?: () => void;
   getLocale(): RuntimeLocale;
   getStrings(): RuntimeStrings;
   postState(notice?: string, tone?: 'success' | 'error' | 'info'): void;
@@ -535,7 +539,8 @@ export async function handleSettingsMessage(
 
   if (message.type === 'saveLocalBackupSettings') {
     const current = deps.repository.getSettings();
-    deps.onSave({ ...current, localBackup: message.payload });
+    deps.onSave({ ...current, localBackup: { ...message.payload, password: current.localBackup.password } });
+    deps.onBackupSettingsChanged?.();
     deps.postState(deps.getStrings().backupSettingsSaved, 'success');
     return;
   }
@@ -613,6 +618,9 @@ export async function handleSettingsMessage(
         if (!password) { return; }
       }
       await deps.onSetBackupPassword(password.trim());
+      // 同步密码到 Compass 共享存储，以便跨 IDE 实例同步
+      const currentSettings = deps.repository.getSettings();
+      deps.onSave({ ...currentSettings, localBackup: { ...currentSettings.localBackup, password: password.trim() } });
       deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: true } });
       deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupPasswordSaved || 'Backup password saved' } });
     } catch (err) {
@@ -624,6 +632,10 @@ export async function handleSettingsMessage(
   if (message.type === 'clearBackupPassword') {
     try {
       await deps.onClearBackupPassword();
+      // 从 Compass 共享存储中移除密码
+      const currentSettings = deps.repository.getSettings();
+      const { password: _pw, ...backupWithoutPassword } = currentSettings.localBackup;
+      deps.onSave({ ...currentSettings, localBackup: backupWithoutPassword });
       deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: false } });
       deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupPasswordCleared || 'Backup password cleared' } });
     } catch (err) {
@@ -662,6 +674,142 @@ export async function handleSettingsMessage(
       deps.postMessage({ type: 'backupList', payload: { items } });
     } catch {
       deps.postMessage({ type: 'backupList', payload: { items: [] } });
+    }
+    return;
+  }
+
+  if (message.type === 'switchStorageMode') {
+    const strings = deps.getStrings();
+    const mode = message.payload.mode as StorageMode;
+    const syncConfig = deps.repository.getSyncConfig();
+
+    // Same mode, nothing to do
+    if (syncConfig.storageMode === mode) {
+      return;
+    }
+
+    // Determine target path
+    const targetPath = mode === 'shared'
+      ? getSharedStoragePath()
+      : deps.repository.getDefaultStoragePath();
+
+    try {
+      // Check if target has existing data
+      const hasData = await hasCompassData(targetPath);
+      if (hasData) {
+        // Target has data — just save config, will use existing data after restart
+        await deps.repository.updateSyncConfig({ storageMode: mode });
+        deps.postMessage({
+          type: 'storageSwitchResult',
+          payload: { success: true, restartNeeded: true }
+        });
+        deps.postState(strings.dataStorageStatusRestart || 'Configuration saved. Restart IDE to apply.', 'success');
+      } else {
+        // No data at target — prompt user for migration
+        deps.postMessage({
+          type: 'storageMigrationPrompt',
+          payload: { targetMode: mode }
+        });
+      }
+    } catch (err) {
+      deps.postMessage({
+        type: 'storageSwitchResult',
+        payload: { success: false, reason: toErrorMessage(err, strings.unknownError), restartNeeded: false }
+      });
+    }
+    return;
+  }
+
+  if (message.type === 'confirmStorageMigration') {
+    const strings = deps.getStrings();
+    const { mode, migrate } = message.payload as { mode: StorageMode; migrate: boolean };
+
+    // Determine source and target paths
+    const currentPath = deps.repository.getStorageRootPath();
+    const targetPath = mode === 'shared'
+      ? getSharedStoragePath()
+      : deps.repository.getDefaultStoragePath();
+
+    if (!currentPath) {
+      deps.postState(strings.dataStorageMigrateFailed || 'Migration failed: no current storage path.', 'error');
+      return;
+    }
+
+    try {
+      if (migrate) {
+        // Ensure target directory exists
+        const ensureResult = await ensureStorageDir(targetPath);
+        if (!ensureResult.ok) {
+          deps.postMessage({
+            type: 'storageSwitchResult',
+            payload: { success: false, reason: ensureResult.reason || 'Cannot create directory', restartNeeded: false }
+          });
+          return;
+        }
+
+        // Run migration (source → target) with progress
+        const result = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: strings.dataStorageMigrating || 'Migrating data...',
+            cancellable: false
+          },
+          async (progress) => {
+            return migrateStorage(currentPath, targetPath, (p) => {
+              progress.report({
+                message: `${p.filesCopied} files copied`,
+                increment: undefined
+              });
+            });
+          }
+        );
+
+        if (!result.success) {
+          deps.postMessage({
+            type: 'storageSwitchResult',
+            payload: { success: false, reason: result.reason, restartNeeded: false }
+          });
+          return;
+        }
+
+        // 验证迁移后的数据完整性
+        const validation = await validateStorageData(targetPath);
+
+        await deps.repository.updateSyncConfig({ storageMode: mode });
+        deps.postMessage({
+          type: 'storageSwitchResult',
+          payload: { success: true, filesCopied: result.filesCopied, restartNeeded: true }
+        });
+
+        const baseMsg = strings.dataStorageMigrateSuccess || 'Data migrated. Restart IDE to apply.';
+        const filesMsg = result.filesCopied ? ` (${result.filesCopied} files)` : '';
+        const validateMsg = validation.valid
+          ? ''
+          : ` ${strings.dataStorageValidationWarning || '(validation warning)'}: ${validation.reason}`;
+        deps.postState(baseMsg + filesMsg + validateMsg, validation.valid ? 'success' : 'info');
+      } else {
+        // No migration — just save config, target will be initialized on next startup
+        const ensureResult = await ensureStorageDir(targetPath);
+        if (!ensureResult.ok) {
+          deps.postMessage({
+            type: 'storageSwitchResult',
+            payload: { success: false, reason: ensureResult.reason || 'Cannot create directory', restartNeeded: false }
+          });
+          return;
+        }
+
+        await deps.repository.updateSyncConfig({ storageMode: mode });
+        deps.postMessage({
+          type: 'storageSwitchResult',
+          payload: { success: true, restartNeeded: true }
+        });
+        deps.postState(strings.dataStorageNoMigrateSuccess || 'Configuration saved. New location will be initialized on restart.', 'success');
+      }
+    } catch (err) {
+      deps.postMessage({
+        type: 'storageSwitchResult',
+        payload: { success: false, reason: toErrorMessage(err, strings.unknownError), restartNeeded: false }
+      });
     }
     return;
   }

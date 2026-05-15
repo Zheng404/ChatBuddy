@@ -19,6 +19,9 @@ export function getNavJs(): string {
       dom.navDataManagement.addEventListener('click', () => {
         activateSection('dataManagement', true);
       });
+      dom.navTemplates.addEventListener('click', () => {
+        activateSection('templates', true);
+      });
       dom.navAbout.addEventListener('click', () => {
         activateSection('about', true);
       });

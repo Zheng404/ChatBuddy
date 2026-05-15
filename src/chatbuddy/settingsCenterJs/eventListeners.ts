@@ -6,6 +6,8 @@ import { getNavJs } from './eventListeners/nav';
 import { getLayoutJs } from './eventListeners/layout';
 import { getGeneralJs } from './eventListeners/general';
 import { getDataManagementJs } from './eventListeners/dataManagement';
+import { getTemplatesListenersJs } from './eventListeners/templates';
+import { getDataSyncListenersJs } from './eventListeners/dataSync';
 import { getMcpJs } from './eventListeners/mcp';
 import { getProviderEditorJs } from './eventListeners/providerEditor';
 import { getModelManagerJs } from './eventListeners/modelManager';
@@ -17,6 +19,8 @@ export function getEventListenersJs(defaultTitleSummaryPrompt: string): string {
     getLayoutJs(),
     getGeneralJs(),
     getDataManagementJs(),
+    getTemplatesListenersJs(),
+    getDataSyncListenersJs(),
     getMcpJs(),
     getProviderEditorJs(),
     getModelManagerJs(),

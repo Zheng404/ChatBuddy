@@ -15,6 +15,7 @@ import { createPanelControllers } from './extension/panelControllers';
 import { createTreeProviders, createTreeViews, createSettingsTreeDataSource } from './extension/treeViews';
 import { registerCommands } from './extension/commands';
 import { getBackupIntervalMs, runScheduledBackup } from './chatbuddy/localBackup';
+import { SyncWatcher } from './chatbuddy/syncWatcher';
 
 // Module-level references for async cleanup in deactivate()
 let _mcpRuntime: McpRuntime | undefined;
@@ -165,9 +166,19 @@ export async function activate(context: vscode.ExtensionContext) {
     handleImportData,
     handleImportLegacyData,
     handleSelectiveExportData,
-    getBackupPassword: async () => context.secrets.get('chatbuddy.backupPassword'),
+    getBackupPassword: async () => {
+      const fromSecrets = await context.secrets.get('chatbuddy.backupPassword');
+      if (fromSecrets) { return fromSecrets; }
+      // 回退：从 Compass 共享存储读取密码（跨 IDE 同步场景）
+      const fromSettings = repository.getSettings().localBackup.password;
+      if (fromSettings) {
+        await context.secrets.store('chatbuddy.backupPassword', fromSettings);
+      }
+      return fromSettings || undefined;
+    },
     setBackupPassword: async (password: string) => context.secrets.store('chatbuddy.backupPassword', password),
     clearBackupPassword: async () => context.secrets.delete('chatbuddy.backupPassword'),
+    onBackupSettingsChanged: () => restartBackupTimer(),
     refreshAll,
     updateTreeMessage,
     getRuntimeStrings
@@ -201,6 +212,7 @@ export async function activate(context: vscode.ExtensionContext) {
       backupTimer = undefined;
     }
     const current = settings || repository.getSettings();
+
     const intervalMs = getBackupIntervalMs(current.localBackup);
     if (intervalMs > 0) {
       backupTimer = setInterval(() => {
@@ -209,6 +221,54 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   };
   restartBackupTimer();
+
+  // Cross-IDE sync watcher (only when shared storage is enabled)
+  if (repository.isUsingSharedStorage()) {
+    const syncStoragePath = repository.getStorageRootPath();
+    if (syncStoragePath) {
+      const syncWatcher = new SyncWatcher(syncStoragePath, {
+        onExternalChange: (categories) => {
+          const isGenerating = chatController.isGenerating();
+          const hasSessions = categories.has('sessions');
+          const hasNonSession = categories.has('core') || categories.has('settings') || categories.has('images');
+
+          if (isGenerating && hasSessions && !hasNonSession) {
+            // 只有 session 变更且正在生成：只刷新树视图，不 reload 数据
+            // 避免打断用户的生成体验
+            sessionsTreeProvider.refresh();
+            return;
+          }
+
+          void repository.reloadFromSharedStorage(categories).then(async () => {
+            // 同步备份密码：从 Compass 共享存储同步到 context.secrets
+            const settings = repository.getSettings();
+            const existingPassword = await context.secrets.get('chatbuddy.backupPassword');
+            if (settings.localBackup.password && !existingPassword) {
+              await context.secrets.store('chatbuddy.backupPassword', settings.localBackup.password);
+            } else if (!settings.localBackup.password && existingPassword) {
+              await context.secrets.delete('chatbuddy.backupPassword');
+            }
+            // 备份设置可能已变更（间隔、目录、启停），重启定时器
+            restartBackupTimer();
+            refreshAll();
+            updateTreeMessage();
+            // 通知设置中心刷新密码状态（跨 IDE 同步场景）
+            settingsCenterPanelController.postBackupPasswordStatus();
+          });
+        },
+        getIsGenerating: () => chatController.isGenerating()
+      });
+
+      syncWatcher.start();
+      repository.setSyncWatcher(syncWatcher);
+      context.subscriptions.push(syncWatcher);
+
+      // Notify watcher when generation ends so pending changes can be surfaced
+      chatController.setOnGenerationEnd(() => {
+        syncWatcher.notifyGeneratingEnded();
+      });
+    }
+  }
 
   context.subscriptions.push(
     assistantsTreeView,

@@ -206,8 +206,13 @@ export async function cleanExpiredBackups(
   return deleted;
 }
 
+const LOCK_FILE_NAME = '.chatbuddy-backup-lock';
+const LOCK_TIMEOUT_MS = 60_000; // 1 minute
+
 /**
  * Run a scheduled backup cycle: create + clean.
+ * Uses a file-based lock to prevent duplicate backups when multiple IDEs share sync storage.
+ * Skips creation if another IDE already made a backup within half the interval period.
  */
 export async function runScheduledBackup(
   repository: ChatStateRepository,
@@ -226,8 +231,56 @@ export async function runScheduledBackup(
     }
     password = encryptionPassword;
   }
-  await createLocalBackup(repository, settings.directory, password);
-  await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
+
+  if (!await acquireBackupLock(settings.directory)) {
+    return;
+  }
+  try {
+    // 如果半个周期内已有其他 IDE 创建的备份，跳过本次
+    if (await hasRecentBackup(settings.directory, settings.intervalHours)) {
+      return;
+    }
+    await createLocalBackup(repository, settings.directory, password);
+    await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
+  } finally {
+    await releaseBackupLock(settings.directory);
+  }
+}
+
+/**
+ * 检查是否已有较新的备份（半个周期内）。
+ * 用于多 IDE 场景下避免重复创建内容相同的备份。
+ */
+async function hasRecentBackup(directory: string, intervalHours: number): Promise<boolean> {
+  const backups = await listLocalBackups(directory);
+  if (backups.length === 0) { return false; }
+  const newest = new Date(backups[0].createdAt).getTime();
+  const halfIntervalMs = intervalHours * 0.5 * 60 * 60 * 1000;
+  return (Date.now() - newest) < halfIntervalMs;
+}
+
+async function acquireBackupLock(directory: string): Promise<boolean> {
+  const lockPath = path.join(directory, LOCK_FILE_NAME);
+  try {
+    const content = await fs.promises.readFile(lockPath, 'utf-8');
+    const lockedAt = parseInt(content, 10);
+    if (!isNaN(lockedAt) && Date.now() - lockedAt < LOCK_TIMEOUT_MS) {
+      return false; // Another IDE holds the lock
+    }
+  } catch {
+    // Lock file doesn't exist, proceed
+  }
+  await ensureDirectory(directory);
+  await fs.promises.writeFile(lockPath, String(Date.now()));
+  return true;
+}
+
+async function releaseBackupLock(directory: string): Promise<void> {
+  try {
+    await fs.promises.unlink(path.join(directory, LOCK_FILE_NAME));
+  } catch {
+    // Lock already removed
+  }
 }
 
 /**

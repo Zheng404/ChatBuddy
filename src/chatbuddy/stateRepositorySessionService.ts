@@ -27,6 +27,10 @@ type SessionServiceContext = {
   ensureStorageReady: () => void;
   getSelectedAssistantId: () => string | undefined;
   markAssistantInteracted: (assistantId: string, persist?: boolean) => void;
+  getSelectedSessionIds: () => Record<string, string>;
+  setSelectedSessionIds: (ids: Record<string, string>) => void;
+  getSessionPanelCollapsed: () => boolean;
+  setSessionPanelCollapsed: (collapsed: boolean) => void;
 };
 
 export class SessionStateService {
@@ -50,12 +54,12 @@ export class SessionStateService {
     if (!this.context.storageReady()) {
       return undefined;
     }
-    const state = this.context.getState();
-    const targetAssistantId = assistantId ?? state.selectedAssistantId;
+    const targetAssistantId = assistantId ?? this.context.getSelectedAssistantId();
     if (!targetAssistantId) {
       return undefined;
     }
-    const selectedSessionId = state.selectedSessionIdByAssistant[targetAssistantId];
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    const selectedSessionId = selectedSessionIds[targetAssistantId];
     if (selectedSessionId) {
       const selected = this.context.storage.getSessionDetail(targetAssistantId, selectedSessionId);
       if (selected) {
@@ -74,12 +78,12 @@ export class SessionStateService {
     if (!this.context.storageReady()) {
       return undefined;
     }
-    const state = this.context.getState();
     const targetAssistantId = assistantId ?? this.context.getSelectedAssistantId();
     if (!targetAssistantId) {
       return undefined;
     }
-    const selectedSessionId = state.selectedSessionIdByAssistant[targetAssistantId];
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    const selectedSessionId = selectedSessionIds[targetAssistantId];
     if (selectedSessionId && this.context.storage.sessionExists(targetAssistantId, selectedSessionId)) {
       return selectedSessionId;
     }
@@ -126,8 +130,9 @@ export class SessionStateService {
         : []
     };
     this.context.storage.insertSession(session, true);
-    state.selectedSessionIdByAssistant[assistantId] = session.id;
-    state.selectedAssistantId = assistantId;
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    selectedSessionIds[assistantId] = session.id;
+    this.context.setSelectedSessionIds(selectedSessionIds);
     assistant.lastInteractedAt = timestamp;
     assistant.updatedAt = timestamp;
     this.context.persistLater();
@@ -142,9 +147,9 @@ export class SessionStateService {
     if (!exists) {
       return;
     }
-    const state = this.context.getState();
-    state.selectedAssistantId = assistantId;
-    state.selectedSessionIdByAssistant[assistantId] = sessionId;
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    selectedSessionIds[assistantId] = sessionId;
+    this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     this.context.persistLater();
   }
@@ -199,13 +204,14 @@ export class SessionStateService {
     if (!removed) {
       return;
     }
-    const state = this.context.getState();
+    const selectedSessionIds = this.context.getSelectedSessionIds();
     const latest = this.getLatestSessionForAssistantRaw(assistantId);
     if (latest) {
-      state.selectedSessionIdByAssistant[assistantId] = latest.id;
+      selectedSessionIds[assistantId] = latest.id;
     } else {
-      delete state.selectedSessionIdByAssistant[assistantId];
+      delete selectedSessionIds[assistantId];
     }
+    this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     this.context.persistLater();
   }
@@ -218,8 +224,9 @@ export class SessionStateService {
     if (removed <= 0) {
       return 0;
     }
-    const state = this.context.getState();
-    delete state.selectedSessionIdByAssistant[assistantId];
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    delete selectedSessionIds[assistantId];
+    this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     this.context.persistLater();
     return removed;
@@ -232,9 +239,9 @@ export class SessionStateService {
     if (!changed) {
       throw new Error('Session not found');
     }
-    const state = this.context.getState();
-    state.selectedSessionIdByAssistant[assistantId] = sessionId;
-    state.selectedAssistantId = assistantId;
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    selectedSessionIds[assistantId] = sessionId;
+    this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     this.context.persistLater();
     const next = this.getSelectedSession(assistantId);
@@ -256,9 +263,9 @@ export class SessionStateService {
     if (!changed) {
       throw new Error('Session not found');
     }
-    const state = this.context.getState();
-    state.selectedSessionIdByAssistant[assistantId] = sessionId;
-    state.selectedAssistantId = assistantId;
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    selectedSessionIds[assistantId] = sessionId;
+    this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     if (persist) {
       this.context.persistLater();
@@ -279,9 +286,9 @@ export class SessionStateService {
     if (!changed) {
       return undefined;
     }
-    const state = this.context.getState();
-    state.selectedSessionIdByAssistant[assistantId] = sessionId;
-    state.selectedAssistantId = assistantId;
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    selectedSessionIds[assistantId] = sessionId;
+    this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     this.context.persistLater();
     const next = this.getSelectedSession(assistantId);
@@ -298,9 +305,9 @@ export class SessionStateService {
       const current = this.getSelectedSession(assistantId);
       return current && current.id === sessionId ? cloneSession(current) : undefined;
     }
-    const state = this.context.getState();
-    state.selectedSessionIdByAssistant[assistantId] = sessionId;
-    state.selectedAssistantId = assistantId;
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    selectedSessionIds[assistantId] = sessionId;
+    this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     this.context.persistLater();
     const next = this.getSelectedSession(assistantId);
@@ -354,8 +361,7 @@ export class SessionStateService {
   }
 
   public setSessionPanelCollapsed(collapsed: boolean): void {
-    const state = this.context.getState();
-    state.sessionPanelCollapsed = collapsed;
+    this.context.setSessionPanelCollapsed(collapsed);
     this.context.persistLater();
   }
 }

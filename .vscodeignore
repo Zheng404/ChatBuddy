@@ -23,6 +23,7 @@ coverage/
 # -----------------------------------------------------------------------------
 .claude/
 .serena/
+.omc/
 
 # -----------------------------------------------------------------------------
 # Development & Build Configuration
@@ -31,7 +32,7 @@ coverage/
 .github/**
 scripts/**
 docs/**
-img/**/demo/**
+img/**
 
 # -----------------------------------------------------------------------------
 # Source Code (use compiled output instead)
@@ -96,6 +97,19 @@ node_modules/mermaid/**
 !node_modules/mermaid/dist/mermaid.min.js
 node_modules/@mermaid-js/**
 
+# @napi-rs/canvas: VS Code extension does not need server-side Canvas rendering.
+# pdf-parse only needs it for rendering PDF pages to images; we only extract text.
+node_modules/@napi-rs/**
+
+# pdfjs-dist: keep only build/ core files; exclude legacy, cmaps, wasm, fonts, etc.
+node_modules/pdfjs-dist/legacy/**
+node_modules/pdfjs-dist/cmaps/**
+node_modules/pdfjs-dist/wasm/**
+node_modules/pdfjs-dist/standard_fonts/**
+node_modules/pdfjs-dist/image_decoders/**
+node_modules/pdfjs-dist/web/**
+node_modules/pdfjs-dist/iccs/**
+
 # SQL.js: exclude debug and browser-specific builds
 node_modules/sql.js/dist/*-debug.*
 node_modules/sql.js/dist/*-memory-growth.*
@@ -136,7 +150,15 @@ node_modules/d3-timer/**/*.spec.*
 node_modules/d3-transition/**/*.spec.*
 node_modules/d3-zoom/**/*.spec.*
 
-# Cytoscape: exclude demo and duplicate builds
+# Mammoth: exclude browser builds (Node.js extension only needs lib/)
+node_modules/mammoth/mammoth.browser.js
+node_modules/mammoth/mammoth.browser.min.js
+
+# Langium: exclude source files
+node_modules/langium/src/**
+
+# Cytoscape: exclude source, demo and duplicate builds
+node_modules/cytoscape/src/**
 node_modules/cytoscape-fcose/demo/**
 node_modules/cytoscape/dist/cytoscape.umd.js
 node_modules/cytoscape/dist/cytoscape.cjs.js

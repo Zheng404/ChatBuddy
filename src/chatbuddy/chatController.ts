@@ -60,7 +60,7 @@ export class ChatController {
   private readonly stateCache: ChatStateCache;
   private readonly mcpDeps: McpOperationDeps;
   private streamingEnabled: boolean;
-  private isGenerating = false;
+  private _isGenerating = false;
   private pendingToolContinuation: PendingToolContinuation | undefined;
   private abortController: AbortController | undefined;
   private abortReason: GenerationAbortReason | undefined;
@@ -92,7 +92,7 @@ export class ChatController {
       renderWebviewHtml: (webview) => getChatWebviewHtml(webview, this.extensionUri),
       handleWebviewMessage: (message, context) => this.handleWebviewMessage(message, context),
       handlePanelDisposing: (panel) => {
-        if (this.isGenerating) {
+        if (this._isGenerating) {
           this.stopGeneration('manual');
         }
         const timeoutHandle = this.streamStatePostTimers.get(panel);
@@ -111,10 +111,13 @@ export class ChatController {
       setPendingToolContinuation: (pending) => {
         this.pendingToolContinuation = pending;
       },
-      isGenerating: () => this.isGenerating,
+      isGenerating: () => this._isGenerating,
       setIsGenerating: (generating) => {
-        this.isGenerating = generating;
+        this._isGenerating = generating;
         void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
+        if (!generating && this.onGenerationEndCallback) {
+          Promise.resolve().then(() => this.onGenerationEndCallback!());
+        }
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -135,10 +138,13 @@ export class ChatController {
       providerClient: this.providerClient,
       toolOrchestrator: this.toolOrchestrator,
       getLocale: () => this.getLocale(),
-      isGenerating: () => this.isGenerating,
+      isGenerating: () => this._isGenerating,
       setIsGenerating: (generating) => {
-        this.isGenerating = generating;
+        this._isGenerating = generating;
         void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
+        if (!generating && this.onGenerationEndCallback) {
+          Promise.resolve().then(() => this.onGenerationEndCallback!());
+        }
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -305,6 +311,18 @@ export class ChatController {
 
   public setActivePanelChangeCallback(callback: () => void): void {
     this.panelManager.setActivePanelChangeCallback(callback);
+  }
+
+  /** 查询当前是否正在生成消息 */
+  public isGenerating(): boolean {
+    return this._isGenerating;
+  }
+
+  private onGenerationEndCallback: (() => void) | undefined;
+
+  /** 设置生成结束时的回调（用于同步监听器在生成结束后推送待处理通知） */
+  public setOnGenerationEnd(callback: (() => void) | undefined): void {
+    this.onGenerationEndCallback = callback;
   }
 
   public dispose(): void {
@@ -500,7 +518,7 @@ export class ChatController {
 
   private buildPayload(error?: string, assistantIdOverride?: string): ChatStatePayload {
     const locale = this.getLocale();
-    const raw = this.stateCache.getBaseState(this.isGenerating);
+    const raw = this.stateCache.getBaseState(this._isGenerating);
     const assistant =
       (assistantIdOverride ? this.repository.getAssistantById(assistantIdOverride) : undefined) ??
       this.repository.getSelectedAssistant();
@@ -553,7 +571,7 @@ export class ChatController {
         streamingEnabled: this.streamingEnabled,
         error
       }),
-      this.isGenerating
+      this._isGenerating
     );
   }
 

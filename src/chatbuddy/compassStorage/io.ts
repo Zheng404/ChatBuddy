@@ -57,6 +57,40 @@ export async function writeJsonAtomic(filePath: string, data: unknown): Promise<
   await writeTextAtomic(filePath, JSON.stringify(data, null, 2));
 }
 
+export async function appendTextFile(filePath: string, content: string): Promise<void> {
+  await ensureDir(path.dirname(filePath));
+  await fs.promises.appendFile(filePath, content, 'utf-8');
+}
+
+/**
+ * 获取文件的修改时间（mtime），单位毫秒。
+ * 文件不存在返回 -1，出错抛出异常。
+ */
+export async function getFileMtime(filePath: string): Promise<number> {
+  try {
+    const stats = await fs.promises.stat(filePath);
+    return stats.mtimeMs;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return -1;
+    }
+    throw err;
+  }
+}
+
+/**
+ * 读取 JSON 文件并返回数据及其修改时间。
+ * 文件不存在或解析失败返回 data: undefined, mtime: -1。
+ */
+export async function readJsonFileWithMtime<T>(filePath: string): Promise<{ data: T | undefined; mtime: number }> {
+  const mtime = await getFileMtime(filePath);
+  if (mtime < 0) {
+    return { data: undefined, mtime: -1 };
+  }
+  const data = await readJsonFile<T>(filePath);
+  return { data, mtime };
+}
+
 export async function removeFileIfExists(filePath: string): Promise<void> {
   try {
     await fs.promises.unlink(filePath);

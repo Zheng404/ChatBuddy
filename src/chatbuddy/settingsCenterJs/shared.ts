@@ -42,7 +42,7 @@ export function getSharedJs(): string {
         resetBtn: document.getElementById('resetBtn'),
         dataTabTransfer: document.getElementById('dataTabTransfer'),
         dataTabLocal: document.getElementById('dataTabLocal'),
-        dataTabTemplates: document.getElementById('dataTabTemplates'),
+        dataTabSync: document.getElementById('dataTabSync'),
         templatesSectionTitle: document.getElementById('templatesSectionTitle'),
         templatesSectionDescription: document.getElementById('templatesSectionDescription'),
         templatesListContainer: document.getElementById('templatesListContainer'),
@@ -152,6 +152,9 @@ export function getSharedJs(): string {
         navDataManagement: document.getElementById('navDataManagement'),
         navDataManagementTitle: document.getElementById('navDataManagementTitle'),
         paneDataManagement: document.getElementById('paneDataManagement'),
+        navTemplates: document.getElementById('navTemplates'),
+        navTemplatesTitle: document.getElementById('navTemplatesTitle'),
+        paneTemplates: document.getElementById('paneTemplates'),
         navAbout: document.getElementById('navAbout'),
         navAboutTitle: document.getElementById('navAboutTitle'),
         paneMcp: document.getElementById('paneMcp'),
@@ -269,7 +272,7 @@ export function getSharedUtilsJs(toastScript: string): string {
 ${getHtmlEscaperScript()}
 
       function normalizeSectionValue(section) {
-        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'dataManagement' || section === 'mcp' || section === 'about' ? section : 'general';
+        return section === 'modelConfig' || section === 'defaultModels' || section === 'general' || section === 'dataManagement' || section === 'templates' || section === 'mcp' || section === 'about' ? section : 'general';
       }
 
       function openModal(modalEl, focusEl) {
@@ -295,9 +298,10 @@ ${getHtmlEscaperScript()}
         dom.navGeneralTitle.textContent = strings.settingsTitle || '';
         dom.navMcpTitle.textContent = strings.mcpTitle || 'MCP';
         dom.navDataManagementTitle.textContent = strings.dataManagementTitle || 'Data';
+        dom.navTemplatesTitle.textContent = strings.navTemplatesTitle || 'Templates';
         dom.navAboutTitle.textContent = strings.aboutTitle || 'About';
 
-        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navDataManagement, dom.navGeneral, dom.navAbout];
+        const items = [dom.navModelConfig, dom.navDefaultModels, dom.navMcp, dom.navDataManagement, dom.navTemplates, dom.navGeneral, dom.navAbout];
         for (const item of items) {
           const isActive = item.getAttribute('data-section') === activeSection;
           item.classList.toggle('active', isActive);
@@ -307,7 +311,7 @@ ${getHtmlEscaperScript()}
       }
 
       function renderSectionVisibility() {
-        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral, dom.paneDataManagement, dom.paneMcp, dom.paneAbout];
+        const panes = [dom.paneModelConfig, dom.paneDefaultModels, dom.paneGeneral, dom.paneDataManagement, dom.paneTemplates, dom.paneMcp, dom.paneAbout];
         for (const pane of panes) {
           const isActive = pane.getAttribute('data-section') === activeSection;
           pane.classList.toggle('active', isActive);

@@ -26,6 +26,7 @@ import {
 } from './types';
 import { ChatStorage } from './chatStorage';
 import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider, cloneTemplate } from './stateClone';
+import { mergeById } from './stateMerge';
 import { unwrapImportedState, unwrapImportedStorageBackup } from './stateHelpers';
 import { sanitizeAssistantName } from './security';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
@@ -40,10 +41,17 @@ import {
 } from './stateRepositoryImportExport';
 import { StatePersistenceService } from './stateRepositoryPersistenceService';
 import { SessionStateService } from './stateRepositorySessionService';
+import { readSyncConfig, resolveStoragePath, ensureStorageDir, writeSyncConfig, type SyncConfig } from './syncConfig.js';
 
 const BACKUP_SCHEMA = 'chatbuddy.backup.compass';
 const BACKUP_VERSION = 2;
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
+
+// globalState keys for per-IDE UI state (not shared across IDE instances)
+const GS_SELECTED_ASSISTANT = 'chatbuddy.ui.selectedAssistantId';
+const GS_SELECTED_SESSION_IDS = 'chatbuddy.ui.selectedSessionIds';
+const GS_COLLAPSED_GROUPS = 'chatbuddy.ui.collapsedGroups';
+const GS_SESSION_PANEL_COLLAPSED = 'chatbuddy.ui.sessionPanelCollapsed';
 
 export interface ChatBuddyBackupStorageData {
   layout: 'compass';
@@ -113,7 +121,11 @@ export class ChatStateRepository {
       this.schedulePersist();
     },
     isWritableGroup: (groupId) => this.isWritableGroup(groupId),
-    defaultAssistantSystemPrompt: DEFAULT_ASSISTANT_SYSTEM_PROMPT
+    defaultAssistantSystemPrompt: DEFAULT_ASSISTANT_SYSTEM_PROMPT,
+    getSelectedAssistantId: () => this.getUiSelectedAssistantId(),
+    setSelectedAssistantId: (id) => this.setUiSelectedAssistantId(id),
+    getSelectedSessionIds: () => this.getUiSelectedSessionIds(),
+    setSelectedSessionIds: (ids) => this.setUiSelectedSessionIds(ids)
   });
   private readonly sessionStateService = new SessionStateService({
     getState: () => this.state,
@@ -124,7 +136,11 @@ export class ChatStateRepository {
     },
     ensureStorageReady: () => this.ensureStorageReady(),
     getSelectedAssistantId: () => this.getSelectedAssistantId(),
-    markAssistantInteracted: (assistantId, persist) => this.assistantStateService.markAssistantInteracted(assistantId, persist)
+    markAssistantInteracted: (assistantId, persist) => this.assistantStateService.markAssistantInteracted(assistantId, persist),
+    getSelectedSessionIds: () => this.getUiSelectedSessionIds(),
+    setSelectedSessionIds: (ids) => this.setUiSelectedSessionIds(ids),
+    getSessionPanelCollapsed: () => this.getUiSessionPanelCollapsed(),
+    setSessionPanelCollapsed: (collapsed) => this.setUiSessionPanelCollapsed(collapsed)
   });
   private readonly persistenceService = new StatePersistenceService({
     storage: this.storage,
@@ -137,8 +153,52 @@ export class ChatStateRepository {
     setProviderApiKeys: (providerApiKeys) => {
       this.providerApiKeys = providerApiKeys;
     },
-    bumpVersion: () => this.bump()
+    bumpVersion: () => this.bump(),
+    getGlobalState: () => this.context.globalState
   });
+
+  /**
+   * reload 时合并 settings：disk 优先，加载其他 IDE 的更新。
+   * 保留本地独有的 providers/mcp servers（防止新生成未 persist 的数据丢失）。
+   */
+  private mergeSettingsForReload(memory: ChatBuddySettings, disk: ChatBuddySettings): ChatBuddySettings {
+    // providers: disk 优先，保留本地独有的
+    const diskProviderIds = new Set(disk.providers.map((p) => p.id));
+    const mergedProviders = [
+      ...disk.providers,
+      ...memory.providers.filter((p) => !diskProviderIds.has(p.id))
+    ];
+
+    // mcp.servers: disk 优先，保留本地独有的
+    const diskMcpIds = new Set(disk.mcp.servers.map((s) => s.id));
+    const mergedMcpServers = [
+      ...disk.mcp.servers,
+      ...memory.mcp.servers.filter((s) => !diskMcpIds.has(s.id))
+    ];
+
+    // defaultModels: disk 优先
+    const mergedDefaultModels = disk.defaultModels.assistant
+      ? disk.defaultModels
+      : memory.defaultModels;
+
+    // scalar 字段：disk 优先（加载其他 IDE 的更新）
+    return {
+      providers: mergedProviders,
+      defaultModels: mergedDefaultModels,
+      mcp: { ...disk.mcp, servers: mergedMcpServers },
+      temperature: disk.temperature !== undefined ? disk.temperature : memory.temperature,
+      topP: disk.topP !== undefined ? disk.topP : memory.topP,
+      maxTokens: disk.maxTokens !== undefined ? disk.maxTokens : memory.maxTokens,
+      presencePenalty: disk.presencePenalty !== undefined ? disk.presencePenalty : memory.presencePenalty,
+      frequencyPenalty: disk.frequencyPenalty !== undefined ? disk.frequencyPenalty : memory.frequencyPenalty,
+      timeoutMs: disk.timeoutMs !== undefined ? disk.timeoutMs : memory.timeoutMs,
+      streamingDefault: disk.streamingDefault !== undefined ? disk.streamingDefault : memory.streamingDefault,
+      locale: disk.locale !== undefined ? disk.locale : memory.locale,
+      sendShortcut: disk.sendShortcut !== undefined ? disk.sendShortcut : memory.sendShortcut,
+      chatTabMode: disk.chatTabMode !== undefined ? disk.chatTabMode : memory.chatTabMode,
+      localBackup: disk.localBackup !== undefined ? disk.localBackup : memory.localBackup
+    };
+  }
 
   private bump(): void {
     this.version++;
@@ -154,21 +214,243 @@ export class ChatStateRepository {
     this.state = createInitialState();
   }
 
+  private syncConfig: SyncConfig = { storageMode: 'default' };
+  private usingSharedStorage = false;
+  private reloadPromise: Promise<void> = Promise.resolve();
+
+  // ─── Per-IDE UI state (globalState) helpers ───────────────────────────────
+
+  private readGlobalState<T>(key: string, fallback: T): T {
+    const value = this.context.globalState.get<T>(key);
+    return value !== undefined && value !== null ? value : fallback;
+  }
+
+  private writeGlobalState<T>(key: string, value: T): void {
+    void this.context.globalState.update(key, value);
+  }
+
+  /** Migrate UI fields from Compass state to globalState on first startup */
+  private migrateUiStateFromCompass(): void {
+    // Only migrate if globalState doesn't have these keys yet
+    const hasMigrated = this.context.globalState.get<boolean>('chatbuddy.ui.migrated');
+    if (hasMigrated) { return; }
+
+    // Migrate from Compass state (this.state) to globalState
+    if (this.state.selectedAssistantId) {
+      this.writeGlobalState(GS_SELECTED_ASSISTANT, this.state.selectedAssistantId);
+    }
+    if (Object.keys(this.state.selectedSessionIdByAssistant).length > 0) {
+      this.writeGlobalState(GS_SELECTED_SESSION_IDS, { ...this.state.selectedSessionIdByAssistant });
+    }
+    if (this.state.collapsedGroupIds.length > 0) {
+      this.writeGlobalState(GS_COLLAPSED_GROUPS, [...this.state.collapsedGroupIds]);
+    }
+    this.writeGlobalState(GS_SESSION_PANEL_COLLAPSED, this.state.sessionPanelCollapsed);
+    this.writeGlobalState('chatbuddy.ui.migrated', true);
+  }
+
+  private getUiSelectedAssistantId(): string | undefined {
+    return this.readGlobalState<string | undefined>(GS_SELECTED_ASSISTANT, undefined)
+      ?? this.state.selectedAssistantId;
+  }
+
+  private setUiSelectedAssistantId(id: string | undefined): void {
+    this.writeGlobalState(GS_SELECTED_ASSISTANT, id);
+    this.state.selectedAssistantId = id;
+  }
+
+  private getUiSelectedSessionIds(): Record<string, string> {
+    return this.readGlobalState<Record<string, string>>(GS_SELECTED_SESSION_IDS, {});
+  }
+
+  private setUiSelectedSessionIds(ids: Record<string, string>): void {
+    this.writeGlobalState(GS_SELECTED_SESSION_IDS, { ...ids });
+    this.state.selectedSessionIdByAssistant = { ...ids };
+  }
+
+  private getUiCollapsedGroupIds(): string[] {
+    return this.readGlobalState<string[]>(GS_COLLAPSED_GROUPS, []);
+  }
+
+  private setUiCollapsedGroupIds(ids: string[]): void {
+    this.writeGlobalState(GS_COLLAPSED_GROUPS, [...ids]);
+    this.state.collapsedGroupIds = [...ids];
+  }
+
+  private getUiSessionPanelCollapsed(): boolean {
+    return this.readGlobalState<boolean>(GS_SESSION_PANEL_COLLAPSED, false);
+  }
+
+  private setUiSessionPanelCollapsed(collapsed: boolean): void {
+    this.writeGlobalState(GS_SESSION_PANEL_COLLAPSED, collapsed);
+    this.state.sessionPanelCollapsed = collapsed;
+  }
+
+  public getSyncConfig(): SyncConfig {
+    return { ...this.syncConfig };
+  }
+
+  /** 将 SyncWatcher 传递给底层 storage，用于写入自写标记 */
+  public setSyncWatcher(syncWatcher: import('./syncWatcher').SyncWatcher): void {
+    this.storage.setSyncWatcher(syncWatcher);
+  }
+
+  public isUsingSharedStorage(): boolean {
+    return this.usingSharedStorage;
+  }
+
+  /** 获取当前存储根路径（用于 syncWatcher 监听） */
+  public getStorageRootPath(): string | undefined {
+    return this.storage.getStorageRootPath();
+  }
+
+  /** 获取 VS Code 默认的 globalStorage 路径 */
+  public getDefaultStoragePath(): string {
+    return this.context.globalStorageUri.fsPath;
+  }
+
+  public async updateSyncConfig(config: SyncConfig): Promise<void> {
+    await writeSyncConfig(this.context.globalState, config);
+    this.syncConfig = { ...config };
+  }
+
   public async initialize(): Promise<void> {
-    await this.storage.initialize(this.context.globalStorageUri.fsPath);
+    this.syncConfig = readSyncConfig(this.context.globalState);
+    const { path: storagePath, usingShared } = resolveStoragePath(
+      this.syncConfig,
+      this.context.globalStorageUri.fsPath
+    );
+
+    if (usingShared) {
+      const ensureResult = await ensureStorageDir(storagePath);
+      if (!ensureResult.ok) {
+        console.warn(`[ChatBuddy] Shared storage unavailable (${ensureResult.reason}), falling back to local`);
+        const locale = vscode.env.language?.startsWith('zh') ? 'zh-CN' : 'en';
+        const warningMsg = locale === 'zh-CN'
+          ? `共享存储目录不可用：${ensureResult.reason}。已回退到本地存储。`
+          : `Shared storage directory unavailable: ${ensureResult.reason}. Falling back to local storage.`;
+        void vscode.window.showWarningMessage(warningMsg);
+        this.syncConfig = { storageMode: 'default' };
+        await this.storage.initialize(this.context.globalStorageUri.fsPath);
+      } else {
+        this.usingSharedStorage = true;
+        await this.storage.initialize(storagePath);
+      }
+    } else {
+      this.usingSharedStorage = false;
+      await this.storage.initialize(this.context.globalStorageUri.fsPath);
+    }
+
     this.storageReady = true;
     this.persistenceService.hydrateStateFromStorage();
     this.persistenceService.hydrateProviderApiKeysFromStorage();
     this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, this.state.settings);
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
-    await this.persistenceService.persistSecrets();
-    await this.persistenceService.persist();
+
+    // Migrate UI state from Compass to globalState (one-time migration)
+    this.migrateUiStateFromCompass();
+
+    // 只在首次使用（无数据）时才 persist 初始状态，避免每次启动都重写文件触发其他 IDE 的 watcher
+    const isFirstUse = this.state.assistants.length === 0 && !this.storage.hasAnySession();
+    if (isFirstUse) {
+      await this.persistenceService.persistSecrets();
+      await this.persistenceService.persist();
+    }
   }
 
   public async close(): Promise<void> {
     await this.persistenceService.drain();
     await this.storage.close();
+  }
+
+  /** 从共享存储重新加载数据（用于跨 IDE 同步刷新） */
+  public async reloadFromSharedStorage(
+    categories?: ReadonlySet<'core' | 'settings' | 'sessions' | 'images'>
+  ): Promise<void> {
+    if (!this.storageReady || !this.usingSharedStorage) { return; }
+
+    this.reloadPromise = this.reloadPromise.then(async () => {
+      // 等待进行中的持久化完成，避免并发读写导致数据不一致
+      await this.persistenceService.drain();
+
+      // 保存加载前的内存状态快照（深拷贝），用于后续合并和变更检测
+      // 必须在 hydrateStateFromStorage 之前拷贝，否则引用会被覆盖
+      const memoryState = {
+        groups: this.state.groups.map(cloneGroup),
+        assistants: this.state.assistants.map(cloneAssistant),
+        templates: this.state.templates.map(cloneTemplate),
+        settings: this.getSettings()
+      };
+
+      // 使用已克隆的 memoryState 构建变更前指纹，避免重复序列化 this.state
+      const beforeData = JSON.stringify({
+        groups: memoryState.groups,
+        assistants: memoryState.assistants,
+        templates: memoryState.templates,
+        settings: memoryState.settings
+      });
+
+      if (categories && categories.size > 0) {
+        // 增量刷新：只加载变更的类别
+        await this.storage.reloadCategories(categories);
+      } else {
+        // 全量刷新（兼容旧行为）
+        await this.storage.reload();
+      }
+      this.persistenceService.hydrateStateFromStorage();
+      this.persistenceService.hydrateProviderApiKeysFromStorage();
+
+      // 将磁盘数据与内存数据按 ID 合并（防止其他 IDE 的修改被覆盖）
+      const diskState = this.state;
+      const mergedAssistants = mergeById(memoryState.assistants, diskState.assistants);
+      const mergedGroups = mergeById(memoryState.groups, diskState.groups);
+      const mergedTemplates = mergeById(memoryState.templates, diskState.templates);
+      // reload 时使用 memory 优先的合并策略，防止覆盖本地未 persist 的修改
+      const mergedSettings = this.mergeSettingsForReload(memoryState.settings, diskState.settings);
+
+      this.state.groups = mergedGroups;
+      this.state.assistants = mergedAssistants;
+      this.state.templates = mergedTemplates;
+      this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, mergedSettings);
+
+      // 清理无效的 UI 引用，同时追踪 UI 状态是否变化
+      let uiChanged = false;
+      const validAssistantIds = new Set(mergedAssistants.map((a) => a.id));
+      const currentSelectedId = this.getUiSelectedAssistantId();
+      if (currentSelectedId && !validAssistantIds.has(currentSelectedId)) {
+        const newSelectedId = mergedAssistants.find((a) => !a.isDeleted)?.id ?? mergedAssistants[0]?.id;
+        this.setUiSelectedAssistantId(newSelectedId);
+        uiChanged = true;
+      }
+      // 清理无效的 selectedSessionIdByAssistant 条目（在 globalState 中）
+      const currentSessionIds = this.getUiSelectedSessionIds();
+      for (const assistantId of Object.keys(currentSessionIds)) {
+        if (!validAssistantIds.has(assistantId)) {
+          delete currentSessionIds[assistantId];
+          uiChanged = true;
+        }
+      }
+      if (uiChanged) {
+        this.setUiSelectedSessionIds(currentSessionIds);
+      }
+
+      normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
+      normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
+
+      // 轻量级变更检测：仅比较数据字段，UI 变化用布尔标志追踪
+      const afterData = JSON.stringify({
+        groups: this.state.groups,
+        assistants: this.state.assistants,
+        templates: this.state.templates,
+        settings: this.state.settings
+      });
+
+      if (afterData !== beforeData || uiChanged) {
+        this.bump();
+      }
+    });
+    await this.reloadPromise;
   }
 
   public getState(): import('./types').PersistedStateLite {
@@ -179,8 +461,10 @@ export class ChatStateRepository {
       ...this.state,
       groups: this.state.groups.map(cloneGroup),
       assistants: this.state.assistants.map(cloneAssistant),
-      selectedSessionIdByAssistant: { ...this.state.selectedSessionIdByAssistant },
-      collapsedGroupIds: [...this.state.collapsedGroupIds],
+      selectedAssistantId: this.getUiSelectedAssistantId(),
+      selectedSessionIdByAssistant: { ...this.getUiSelectedSessionIds() },
+      collapsedGroupIds: [...this.getUiCollapsedGroupIds()],
+      sessionPanelCollapsed: this.getUiSessionPanelCollapsed(),
       templates: this.state.templates.map(cloneTemplate),
       settings: this.getSettings()
     };
@@ -447,8 +731,9 @@ export class ChatStateRepository {
     if (!this.state.assistants.length) {
       return undefined;
     }
-    if (this.state.selectedAssistantId) {
-      const selected = this.state.assistants.find((assistant) => assistant.id === this.state.selectedAssistantId);
+    const selectedId = this.getUiSelectedAssistantId();
+    if (selectedId) {
+      const selected = this.state.assistants.find((assistant) => assistant.id === selectedId);
       if (selected) {
         return cloneAssistant(selected);
       }
@@ -461,8 +746,9 @@ export class ChatStateRepository {
     if (!this.state.assistants.length) {
       return undefined;
     }
-    if (this.state.selectedAssistantId && this.state.assistants.some((assistant) => assistant.id === this.state.selectedAssistantId)) {
-      return this.state.selectedAssistantId;
+    const selectedId = this.getUiSelectedAssistantId();
+    if (selectedId && this.state.assistants.some((assistant) => assistant.id === selectedId)) {
+      return selectedId;
     }
     return (this.state.assistants.find((assistant) => !assistant.isDeleted) ?? this.state.assistants[0])?.id;
   }
@@ -609,17 +895,19 @@ export class ChatStateRepository {
   }
 
   public setGroupCollapsed(groupId: string, collapsed: boolean): void {
-    const ids = this.state.collapsedGroupIds;
+    const ids = this.getUiCollapsedGroupIds();
     const index = ids.indexOf(groupId);
-      if (collapsed) {
-        if (index < 0) {
-          ids.push(groupId);
-          this.schedulePersist();
-        }
-      } else if (index >= 0) {
-        ids.splice(index, 1);
-        this.schedulePersist();
+    if (collapsed) {
+      if (index < 0) {
+        ids.push(groupId);
+        this.setUiCollapsedGroupIds(ids);
+        this.bump();
       }
+    } else if (index >= 0) {
+      ids.splice(index, 1);
+      this.setUiCollapsedGroupIds(ids);
+      this.bump();
+    }
   }
 
   private mergeState(

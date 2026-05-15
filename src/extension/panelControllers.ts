@@ -29,6 +29,7 @@ export function createPanelControllers(args: {
   getBackupPassword: () => Promise<string | undefined>;
   setBackupPassword: (password: string) => Promise<void>;
   clearBackupPassword: () => Promise<void>;
+  onBackupSettingsChanged?: () => void;
   refreshAll: () => void;
   updateTreeMessage: () => void;
   getRuntimeStrings: () => Record<string, string>;
@@ -49,6 +50,7 @@ export function createPanelControllers(args: {
     getBackupPassword,
     setBackupPassword,
     clearBackupPassword,
+    onBackupSettingsChanged,
     refreshAll,
     updateTreeMessage,
     getRuntimeStrings
@@ -66,7 +68,8 @@ export function createPanelControllers(args: {
     handleSelectiveExportData,
     getBackupPassword,
     setBackupPassword,
-    clearBackupPassword
+    clearBackupPassword,
+    onBackupSettingsChanged
   );
 
   const assistantEditorPanelController = new AssistantEditorPanelController(

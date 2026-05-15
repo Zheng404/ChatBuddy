@@ -44,6 +44,11 @@ async function createRepository(): Promise<{ repository: ChatStateRepository; cl
       fsPath: tmpDir,
       path: tmpDir,
       toString: () => tmpDir
+    },
+    globalState: {
+      get: () => undefined,
+      update: () => Promise.resolve(),
+      keys: () => []
     }
   } as unknown as ExtensionContext);
   await repository.initialize();

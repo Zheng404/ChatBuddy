@@ -75,7 +75,8 @@ export class SettingsCenterPanelController {
     private readonly onSelectiveExport: (categories: string[]) => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
     private readonly onGetBackupPassword: () => Promise<string | undefined>,
     private readonly onSetBackupPassword: (password: string) => Promise<void>,
-    private readonly onClearBackupPassword: () => Promise<void>
+    private readonly onClearBackupPassword: () => Promise<void>,
+    private readonly onBackupSettingsChanged?: () => void
   ) {
     this.handlerDeps = {
       repository: this.repository,
@@ -90,6 +91,7 @@ export class SettingsCenterPanelController {
       onGetBackupPassword: this.onGetBackupPassword,
       onSetBackupPassword: this.onSetBackupPassword,
       onClearBackupPassword: this.onClearBackupPassword,
+      onBackupSettingsChanged: this.onBackupSettingsChanged,
       getLocale: () => this.getLocale(),
       getStrings: () => this.getStrings(),
       postState: (notice, tone) => this.postState(notice, tone),
@@ -247,7 +249,7 @@ export class SettingsCenterPanelController {
     });
   }
 
-  private postBackupPasswordStatus(): void {
+  postBackupPasswordStatus(): void {
     void this.onGetBackupPassword().then((password) => {
       this.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: !!password } });
     }).catch(() => {
@@ -295,7 +297,14 @@ export class SettingsCenterPanelController {
         notice,
         noticeTone: notice ? noticeTone : undefined,
         backupFiles: [],
-        templates: this.repository.getTemplates()
+        templates: this.repository.getTemplates(),
+        syncConfig: (() => {
+          const syncCfg = this.repository.getSyncConfig();
+          return {
+            storageMode: syncCfg.storageMode,
+            usingShared: this.repository.isUsingSharedStorage()
+          };
+        })()
       }
     });
   }

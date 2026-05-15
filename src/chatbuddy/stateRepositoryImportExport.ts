@@ -133,7 +133,8 @@ export function mergePersistedState(
 export function normalizeLocalizedDefaultTitles(
   storage: ChatStorage,
   localeSetting: ChatBuddyLocaleSetting | undefined
-): void {
+): boolean {
+  let changed = false;
   const untitledSessionTitle = resolveUntitledSessionTitle(localeSetting);
   const sessions = storage.listAllSessions();
   for (const session of sessions) {
@@ -146,14 +147,17 @@ export function normalizeLocalizedDefaultTitles(
         continue;
       }
       storage.renameSession(session.assistantId, session.id, untitledSessionTitle, 'default', session.updatedAt);
+      changed = true;
     }
   }
+  return changed;
 }
 
 export function normalizeTitleSourceConsistency(
   storage: ChatStorage,
   localeSetting: ChatBuddyLocaleSetting | undefined
-): void {
+): boolean {
+  let changed = false;
   const untitledSessionTitle = resolveUntitledSessionTitle(localeSetting);
   const sessions = storage.listAllSessions();
   for (const session of sessions) {
@@ -169,6 +173,8 @@ export function normalizeTitleSourceConsistency(
         'default',
         session.updatedAt
       );
+      changed = true;
     }
   }
+  return changed;
 }

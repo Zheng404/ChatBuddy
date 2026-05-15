@@ -26,6 +26,10 @@ type AssistantServiceContext = {
   persistLater: () => void;
   isWritableGroup: (groupId: string) => boolean;
   defaultAssistantSystemPrompt: string;
+  getSelectedAssistantId: () => string | undefined;
+  setSelectedAssistantId: (id: string | undefined) => void;
+  getSelectedSessionIds: () => Record<string, string>;
+  setSelectedSessionIds: (ids: Record<string, string>) => void;
 };
 
 export class AssistantStateService {
@@ -37,7 +41,7 @@ export class AssistantStateService {
     if (!assistant) {
       return;
     }
-    state.selectedAssistantId = assistant.id;
+    this.context.setSelectedAssistantId(assistant.id);
     assistant.lastInteractedAt = nowTs();
     assistant.updatedAt = nowTs();
     this.context.persistLater();
@@ -132,7 +136,7 @@ export class AssistantStateService {
       lastInteractedAt: timestamp
     };
     state.assistants.push(assistant);
-    state.selectedAssistantId = assistant.id;
+    this.context.setSelectedAssistantId(assistant.id);
     this.context.persistLater();
     return cloneAssistant(assistant);
   }
@@ -273,7 +277,7 @@ export class AssistantStateService {
     assistant.deletedAt = undefined;
     assistant.originalGroupId = undefined;
     assistant.updatedAt = nowTs();
-    state.selectedAssistantId = assistant.id;
+    this.context.setSelectedAssistantId(assistant.id);
     this.context.persistLater();
     return cloneAssistant(assistant);
   }
@@ -288,10 +292,12 @@ export class AssistantStateService {
     if (this.context.storageReady()) {
       await this.context.storage.clearSessionsForAssistant(assistantId, true);
     }
-    delete state.selectedSessionIdByAssistant[assistantId];
-    if (state.selectedAssistantId === assistantId) {
+    const selectedSessionIds = this.context.getSelectedSessionIds();
+    delete selectedSessionIds[assistantId];
+    this.context.setSelectedSessionIds(selectedSessionIds);
+    if (this.context.getSelectedAssistantId() === assistantId) {
       const next = state.assistants.find((assistant) => !assistant.isDeleted) ?? state.assistants[0];
-      state.selectedAssistantId = next?.id;
+      this.context.setSelectedAssistantId(next?.id);
     }
     this.context.persistLater();
     return true;
@@ -308,12 +314,15 @@ export class AssistantStateService {
     if (this.context.storageReady()) {
       await this.context.storage.clearSessionsForAssistants(deletedAssistantIds, true);
     }
+    const selectedSessionIds = this.context.getSelectedSessionIds();
     for (const assistantId of deletedAssistantIds) {
-      delete state.selectedSessionIdByAssistant[assistantId];
+      delete selectedSessionIds[assistantId];
     }
-    if (!state.selectedAssistantId || deletedSet.has(state.selectedAssistantId)) {
+    this.context.setSelectedSessionIds(selectedSessionIds);
+    const currentSelectedId = this.context.getSelectedAssistantId();
+    if (!currentSelectedId || deletedSet.has(currentSelectedId)) {
       const next = state.assistants.find((assistant) => !assistant.isDeleted) ?? state.assistants[0];
-      state.selectedAssistantId = next?.id;
+      this.context.setSelectedAssistantId(next?.id);
     }
     this.context.persistLater();
     return deletedAssistantIds.length;

@@ -4,6 +4,7 @@
  * 从 settingsCenterPanel 中提取的类型、消息定义及纯函数。
  */
 import { createModelRef } from './modelCatalog';
+import type { StorageMode } from './syncConfig';
 import type {
   ChatBuddyLocaleSetting,
   ChatBuddySettings,
@@ -18,7 +19,7 @@ import type {
 
 // ─── 类型定义 ────────────────────────────────────────────────────────
 
-export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'dataManagement' | 'mcp' | 'about';
+export type SettingsCenterSection = 'modelConfig' | 'defaultModels' | 'general' | 'dataManagement' | 'templates' | 'mcp' | 'about';
 
 export type SettingsActionResult = {
   notice: string;
@@ -97,7 +98,9 @@ export type SettingsCenterMessage =
   | { type: 'clearBackupPassword' }
   | { type: 'queryBackupPasswordStatus' }
   | { type: 'requestAddMcpGroup' }
-  | { type: 'requestDeleteMcpGroup'; payload: { groupId: string; groupName: string } };
+  | { type: 'requestDeleteMcpGroup'; payload: { groupId: string; groupName: string } }
+  | { type: 'switchStorageMode'; payload: { mode: StorageMode } }
+  | { type: 'confirmStorageMigration'; payload: { mode: StorageMode; migrate: boolean } };
 
 export type SettingsCenterState = {
   strings: RuntimeStrings;
@@ -129,6 +132,7 @@ export type SettingsCenterState = {
   noticeTone?: 'success' | 'error' | 'info';
   backupFiles: import('./types').BackupFileEntry[];
   templates?: import('./types').AssistantTemplate[];
+  syncConfig?: { storageMode: StorageMode; usingShared: boolean };
 };
 
 export type SettingsCenterOutbound =
@@ -178,7 +182,9 @@ export type SettingsCenterOutbound =
   | { type: 'backupOperationResult'; payload: { success: boolean; message: string } }
   | { type: 'backupPasswordStatus'; payload: { hasPassword: boolean } }
   | { type: 'mcpGroupAdded'; payload: { name: string } }
-  | { type: 'mcpGroupDeleted'; payload: { groupId: string } };
+  | { type: 'mcpGroupDeleted'; payload: { groupId: string } }
+  | { type: 'storageMigrationPrompt'; payload: { targetMode: StorageMode } }
+  | { type: 'storageSwitchResult'; payload: { success: boolean; reason?: string; filesCopied?: number; restartNeeded: boolean } };
 
 // ─── 工具函数 ────────────────────────────────────────────────────────
 
@@ -188,6 +194,7 @@ export function normalizeSection(section: SettingsCenterSection | string | undef
     section === 'defaultModels' ||
     section === 'general' ||
     section === 'dataManagement' ||
+    section === 'templates' ||
     section === 'mcp' ||
     section === 'about'
   ) {

@@ -50,6 +50,10 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
               <span class="nav-item-icon"><span class="codicon codicon-database"></span></span>
               <span class="nav-item-title" id="navDataManagementTitle"></span>
             </button>
+            <button class="nav-item" id="navTemplates" type="button" data-section="templates">
+              <span class="nav-item-icon"><span class="codicon codicon-layout"></span></span>
+              <span class="nav-item-title" id="navTemplatesTitle"></span>
+            </button>
             <button class="nav-item" id="navGeneral" type="button" data-section="general">
               <span class="nav-item-icon"><span class="codicon codicon-settings-gear"></span></span>
               <span class="nav-item-title" id="navGeneralTitle"></span>
@@ -244,7 +248,7 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                 <div class="editor-tabs" id="dataTabs">
                   <button class="editor-tab active" id="dataTabTransfer" data-tab="transfer"></button>
                   <button class="editor-tab" id="dataTabLocal" data-tab="local"></button>
-                  <button class="editor-tab" id="dataTabTemplates" data-tab="templates"></button>
+                  <button class="editor-tab" id="dataTabSync" data-tab="sync"></button>
                 </div>
 
                 <div class="editor-pane active" data-tab="transfer">
@@ -325,11 +329,37 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                   </section>
                 </div>
 
-                <div class="editor-pane" data-tab="templates">
+                <div class="editor-pane" data-tab="sync">
                   <section class="section-card">
-                    <h2 class="section-title" id="templatesSectionTitle"></h2>
-                    <p class="help" id="templatesSectionDescription"></p>
-                    <div id="templatesListContainer"></div>
+                    <h2 class="section-title" id="dataStorageTitle">Data Storage</h2>
+                    <p class="help" id="dataStorageHelp"></p>
+                    <div class="field-radio-group" style="margin-top:8px">
+                      <label class="radio-option">
+                        <input type="radio" name="storageMode" value="default" id="storageModeDefault" />
+                        <div class="radio-option-content">
+                          <span class="radio-option-title" id="storageModeDefaultLabel">Default</span>
+                          <span class="radio-option-desc" id="storageModeDefaultDesc">VS Code globalStorage</span>
+                        </div>
+                      </label>
+                      <label class="radio-option">
+                        <input type="radio" name="storageMode" value="shared" id="storageModeShared" />
+                        <div class="radio-option-content">
+                          <span class="radio-option-title" id="storageModeSharedLabel">Shared</span>
+                          <span class="radio-option-desc" id="storageModeSharedDesc">~/.ChatBuddy</span>
+                        </div>
+                      </label>
+                    </div>
+                  </section>
+                  <section class="section-card" id="dataStorageStatusSection">
+                    <p class="form-status" id="dataStorageStatus"></p>
+                  </section>
+                  <section class="section-card" id="dataStorageMigrationSection" style="display:none">
+                    <p id="dataStorageMigrationPrompt"></p>
+                    <div class="panel-actions" style="margin-top:12px">
+                      <button class="btn-primary" id="dataStorageMigrateYesBtn" type="button">Migrate</button>
+                      <button class="btn-secondary" id="dataStorageMigrateNoBtn" type="button">Init Empty</button>
+                      <button class="btn-secondary" id="dataStorageMigrateCancelBtn" type="button">Cancel</button>
+                    </div>
                   </section>
                 </div>
               </div>
@@ -341,6 +371,16 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                   <button class="btn-danger" id="resetBtn" type="button"></button>
                 </div>
               </section>
+            </div>
+          </section>
+
+          <section class="settings-pane" id="paneTemplates" data-section="templates">
+            <div class="section-grid">
+              <div class="section-card">
+                <h2 class="section-title" id="templatesSectionTitle"></h2>
+                <p class="help" id="templatesSectionDescription"></p>
+                <div id="templatesListContainer"></div>
+              </div>
             </div>
           </section>
 

@@ -9,6 +9,11 @@ export function getStateSyncJs(): string {
         var previousMcpSignature = mcpServersSignature(mcpServers) + '|' + mcpGroupsSignature(mcpGroups);
         var nextMcpSignature = mcpServersSignature((nextState.settings && nextState.settings.mcp && nextState.settings.mcp.servers) || []) + '|' + mcpGroupsSignature((nextState.settings && nextState.settings.mcp && nextState.settings.mcp.groups) || []);
         runtimeState = nextState;
+        // 从 settings.localBackup.password 推断密码状态（作为 backupPasswordStatus 的安全网）
+        var backupPw = runtimeState.settings && runtimeState.settings.localBackup && runtimeState.settings.localBackup.password;
+        if (backupPw) {
+          runtimeState.hasBackupPassword = true;
+        }
         if (previousSignature !== nextSignature || Object.keys(persistedProvidersById).length === 0) {
           syncProvidersFromState(nextState);
         } else {
@@ -18,6 +23,14 @@ export function getStateSyncJs(): string {
           syncMcpServersFromState(nextState);
         }
         activeSection = normalizeSectionValue(nextState.activeSection || activeSection);
+        if (nextState.syncConfig) {
+          currentStorageMode = nextState.syncConfig.storageMode || 'default';
+          if (nextState.syncConfig.usingShared) {
+            dataStorageStatus = nextState.strings && nextState.strings.dataStorageStatusShared ? nextState.strings.dataStorageStatusShared : 'Using shared storage';
+          } else {
+            dataStorageStatus = nextState.strings && nextState.strings.dataStorageStatusDefault ? nextState.strings.dataStorageStatusDefault : 'Using default storage';
+          }
+        }
         renderAll();
       }
 
@@ -26,6 +39,9 @@ export function getStateSyncJs(): string {
         renderSectionVisibility();
         renderGeneralText();
         renderDataManagementText();
+        renderTemplatesText();
+        renderDataSyncText();
+        renderDataSyncValues();
         renderGeneralValues();
         renderDefaultModels();
         renderModelConfigText();

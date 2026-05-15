@@ -89,7 +89,11 @@ function createService(stateOverrides: Partial<PersistedStateLite> = {}) {
     storageReady: () => true,
     persistLater: () => { persistCalls.push(Date.now()); },
     isWritableGroup: (groupId: string) => groupId === DEFAULT_GROUP_ID || groupId.startsWith('group_'),
-    defaultAssistantSystemPrompt: 'You are helpful.'
+    defaultAssistantSystemPrompt: 'You are helpful.',
+    getSelectedAssistantId: () => state.selectedAssistantId,
+    setSelectedAssistantId: (id) => { state.selectedAssistantId = id; },
+    getSelectedSessionIds: () => state.selectedSessionIdByAssistant,
+    setSelectedSessionIds: (ids) => { state.selectedSessionIdByAssistant = ids; }
   });
   return { service, state, persistCalls, storageCalls };
 }

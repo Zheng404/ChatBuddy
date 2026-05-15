@@ -11,6 +11,7 @@ import * as path from 'path';
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from '../types';
 import { nowTs } from '../utils';
 import {
+  appendTextFile,
   ensureDir,
   fileExists,
   listFilesRecursively,
@@ -85,10 +86,23 @@ function mapLegacyMessageRow(row: Record<string, unknown>): ChatMessage {
 export class CompassSessionStore {
   private readonly sessionSummaries = new Map<string, SessionSummaryInternal>();
   private readonly sessionMessages = new Map<string, ChatMessage[]>();
+  /** 追踪待追加的消息（仅追加模式，不涉及编辑/删除） */
+  private readonly pendingAppends = new Map<string, ChatMessage[]>();
+  /** 追踪需要完整重写的会话（编辑、删除、清空等操作） */
+  private readonly pendingRewrites = new Set<string>();
 
   public async load(paths: CompassPaths): Promise<void> {
+    // 保存完整的内存状态快照（包括 summaries 和 messages）
+    // 防止其他 IDE 触发 reload 时丢失本地新生成但未 persist 的会话
+    const savedSummaries = new Map(this.sessionSummaries);
+    const savedMessages = new Map(this.sessionMessages);
+    const savedAppends = new Map(this.pendingAppends);
+    const savedRewrites = new Set(this.pendingRewrites);
+
     this.sessionSummaries.clear();
     this.sessionMessages.clear();
+    this.pendingAppends.clear();
+    this.pendingRewrites.clear();
 
     const indexPayload = await readJsonFile<CompassIndexFile>(paths.indexPath);
     const sessions = Array.isArray(indexPayload?.sessions) ? indexPayload.sessions : [];
@@ -106,6 +120,62 @@ export class CompassSessionStore {
       this.sessionSummaries.set(summary.id, summary);
       this.sessionMessages.set(summary.id, hydratedMessages);
     }
+
+    // 恢复内存中独有但磁盘上不存在的数据（新生成未 persist 的会话）
+    // 以及合并已存在会话的本地元数据变更（如标题重命名）
+    for (const [sessionId, summary] of savedSummaries) {
+      if (!this.sessionSummaries.has(sessionId)) {
+        // 磁盘上没有这个会话，保留内存中的完整版本
+        const messages = savedMessages.get(sessionId) ?? [];
+        this.sessionSummaries.set(sessionId, summary);
+        this.sessionMessages.set(sessionId, messages);
+        // 标记为需要完整重写（因为它还没被 persist 到磁盘）
+        this.pendingRewrites.add(sessionId);
+      } else {
+        // 会话在磁盘和内存都存在：如果本地版本更新，合并元数据变更
+        const diskSummary = this.sessionSummaries.get(sessionId)!;
+        if (summary.updatedAt > diskSummary.updatedAt) {
+          diskSummary.title = summary.title;
+          diskSummary.titleSource = summary.titleSource;
+          diskSummary.updatedAt = summary.updatedAt;
+          this.pendingRewrites.add(sessionId);
+          this.pendingAppends.delete(sessionId);
+        }
+      }
+    }
+
+    // 恢复本地未持久化的追加消息（通过 message id 去重）
+    for (const [sessionId, pendingMessages] of savedAppends) {
+      const existingMessages = this.sessionMessages.get(sessionId);
+      if (!existingMessages) {
+        // 会话可能已被其他 IDE 删除，跳过
+        continue;
+      }
+      const existingIds = new Set(existingMessages.map((m) => m.id));
+      const messagesToRestore: ChatMessage[] = [];
+      for (const msg of pendingMessages) {
+        if (!existingIds.has(msg.id)) {
+          existingMessages.push(msg);
+          messagesToRestore.push(msg);
+          existingIds.add(msg.id);
+        }
+      }
+      if (messagesToRestore.length > 0) {
+        const summary = this.sessionSummaries.get(sessionId);
+        if (summary) {
+          summary.messageCount = existingMessages.length;
+          summary.preview = buildPreview(existingMessages);
+        }
+        this.pendingAppends.set(sessionId, messagesToRestore);
+      }
+    }
+
+    // 恢复需要重写的会话标记
+    for (const sessionId of savedRewrites) {
+      if (this.sessionMessages.has(sessionId)) {
+        this.pendingRewrites.add(sessionId);
+      }
+    }
   }
 
   public async persist(paths: CompassPaths): Promise<void> {
@@ -122,20 +192,48 @@ export class CompassSessionStore {
     };
 
     await ensureDir(paths.sessionsPath);
-    await writeJsonAtomic(paths.indexPath, indexPayload);
 
+    // 先写 session 文件，再写 index，确保 reader 看到有效的 index 时文件已存在
     const expectedSessionFiles = new Set<string>();
     await ensureDir(paths.imagesPath);
+
     for (const summary of indexPayload.sessions) {
       const sessionFilePath = getSessionFilePath(paths, summary.assistantId, summary.id);
       expectedSessionFiles.add(sessionFilePath);
-      const messages = (this.sessionMessages.get(summary.id) ?? []).map((message) =>
-        normalizeMessageInput(message, nowTs())
-      );
-      const messagesForPersist = await this.extractImagesToFiles(messages, paths, summary.id);
-      const content = messagesForPersist.map((message) => JSON.stringify(message)).join('\n');
-      await writeTextAtomic(sessionFilePath, content ? `${content}\n` : '');
+
+      const sessionId = summary.id;
+      const hasPendingAppends = this.pendingAppends.has(sessionId);
+      const needsRewrite = this.pendingRewrites.has(sessionId);
+
+      if (hasPendingAppends && !needsRewrite) {
+        // 仅追加新消息（高效路径）
+        const pendingMessages = this.pendingAppends.get(sessionId) ?? [];
+        if (pendingMessages.length > 0) {
+          const messagesForPersist = await this.extractImagesToFiles(
+            pendingMessages.map((message) => normalizeMessageInput(message, nowTs())),
+            paths,
+            sessionId
+          );
+          const content = messagesForPersist.map((message) => JSON.stringify(message)).join('\n');
+          await appendTextFile(sessionFilePath, content ? `${content}\n` : '');
+        }
+      } else {
+        // 完整重写（新会话、编辑、删除、清空等）
+        const messages = (this.sessionMessages.get(sessionId) ?? []).map((message) =>
+          normalizeMessageInput(message, nowTs())
+        );
+        const messagesForPersist = await this.extractImagesToFiles(messages, paths, sessionId);
+        const content = messagesForPersist.map((message) => JSON.stringify(message)).join('\n');
+        await writeTextAtomic(sessionFilePath, content ? `${content}\n` : '');
+      }
     }
+
+    // session 文件全部写入后，再写 index（确保引用完整性）
+    await writeJsonAtomic(paths.indexPath, indexPayload);
+
+    // 清理已处理的 pending 状态
+    this.pendingAppends.clear();
+    this.pendingRewrites.clear();
 
     const existingSessionFiles = await listFilesRecursively(paths.sessionsPath, '.jsonl').catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') {
@@ -301,6 +399,9 @@ export class CompassSessionStore {
     };
     this.sessionSummaries.set(summary.id, summary);
     this.sessionMessages.set(summary.id, normalizedMessages);
+    // 新会话首次 persist 需要完整重写（JSONL 文件可能不存在）
+    this.pendingRewrites.add(summary.id);
+    this.pendingAppends.delete(summary.id);
   }
 
   public renameSession(
@@ -317,6 +418,9 @@ export class CompassSessionStore {
     summary.title = title;
     summary.titleSource = titleSource;
     summary.updatedAt = updatedAt;
+    // 标记为需要重写，确保 reload 时标题变更不会丢失
+    this.pendingRewrites.add(sessionId);
+    this.pendingAppends.delete(sessionId);
     return true;
   }
 
@@ -324,9 +428,18 @@ export class CompassSessionStore {
     if (!this.sessionExists(assistantId, sessionId)) {
       return false;
     }
+    const normalized = normalizeMessageInput(cloneMessage(message), nowTs());
     const messages = this.ensureSessionMessages(sessionId);
-    messages.push(normalizeMessageInput(cloneMessage(message), nowTs()));
+    messages.push(normalized);
     this.updateSummaryFromMessages(sessionId, updatedAt);
+
+    // 追踪待追加的消息（仅追加模式）
+    const pending = this.pendingAppends.get(sessionId);
+    if (pending) {
+      pending.push(normalized);
+    } else if (!this.pendingRewrites.has(sessionId)) {
+      this.pendingAppends.set(sessionId, [normalized]);
+    }
     return true;
   }
 
@@ -358,6 +471,8 @@ export class CompassSessionStore {
       messages.push(next);
     }
 
+    this.pendingRewrites.add(sessionId);
+    this.pendingAppends.delete(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -374,6 +489,8 @@ export class CompassSessionStore {
     if (messages.length > normalizedKeepCount) {
       messages.splice(normalizedKeepCount);
     }
+    this.pendingRewrites.add(sessionId);
+    this.pendingAppends.delete(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -388,6 +505,8 @@ export class CompassSessionStore {
       return false;
     }
     messages.splice(targetIndex + 1);
+    this.pendingRewrites.add(sessionId);
+    this.pendingAppends.delete(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -402,6 +521,8 @@ export class CompassSessionStore {
       return false;
     }
     messages.splice(targetIndex, 1);
+    this.pendingRewrites.add(sessionId);
+    this.pendingAppends.delete(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -412,6 +533,8 @@ export class CompassSessionStore {
     }
     this.sessionSummaries.delete(sessionId);
     this.sessionMessages.delete(sessionId);
+    this.pendingAppends.delete(sessionId);
+    this.pendingRewrites.delete(sessionId);
     return true;
   }
 
@@ -521,6 +644,8 @@ export class CompassSessionStore {
     for (const sessionId of targetSessionIds) {
       this.sessionSummaries.delete(sessionId);
       this.sessionMessages.delete(sessionId);
+      this.pendingAppends.delete(sessionId);
+      this.pendingRewrites.delete(sessionId);
     }
 
     return targetSessionIds.length;
@@ -541,12 +666,16 @@ export class CompassSessionStore {
     for (const sessionId of targetSessionIds) {
       this.sessionSummaries.delete(sessionId);
       this.sessionMessages.delete(sessionId);
+      this.pendingAppends.delete(sessionId);
+      this.pendingRewrites.delete(sessionId);
     }
   }
 
   public replaceAllSessions(sessions: ChatSessionDetail[]): void {
     this.sessionSummaries.clear();
     this.sessionMessages.clear();
+    this.pendingAppends.clear();
+    this.pendingRewrites.clear();
     for (const session of sessions) {
       this.insertSession(session);
     }
@@ -571,6 +700,8 @@ export class CompassSessionStore {
     const messages = this.ensureSessionMessages(sessionId);
     const next = messages.filter((message) => message.role === 'system');
     this.sessionMessages.set(sessionId, next);
+    this.pendingRewrites.add(sessionId);
+    this.pendingAppends.delete(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -591,6 +722,8 @@ export class CompassSessionStore {
       return false;
     }
     target.content = newContent;
+    this.pendingRewrites.add(sessionId);
+    this.pendingAppends.delete(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -598,6 +731,8 @@ export class CompassSessionStore {
   public importFromLegacyRows(sessionRows: Array<Record<string, unknown>>, messageRows: Array<Record<string, unknown>>): void {
     this.sessionSummaries.clear();
     this.sessionMessages.clear();
+    this.pendingAppends.clear();
+    this.pendingRewrites.clear();
 
     for (const row of sessionRows) {
       const summary = normalizeSummary(

@@ -338,7 +338,8 @@ export function sanitizeLocalBackupSettings(raw: unknown): import('./types').Loc
       3650,
       LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS
     ),
-    encryptionEnabled: source.encryptionEnabled === true
+    encryptionEnabled: source.encryptionEnabled === true,
+    password: typeof source.password === 'string' && source.password ? source.password : undefined
   };
 }
 

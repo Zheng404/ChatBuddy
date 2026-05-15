@@ -20,6 +20,7 @@ import {
 } from './compassStorage';
 import { ensureDir, fileExists, moveDirectoryContents, removeEmptyDirectoriesRecursively } from './compassStorage/io';
 import { COMPASS_META_DIR_NAME, COMPASS_SESSIONS_DIR_NAME } from './compassStorage/paths';
+import { SyncWatcher } from './syncWatcher';
 
 export const COMPASS_STATE_STORE_KEY = 'chatbuddy.state.compass';
 export const COMPASS_PROVIDER_API_KEYS_STORE_KEY = 'chatbuddy.providerApiKeys.compass';
@@ -30,6 +31,7 @@ export class ChatStorage {
   private readonly kvStore = new CompassKvStore();
   private readonly settingsStore = new CompassSettingsStore();
   private persistQueue: Promise<void> = Promise.resolve();
+  private syncWatcher: SyncWatcher | undefined;
 
   public async initialize(globalStoragePath: string): Promise<void> {
     this.paths = createCompassPaths(globalStoragePath);
@@ -329,6 +331,21 @@ export class ChatStorage {
     await this.flush();
   }
 
+  /** 设置 SyncWatcher 引用，用于写入自写标记 */
+  public setSyncWatcher(syncWatcher: SyncWatcher): void {
+    this.syncWatcher = syncWatcher;
+  }
+
+  /** 获取当前存储根路径 */
+  public getStorageRootPath(): string | undefined {
+    return this.paths?.rootPath;
+  }
+
+  /** 获取 state.core.json 的绝对路径（用于跨 IDE 写前读取合并） */
+  public getStateCorePath(): string | undefined {
+    return this.paths?.stateCorePath;
+  }
+
   public clearSessionMessages(assistantId: string, sessionId: string, updatedAt: number, persist = true): boolean {
     try {
       const changed = this.sessionStore.clearSessionMessages(assistantId, sessionId, updatedAt);
@@ -426,9 +443,35 @@ export class ChatStorage {
     const persistTask = async () => {
       await ensureDir(paths.metaPath);
       await ensureDir(paths.sessionsPath);
-      await this.sessionStore.persist(paths);
-      await this.kvStore.persist(paths);
-      await this.settingsStore.persist(paths);
+
+      try {
+        await this.sessionStore.persist(paths);
+        await this.kvStore.persist(paths);
+        await this.settingsStore.persist(paths);
+      } catch (err) {
+        // 数据写入失败时清理残留标记，防止其他 IDE 误判
+        if (this.syncWatcher) {
+          await this.syncWatcher.writeSelfWriteMarker([]).catch(() => {});
+        }
+        throw err;
+      }
+
+      // 数据写入成功后写入自写标记（含完整文件列表）
+      if (this.syncWatcher) {
+        const writtenFiles: string[] = [];
+        writtenFiles.push(paths.indexPath);
+        writtenFiles.push(paths.stateCorePath);
+        writtenFiles.push(paths.settingsGeneralPath);
+        writtenFiles.push(paths.settingsModelConfigPath);
+        writtenFiles.push(paths.settingsDefaultModelsPath);
+        writtenFiles.push(paths.settingsMcpPath);
+        writtenFiles.push(paths.providerApiKeysPath);
+        writtenFiles.push(paths.templatesPath);
+        if (paths.kvPath) {
+          writtenFiles.push(paths.kvPath);
+        }
+        await this.syncWatcher.writeSelfWriteMarker(writtenFiles);
+      }
     };
 
     this.persistQueue = this.persistQueue.then(persistTask, persistTask);
@@ -436,6 +479,30 @@ export class ChatStorage {
       error('ChatStorage persist error:', err);
     });
     await this.persistQueue;
+  }
+
+  /** 从磁盘重新加载数据到内存缓存（用于跨 IDE 同步刷新） */
+  public async reload(): Promise<void> {
+    const paths = this.requirePaths();
+    await this.settingsStore.load(paths);
+    await this.sessionStore.load(paths);
+    await this.kvStore.load(paths);
+  }
+
+  /** 按类别增量重新加载数据 */
+  public async reloadCategories(categories: ReadonlySet<'core' | 'settings' | 'sessions' | 'images'>): Promise<void> {
+    const paths = this.requirePaths();
+    const needsSettings = categories.has('core') || categories.has('settings');
+    const needsSessions = categories.has('sessions') || categories.has('images');
+
+    if (needsSettings) {
+      await this.settingsStore.load(paths);
+      // KV 存储与 settings 关联（如 MCP 探测缓存等），一并重新加载
+      await this.kvStore.load(paths);
+    }
+    if (needsSessions) {
+      await this.sessionStore.load(paths);
+    }
   }
 
   private requirePaths(): CompassPaths {
