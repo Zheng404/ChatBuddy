@@ -186,7 +186,6 @@ export class StatePersistenceService {
             mcp: cloneMcpSettings(state.settings.mcp),
             providers: state.settings.providers.map((provider) => ({
               ...provider,
-              apiKey: '',
               models: provider.models.map(stripTransientModelFields)
             })) as PersistedStateLite['settings']['providers']
           }

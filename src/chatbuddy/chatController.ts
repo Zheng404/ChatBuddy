@@ -313,6 +313,11 @@ export class ChatController {
     this.panelManager.setActivePanelChangeCallback(callback);
   }
 
+  /** 将最新状态推送到当前活动的聊天面板（用于跨 IDE 同步刷新） */
+  public postStateToActivePanel(): void {
+    this.postState();
+  }
+
   /** 查询当前是否正在生成消息 */
   public isGenerating(): boolean {
     return this._isGenerating;

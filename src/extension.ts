@@ -252,6 +252,8 @@ export async function activate(context: vscode.ExtensionContext) {
             restartBackupTimer();
             refreshAll();
             updateTreeMessage();
+            // 刷新聊天面板，使 WebView 加载最新的会话数据
+            chatController.postStateToActivePanel();
             // 通知设置中心刷新密码状态（跨 IDE 同步场景）
             settingsCenterPanelController.postBackupPasswordStatus();
           });
