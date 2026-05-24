@@ -121,8 +121,33 @@ export class CompassSessionStore {
       this.sessionMessages.set(summary.id, hydratedMessages);
     }
 
+    // 捕获异步磁盘读取期间新增的 pending 数据（流式生成等场景）
+    // 这些数据在 save 快照之后、clear 之后才写入，不在 savedAppends/savedRewrites 中
+
+    // 捕获异步 I/O 期间新创建的会话（不在 savedSummaries 中，也不在磁盘上）
+    // 这些会话已在 maps 中（insertSession 写入 cleared maps），但 restore 逻辑只遍历 savedSummaries
+    for (const [sid, summary] of this.sessionSummaries) {
+      if (!savedSummaries.has(sid)) {
+        savedSummaries.set(sid, summary);
+        savedMessages.set(sid, this.sessionMessages.get(sid) ?? []);
+        savedRewrites.add(sid);
+      }
+    }
+
+    for (const [sid, msgs] of this.pendingAppends) {
+      const existing = savedAppends.get(sid) ?? [];
+      existing.push(...msgs);
+      savedAppends.set(sid, existing);
+    }
+    for (const sid of this.pendingRewrites) {
+      savedRewrites.add(sid);
+    }
+    // 清除 interim 数据（将在下方 restore 逻辑中重新合并）
+    this.pendingAppends.clear();
+    this.pendingRewrites.clear();
+
     // 恢复内存中独有但磁盘上不存在的数据（新生成未 persist 的会话）
-    // 以及合并已存在会话的本地元数据变更（如标题重命名）
+    // 以及合并已存在会话的本地元数据变更（如标题重命名）和未持久化的消息
     for (const [sessionId, summary] of savedSummaries) {
       if (!this.sessionSummaries.has(sessionId)) {
         // 磁盘上没有这个会话，保留内存中的完整版本
@@ -140,6 +165,30 @@ export class CompassSessionStore {
           diskSummary.updatedAt = summary.updatedAt;
           this.pendingRewrites.add(sessionId);
           this.pendingAppends.delete(sessionId);
+        }
+
+        // 修复：当会话标记为 pendingRewrites 时，appendMessage 不会写入 pendingAppends，
+        // 导致异步磁盘读取期间（load 清空 maps 后、磁盘数据加载前）到达的消息丢失。
+        // 此处将磁盘消息与 reload 前的内存消息合并（按 ID 去重），确保不丢失数据。
+        if (this.pendingRewrites.has(sessionId) && !savedAppends.has(sessionId)) {
+          const savedMsgs = savedMessages.get(sessionId);
+          if (savedMsgs && savedMsgs.length > 0) {
+            const diskMsgs = this.sessionMessages.get(sessionId) ?? [];
+            const existingIds = new Set(diskMsgs.map((m) => m.id));
+            let hasNew = false;
+            for (const msg of savedMsgs) {
+              if (!existingIds.has(msg.id)) {
+                diskMsgs.push(msg);
+                existingIds.add(msg.id);
+                hasNew = true;
+              }
+            }
+            if (hasNew) {
+              this.sessionMessages.set(sessionId, diskMsgs);
+              diskSummary.messageCount = diskMsgs.length;
+              diskSummary.preview = buildPreview(diskMsgs);
+            }
+          }
         }
       }
     }
@@ -234,6 +283,20 @@ export class CompassSessionStore {
     // 清理已处理的 pending 状态
     this.pendingAppends.clear();
     this.pendingRewrites.clear();
+
+    // 读取磁盘 index，发现其他 IDE 创建但本 IDE 未知的会话
+    // 这些会话的文件必须保留，否则会造成数据丢失
+    const diskIndex = await readJsonFile<CompassIndexFile>(paths.indexPath).catch(() => undefined);
+    if (diskIndex?.sessions && Array.isArray(diskIndex.sessions)) {
+      for (const rawSummary of diskIndex.sessions) {
+        const summary = normalizeSummary(rawSummary, nowTs());
+        if (summary.id && summary.assistantId && !this.sessionSummaries.has(summary.id)) {
+          // 其他 IDE 创建的会话，保留其文件
+          const filePath = getSessionFilePath(paths, summary.assistantId, summary.id);
+          expectedSessionFiles.add(filePath);
+        }
+      }
+    }
 
     const existingSessionFiles = await listFilesRecursively(paths.sessionsPath, '.jsonl').catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') {
@@ -813,16 +876,18 @@ export class CompassSessionStore {
     }
 
     const messages: ChatMessage[] = [];
+    let lineIndex = 0;
     const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
     for (const line of lines) {
+      lineIndex++;
       try {
         const parsed = JSON.parse(line) as unknown;
         if (!parsed || typeof parsed !== 'object') {
           continue;
         }
         messages.push(normalizeMessageInput(parsed as ChatMessage, nowTs()));
-      } catch {
-        // Ignore malformed jsonl line.
+      } catch (parseError) {
+        console.warn(`[Compass] Skipping malformed JSONL line ${lineIndex}: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
       }
     }
     return messages;
