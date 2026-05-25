@@ -59,6 +59,9 @@ function toErrorMessage(status: number, fallback: string, locale: RuntimeLocale)
   if (status === 401) {
     return strings.authFailed;
   }
+  if (status === 403) {
+    return strings.accessDenied;
+  }
   if (status === 429) {
     return strings.rateLimited;
   }
@@ -319,7 +322,7 @@ export class OpenAICompatibleClient {
       });
       await ensureSuccess(response, locale);
       return response;
-    });
+    }, { signal });
   }
 
   private async consumeSseResponse(
@@ -327,7 +330,8 @@ export class OpenAICompatibleClient {
     locale: RuntimeLocale,
     onPayload: (payload: unknown) => boolean | void,
     onDone: () => void,
-    timeoutMs?: number
+    timeoutMs?: number,
+    signal?: AbortSignal
   ): Promise<void> {
     if (!response.body) {
       throw new Error(resolveLocaleString(locale, '服务端未返回可读流。', 'The server did not return a readable stream.'));
@@ -335,7 +339,14 @@ export class OpenAICompatibleClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    const readTimeout = (timeoutMs && timeoutMs > 0 ? timeoutMs : TIMEOUT.DEFAULT_MS);
+    // SSE per-read timeout: independent from overall request timeout.
+    // Use the larger of the caller-supplied timeout or 120s to avoid killing
+    // long-running streams (e.g. reasoning models with thinking pauses).
+    const SSE_READ_TIMEOUT_MS = 120_000;
+    const readTimeout = Math.max(
+      (timeoutMs && timeoutMs > 0 ? timeoutMs : 0),
+      SSE_READ_TIMEOUT_MS
+    );
     const readWithTimeout = () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -344,12 +355,19 @@ export class OpenAICompatibleClient {
           readTimeout
         );
       });
-      return Promise.race([
-        reader.read(),
-        timeoutPromise
-      ]).finally(() => {
+      const promises: Array<Promise<unknown>> = [reader.read(), timeoutPromise];
+      // 将 abort signal 纳入竞态，确保用户取消时立即中断读取
+      if (signal) {
+        const abortPromise = new Promise<never>((_, reject) => {
+          if (signal.aborted) { reject(signal.reason ?? new DOMException('Aborted', 'AbortError')); return; }
+          signal.addEventListener('abort', () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError')), { once: true });
+        });
+        promises.push(abortPromise);
+      }
+      return Promise.race(promises).finally(() => {
         if (timer) clearTimeout(timer);
-      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as Promise<any>;
     };
     try {
       let readResult = await readWithTimeout();
@@ -357,6 +375,9 @@ export class OpenAICompatibleClient {
         buffer += decoder.decode(readResult.value, { stream: true });
         const parts = buffer.split('\n');
         buffer = parts.pop() ?? '';
+        if (buffer.length > 10 * 1024 * 1024) {
+          throw new Error('SSE response buffer exceeded maximum size');
+        }
         for (const line of parts) {
           const trimmed = line.trim();
           if (!trimmed.startsWith('data:')) {
@@ -376,7 +397,7 @@ export class OpenAICompatibleClient {
               return;
             }
           } catch {
-            // Ignore invalid chunks from compatibility providers.
+            console.warn('[ChatBuddy] Invalid SSE chunk:', payload.substring(0, 100));
           }
         }
         readResult = await readWithTimeout();
@@ -384,7 +405,7 @@ export class OpenAICompatibleClient {
       onDone();
     } finally {
       try {
-        reader.cancel();
+        await reader.cancel();
       } catch {
         // Reader may already be cancelled or released.
       }
@@ -406,7 +427,11 @@ export class OpenAICompatibleClient {
       locale,
       signal
     );
-    return extractChatCompletionResult(await response.json());
+    return extractChatCompletionResult(
+      response.status === 204 || response.headers.get('content-length') === '0'
+        ? {}
+        : await response.json()
+    );
   }
 
   private async responses(
@@ -423,7 +448,11 @@ export class OpenAICompatibleClient {
       locale,
       signal
     );
-    return extractResponsesResult(await response.json());
+    return extractResponsesResult(
+      response.status === 204 || response.headers.get('content-length') === '0'
+        ? {}
+        : await response.json()
+    );
   }
 
   private async chatCompletionsStream(
@@ -455,7 +484,8 @@ export class OpenAICompatibleClient {
         return false;
       },
       handlers.onDone,
-      providerConfig.timeoutMs
+      providerConfig.timeoutMs,
+      signal
     );
   }
 
@@ -488,7 +518,8 @@ export class OpenAICompatibleClient {
         return event.done;
       },
       handlers.onDone,
-      providerConfig.timeoutMs
+      providerConfig.timeoutMs,
+      signal
     );
   }
 
@@ -513,7 +544,7 @@ export class OpenAICompatibleClient {
       });
       await ensureSuccess(response, locale);
       return response;
-    });
+    }, { signal });
   }
 
   private async gemini(
@@ -530,7 +561,11 @@ export class OpenAICompatibleClient {
       locale,
       signal
     );
-    return parseGeminiChatResult(await response.json());
+    return parseGeminiChatResult(
+      response.status === 204 || response.headers.get('content-length') === '0'
+        ? {}
+        : await response.json()
+    );
   }
 
   private async geminiStream(
@@ -562,7 +597,8 @@ export class OpenAICompatibleClient {
         return false;
       },
       handlers.onDone,
-      providerConfig.timeoutMs
+      providerConfig.timeoutMs,
+      signal
     );
   }
 }

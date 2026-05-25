@@ -76,6 +76,8 @@ Compass 是 ChatBuddy 的结构化存储系统，替代了原有的单文件 SQL
 - 管理 `settings.json` 的读写
 - 处理设置合并和默认值填充
 - 支持版本化设置迁移
+- **容错隔离**: `persist()` 中结构化文件与 API keys 文件独立 try-catch，一类失败不影响另一类
+- `structuredWriteOk` 标志控制 commit 文件写入，结构化文件部分失败时跳过 commit 但仍写 API keys
 
 ### 迁移器 (`migrator.ts`)
 

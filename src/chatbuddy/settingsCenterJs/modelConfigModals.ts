@@ -4,8 +4,11 @@
  */
 export function getModelConfigModalsJs(): string {
   return `
+      var discardModalMode = 'discard';
+
       function closeDiscardChangesModal(confirmed) {
         closeModal(dom.discardChangesModal);
+        discardModalMode = 'discard';
         if (discardModalResolver) {
           const resolve = discardModalResolver;
           discardModalResolver = null;
@@ -14,6 +17,23 @@ export function getModelConfigModalsJs(): string {
       }
 
       function openDiscardChangesModal() {
+        discardModalMode = 'discard';
+        if (discardModalResolver) {
+          return Promise.resolve(false);
+        }
+        openModal(dom.discardChangesModal, dom.discardChangesConfirmBtn);
+        return new Promise((resolve) => {
+          discardModalResolver = resolve;
+        });
+      }
+
+      function openDeleteProviderModal(providerName) {
+        var strings = runtimeState.strings || {};
+        dom.discardChangesModalTitle.textContent = strings.deleteProviderAction || '';
+        dom.discardChangesModalDescription.textContent = (strings.confirmDeleteProvider || '').replace('{name}', providerName);
+        dom.discardChangesConfirmBtn.textContent = strings.deleteProviderAction || '';
+        dom.discardChangesStayBtn.textContent = strings.cancelAction || '';
+        discardModalMode = 'delete';
         if (discardModalResolver) {
           return Promise.resolve(false);
         }

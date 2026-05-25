@@ -249,6 +249,7 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                   <button class="editor-tab active" id="dataTabTransfer" data-tab="transfer"></button>
                   <button class="editor-tab" id="dataTabLocal" data-tab="local"></button>
                   <button class="editor-tab" id="dataTabSync" data-tab="sync"></button>
+                  <button class="editor-tab" id="dataTabReset" data-tab="reset"></button>
                 </div>
 
                 <div class="editor-pane active" data-tab="transfer">
@@ -310,20 +311,6 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                   </section>
 
                   <section class="section-card">
-                    <h2 class="section-title" id="backupEncryptionSectionTitle"></h2>
-                    <p class="help" id="backupEncryptionHelp"></p>
-                    <div class="field-toggle-row">
-                      <input id="backupEncryptionToggle" type="checkbox" />
-                      <label id="backupEncryptionLabel"></label>
-                    </div>
-                    <div class="backup-password-row">
-                      <span id="backupPasswordStatusLabel" class="backup-password-status"></span>
-                      <button class="btn-secondary" id="backupPasswordSetBtn" type="button"></button>
-                      <button class="btn-secondary" id="backupPasswordClearBtn" type="button"></button>
-                    </div>
-                  </section>
-
-                  <section class="section-card">
                     <h2 class="section-title" id="backupHistoryTitle"></h2>
                     <div id="backupListContainer"></div>
                   </section>
@@ -362,15 +349,17 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                     </div>
                   </section>
                 </div>
-              </div>
 
-              <section class="section-card">
-                <h2 class="section-title" id="dangerSectionTitle"></h2>
-                <div class="danger-copy" id="resetDataDescription"></div>
-                <div class="danger-actions">
-                  <button class="btn-danger" id="resetBtn" type="button"></button>
+                <div class="editor-pane" data-tab="reset">
+                  <section class="section-card">
+                    <h2 class="section-title" id="dangerSectionTitle"></h2>
+                    <div class="danger-copy" id="resetDataDescription"></div>
+                    <div class="danger-actions">
+                      <button class="btn-danger" id="resetBtn" type="button"></button>
+                    </div>
+                  </section>
                 </div>
-              </section>
+              </div>
             </div>
           </section>
 

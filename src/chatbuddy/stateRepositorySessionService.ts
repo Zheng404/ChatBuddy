@@ -319,7 +319,10 @@ export class SessionStateService {
       return undefined;
     }
     const updatedAt = nowTs();
-    this.context.storage.updateMessage(assistantId, sessionId, messageId, newContent, updatedAt, true);
+    const updateOk = this.context.storage.updateMessage(assistantId, sessionId, messageId, newContent, updatedAt, true);
+    if (!updateOk) {
+      return undefined;
+    }
     this.context.storage.truncateMessagesAfter(assistantId, sessionId, messageId, updatedAt, true);
     const current = this.getSelectedSession(assistantId);
     if (current && current.id === sessionId) {

@@ -26,7 +26,7 @@ import {
 } from './types';
 import { ChatStorage } from './chatStorage';
 import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider, cloneTemplate } from './stateClone';
-import { mergeById } from './stateMerge';
+import { mergeById, mergeLocalBackup } from './stateMerge';
 import { unwrapImportedState, unwrapImportedStorageBackup } from './stateHelpers';
 import { sanitizeAssistantName } from './security';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
@@ -47,11 +47,8 @@ const BACKUP_SCHEMA = 'chatbuddy.backup.compass';
 const BACKUP_VERSION = 2;
 const DEFAULT_ASSISTANT_SYSTEM_PROMPT = '';
 
-// globalState keys for per-IDE UI state (not shared across IDE instances)
-const GS_SELECTED_ASSISTANT = 'chatbuddy.ui.selectedAssistantId';
-const GS_SELECTED_SESSION_IDS = 'chatbuddy.ui.selectedSessionIds';
-const GS_COLLAPSED_GROUPS = 'chatbuddy.ui.collapsedGroups';
-const GS_SESSION_PANEL_COLLAPSED = 'chatbuddy.ui.sessionPanelCollapsed';
+// globalState keys — 仅用于同步配置存储（引导悖论：需要先读配置才能确定存储路径）
+// UI 状态直接存入 Compass 文件夹，实现跨 IDE 同步
 
 export interface ChatBuddyBackupStorageData {
   layout: 'compass';
@@ -110,6 +107,14 @@ export class ChatStateRepository {
   private version = 0;
   private cachedState: import('./types').PersistedStateLite | undefined;
   private cachedStateVersion = -1;
+  /** 本会话中已删除的 provider ID，防止 persist/reload 合并时从磁盘复活 */
+  private deletedProviderIds = new Set<string>();
+  /** 本会话中已删除的 MCP server ID */
+  private deletedMcpServerIds = new Set<string>();
+  /** 本会话中已硬删除的 assistant/group/template ID */
+  private deletedAssistantIds = new Set<string>();
+  private deletedGroupIds = new Set<string>();
+  private deletedTemplateIds = new Set<string>();
   private readonly assistantStateService = new AssistantStateService({
     getState: () => this.state,
     setState: (state) => {
@@ -125,7 +130,9 @@ export class ChatStateRepository {
     getSelectedAssistantId: () => this.getUiSelectedAssistantId(),
     setSelectedAssistantId: (id) => this.setUiSelectedAssistantId(id),
     getSelectedSessionIds: () => this.getUiSelectedSessionIds(),
-    setSelectedSessionIds: (ids) => this.setUiSelectedSessionIds(ids)
+    setSelectedSessionIds: (ids) => this.setUiSelectedSessionIds(ids),
+    trackDeletedAssistant: (id) => { this.deletedAssistantIds.add(id); },
+    trackDeletedGroup: (id) => { this.deletedGroupIds.add(id); }
   });
   private readonly sessionStateService = new SessionStateService({
     getState: () => this.state,
@@ -148,38 +155,57 @@ export class ChatStateRepository {
     getState: () => this.state,
     setState: (state) => {
       this.state = state;
+      this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, this.state.settings);
     },
     getProviderApiKeys: () => this.providerApiKeys,
     setProviderApiKeys: (providerApiKeys) => {
       this.providerApiKeys = providerApiKeys;
     },
     bumpVersion: () => this.bump(),
-    getGlobalState: () => this.context.globalState
+    getDeletedProviderIds: () => this.deletedProviderIds,
+    getDeletedMcpServerIds: () => this.deletedMcpServerIds,
+    getDeletedAssistantIds: () => this.deletedAssistantIds,
+    getDeletedGroupIds: () => this.deletedGroupIds,
+    getDeletedTemplateIds: () => this.deletedTemplateIds,
+    clearDeletedEntityIds: () => {
+      this.deletedProviderIds.clear();
+      this.deletedMcpServerIds.clear();
+      this.deletedAssistantIds.clear();
+      this.deletedGroupIds.clear();
+      this.deletedTemplateIds.clear();
+    }
   });
 
   /**
    * reload 时合并 settings：disk 优先，加载其他 IDE 的更新。
    * 保留本地独有的 providers/mcp servers（防止新生成未 persist 的数据丢失）。
+   * 但排除被另一 IDE 删除的项（上次在磁盘上但现在不在的）。
    */
   private mergeSettingsForReload(memory: ChatBuddySettings, disk: ChatBuddySettings): ChatBuddySettings {
-    // providers: disk 优先，保留本地独有的
+    // providers: disk 优先，保留本地独有的（但排除被另一 IDE 删除的 和 本地主动删除的）
     const diskProviderIds = new Set(disk.providers.map((p) => p.id));
     const mergedProviders = [
-      ...disk.providers,
-      ...memory.providers.filter((p) => !diskProviderIds.has(p.id))
+      ...disk.providers.filter((p) => !this.deletedProviderIds.has(p.id)),
+      ...memory.providers.filter((p) =>
+        !diskProviderIds.has(p.id) && !this.lastKnownDiskProviderIds.has(p.id)
+      )
     ];
 
-    // mcp.servers: disk 优先，保留本地独有的
+    // mcp.servers: disk 优先，保留本地独有的（但排除被另一 IDE 删除的 和 本地主动删除的）
     const diskMcpIds = new Set(disk.mcp.servers.map((s) => s.id));
     const mergedMcpServers = [
-      ...disk.mcp.servers,
-      ...memory.mcp.servers.filter((s) => !diskMcpIds.has(s.id))
+      ...disk.mcp.servers.filter((s) => !this.deletedMcpServerIds.has(s.id)),
+      ...memory.mcp.servers.filter((s) =>
+        !diskMcpIds.has(s.id) && !this.lastKnownDiskMcpServerIds.has(s.id)
+      )
     ];
 
-    // defaultModels: disk 优先
-    const mergedDefaultModels = disk.defaultModels.assistant
-      ? disk.defaultModels
-      : memory.defaultModels;
+    // defaultModels: 字段级合并（disk 优先，memory 补缺）
+    const mergedDefaultModels = {
+      assistant: disk.defaultModels.assistant ?? memory.defaultModels.assistant,
+      titleSummary: disk.defaultModels.titleSummary ?? memory.defaultModels.titleSummary,
+      titleSummaryPrompt: disk.defaultModels.titleSummaryPrompt ?? memory.defaultModels.titleSummaryPrompt
+    };
 
     // scalar 字段：disk 优先（加载其他 IDE 的更新）
     return {
@@ -196,7 +222,7 @@ export class ChatStateRepository {
       locale: disk.locale !== undefined ? disk.locale : memory.locale,
       sendShortcut: disk.sendShortcut !== undefined ? disk.sendShortcut : memory.sendShortcut,
       chatTabMode: disk.chatTabMode !== undefined ? disk.chatTabMode : memory.chatTabMode,
-      localBackup: disk.localBackup !== undefined ? disk.localBackup : memory.localBackup
+      localBackup: mergeLocalBackup(disk.localBackup, memory.localBackup) ?? disk.localBackup ?? memory.localBackup
     };
   }
 
@@ -205,6 +231,11 @@ export class ChatStateRepository {
   }
 
   private schedulePersist(): void {
+    if (this.reloading) {
+      // reload 期间延迟 persist，避免半合并状态被持久化
+      this.pendingPersistAfterReload = true;
+      return;
+    }
     void this.persistenceService.persist().catch((err) => {
       console.error('[ChatBuddy] persist error:', err);
     });
@@ -217,72 +248,51 @@ export class ChatStateRepository {
   private syncConfig: SyncConfig = { storageMode: 'default' };
   private usingSharedStorage = false;
   private reloadPromise: Promise<void> = Promise.resolve();
+  private reloading = false;
+  private pendingPersistAfterReload = false;
+  // 追踪上次 reload 后磁盘上的 provider/MCP ID，用于区分"本地新建"和"另一 IDE 删除"
+  private lastKnownDiskProviderIds = new Set<string>();
+  private lastKnownDiskMcpServerIds = new Set<string>();
 
-  // ─── Per-IDE UI state (globalState) helpers ───────────────────────────────
+  // ─── UI state helpers（直接读写 this.state，存入 Compass 文件夹）────────────
 
-  private readGlobalState<T>(key: string, fallback: T): T {
-    const value = this.context.globalState.get<T>(key);
-    return value !== undefined && value !== null ? value : fallback;
-  }
-
-  private writeGlobalState<T>(key: string, value: T): void {
-    void this.context.globalState.update(key, value);
-  }
-
-  /** Migrate UI fields from Compass state to globalState on first startup */
-  private migrateUiStateFromCompass(): void {
-    // Only migrate if globalState doesn't have these keys yet
+  /** 标记 UI 状态迁移为已完成（UI 状态已存入 Compass，无需从 globalState 迁移） */
+  private markUiStateMigrationDone(): void {
     const hasMigrated = this.context.globalState.get<boolean>('chatbuddy.ui.migrated');
-    if (hasMigrated) { return; }
-
-    // Migrate from Compass state (this.state) to globalState
-    if (this.state.selectedAssistantId) {
-      this.writeGlobalState(GS_SELECTED_ASSISTANT, this.state.selectedAssistantId);
+    if (!hasMigrated) {
+      void this.context.globalState.update('chatbuddy.ui.migrated', true);
     }
-    if (Object.keys(this.state.selectedSessionIdByAssistant).length > 0) {
-      this.writeGlobalState(GS_SELECTED_SESSION_IDS, { ...this.state.selectedSessionIdByAssistant });
-    }
-    if (this.state.collapsedGroupIds.length > 0) {
-      this.writeGlobalState(GS_COLLAPSED_GROUPS, [...this.state.collapsedGroupIds]);
-    }
-    this.writeGlobalState(GS_SESSION_PANEL_COLLAPSED, this.state.sessionPanelCollapsed);
-    this.writeGlobalState('chatbuddy.ui.migrated', true);
   }
 
   private getUiSelectedAssistantId(): string | undefined {
-    return this.readGlobalState<string | undefined>(GS_SELECTED_ASSISTANT, undefined)
-      ?? this.state.selectedAssistantId;
+    return this.state.selectedAssistantId;
   }
 
   private setUiSelectedAssistantId(id: string | undefined): void {
-    this.writeGlobalState(GS_SELECTED_ASSISTANT, id);
     this.state.selectedAssistantId = id;
   }
 
   private getUiSelectedSessionIds(): Record<string, string> {
-    return this.readGlobalState<Record<string, string>>(GS_SELECTED_SESSION_IDS, {});
+    return this.state.selectedSessionIdByAssistant;
   }
 
   private setUiSelectedSessionIds(ids: Record<string, string>): void {
-    this.writeGlobalState(GS_SELECTED_SESSION_IDS, { ...ids });
     this.state.selectedSessionIdByAssistant = { ...ids };
   }
 
   private getUiCollapsedGroupIds(): string[] {
-    return this.readGlobalState<string[]>(GS_COLLAPSED_GROUPS, []);
+    return this.state.collapsedGroupIds;
   }
 
   private setUiCollapsedGroupIds(ids: string[]): void {
-    this.writeGlobalState(GS_COLLAPSED_GROUPS, [...ids]);
     this.state.collapsedGroupIds = [...ids];
   }
 
   private getUiSessionPanelCollapsed(): boolean {
-    return this.readGlobalState<boolean>(GS_SESSION_PANEL_COLLAPSED, false);
+    return this.state.sessionPanelCollapsed;
   }
 
   private setUiSessionPanelCollapsed(collapsed: boolean): void {
-    this.writeGlobalState(GS_SESSION_PANEL_COLLAPSED, collapsed);
     this.state.sessionPanelCollapsed = collapsed;
   }
 
@@ -310,12 +320,13 @@ export class ChatStateRepository {
   }
 
   public async updateSyncConfig(config: SyncConfig): Promise<void> {
-    await writeSyncConfig(this.context.globalState, config);
+    const storageRootPath = this.storage.getStorageRootPath() ?? this.context.globalStorageUri.fsPath;
+    await writeSyncConfig(config, storageRootPath);
     this.syncConfig = { ...config };
   }
 
   public async initialize(): Promise<void> {
-    this.syncConfig = readSyncConfig(this.context.globalState);
+    this.syncConfig = await readSyncConfig();
     const { path: storagePath, usingShared } = resolveStoragePath(
       this.syncConfig,
       this.context.globalStorageUri.fsPath
@@ -348,14 +359,40 @@ export class ChatStateRepository {
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
 
-    // Migrate UI state from Compass to globalState (one-time migration)
-    this.migrateUiStateFromCompass();
+    // 初始化磁盘 ID 追踪集合（用于 reload 时区分"本地新建"和"另一 IDE 删除"）
+    this.lastKnownDiskProviderIds = new Set(this.state.settings.providers.map((p) => p.id));
+    this.lastKnownDiskMcpServerIds = new Set(this.state.settings.mcp.servers.map((s) => s.id));
+
+    // 标记 UI 状态迁移完成（一次性）
+    this.markUiStateMigrationDone();
 
     // 只在首次使用（无数据）时才 persist 初始状态，避免每次启动都重写文件触发其他 IDE 的 watcher
+    // 同时检查 Compass 目录中是否已有数据（防止 hydrate 失败后用空数据覆盖共享存储）
+    // 使用 hasValidCompassState 严格检查：meta/ 存在但文件为空时不算有效数据
     const isFirstUse = this.state.assistants.length === 0 && !this.storage.hasAnySession();
     if (isFirstUse) {
-      await this.persistenceService.persistSecrets();
-      await this.persistenceService.persist();
+      const storagePath = this.storage.getStorageRootPath();
+      if (storagePath) {
+        const { hasValidCompassState, hasCompassData } = await import('./syncConfig.js');
+        const hasValidState = await hasValidCompassState(storagePath);
+        if (hasValidState) {
+          // 磁盘有有效状态数据但内存为空，跳过 persist 避免覆盖
+          console.warn('[ChatBuddy] Memory state is empty but Compass storage has valid data. Skipping initial persist to avoid data loss.');
+        } else {
+          const hasAnyData = await hasCompassData(storagePath);
+          if (hasAnyData) {
+            // meta/ 或 sessions/ 存在但无有效状态，可能是损坏数据
+            // 跳过 persist 以保留现有数据供手动恢复
+            console.warn('[ChatBuddy] Compass directory exists but has no valid state. Skipping initial persist.');
+          } else {
+            await this.persistenceService.persistSecrets();
+            await this.persistenceService.persist();
+          }
+        }
+      } else {
+        await this.persistenceService.persistSecrets();
+        await this.persistenceService.persist();
+      }
     }
   }
 
@@ -371,8 +408,23 @@ export class ChatStateRepository {
     if (!this.storageReady || !this.usingSharedStorage) { return; }
 
     this.reloadPromise = this.reloadPromise.then(async () => {
+      this.reloading = true;
+      try {
       // 等待进行中的持久化完成，避免并发读写导致数据不一致
+      // 必须同时排空 StatePersistenceService 和 ChatStorage 的双队列
       await this.persistenceService.drain();
+
+      // 【关键】在 flush 之前保存磁盘上其他 IDE 写入的 API keys。
+      // flush() 会将本地内存中的 keys 写入磁盘，可能覆盖其他 IDE 新增的 keys。
+      // 先读取磁盘 keys，后续合并时一并保留。
+      let diskApiKeysBeforeFlush: Record<string, string> = {};
+      try {
+        diskApiKeysBeforeFlush = await this.storage.readProviderApiKeysFromDisk();
+      } catch {
+        // 磁盘读取失败时降级为空（后续会用内存快照补全）
+      }
+
+      await this.storage.flush();
 
       // 保存加载前的内存状态快照（深拷贝），用于后续合并和变更检测
       // 必须在 hydrateStateFromStorage 之前拷贝，否则引用会被覆盖
@@ -382,13 +434,20 @@ export class ChatStateRepository {
         templates: this.state.templates.map(cloneTemplate),
         settings: this.getSettings()
       };
+      // 同时保存 API keys 快照，防止 reload 期间新增的 provider 丢失 key
+      const memoryApiKeysSnapshot = { ...this.providerApiKeys };
 
       // 使用已克隆的 memoryState 构建变更前指纹，避免重复序列化 this.state
+      // UI 状态现在也存入 Compass，纳入变更检测
       const beforeData = JSON.stringify({
         groups: memoryState.groups,
         assistants: memoryState.assistants,
         templates: memoryState.templates,
-        settings: memoryState.settings
+        settings: memoryState.settings,
+        selectedAssistantId: this.state.selectedAssistantId,
+        selectedSessionIdByAssistant: this.state.selectedSessionIdByAssistant,
+        collapsedGroupIds: this.state.collapsedGroupIds,
+        sessionPanelCollapsed: this.state.sessionPanelCollapsed
       });
 
       if (categories && categories.size > 0) {
@@ -401,11 +460,30 @@ export class ChatStateRepository {
       this.persistenceService.hydrateStateFromStorage();
       this.persistenceService.hydrateProviderApiKeysFromStorage();
 
-      // 将磁盘数据与内存数据按 ID 合并（防止其他 IDE 的修改被覆盖）
+      // 合并 provider API keys：三层合并
+      // 1. hydrate 结果（来自 reload 后的内存，可能被 flush 覆盖）
+      // 2. diskApiKeysBeforeFlush（flush 前从磁盘读取的其他 IDE 的 keys）
+      // 3. memoryApiKeysSnapshot（本 IDE 未 persist 的内存独有 keys）
+      const mergedApiKeys = { ...this.providerApiKeys };
+      // 合并 flush 前磁盘上其他 IDE 写入的 keys（本 IDE 没有的才补入）
+      for (const [id, key] of Object.entries(diskApiKeysBeforeFlush)) {
+        if (!(id in mergedApiKeys) && typeof key === 'string' && key.trim()) {
+          mergedApiKeys[id] = key;
+        }
+      }
+      // 合并内存快照中独有的 keys（reload 期间新增的 provider）
+      for (const [id, key] of Object.entries(memoryApiKeysSnapshot)) {
+        if (!(id in mergedApiKeys) && typeof key === 'string' && key.trim()) {
+          mergedApiKeys[id] = key;
+        }
+      }
+      this.providerApiKeys = mergedApiKeys;
+
+      // 将磁盘数据与内存数据按 ID 合并（防止其他 IDE 的修改被覆盖，排除本地已删除的实体）
       const diskState = this.state;
-      const mergedAssistants = mergeById(memoryState.assistants, diskState.assistants);
-      const mergedGroups = mergeById(memoryState.groups, diskState.groups);
-      const mergedTemplates = mergeById(memoryState.templates, diskState.templates);
+      const mergedAssistants = mergeById(memoryState.assistants, diskState.assistants, this.deletedAssistantIds);
+      const mergedGroups = mergeById(memoryState.groups, diskState.groups, this.deletedGroupIds);
+      const mergedTemplates = mergeById(memoryState.templates, diskState.templates, this.deletedTemplateIds);
       // reload 时使用 memory 优先的合并策略，防止覆盖本地未 persist 的修改
       const mergedSettings = this.mergeSettingsForReload(memoryState.settings, diskState.settings);
 
@@ -414,40 +492,48 @@ export class ChatStateRepository {
       this.state.templates = mergedTemplates;
       this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, mergedSettings);
 
-      // 清理无效的 UI 引用，同时追踪 UI 状态是否变化
-      let uiChanged = false;
+      // 更新磁盘 ID 追踪集合，用于下次 reload 区分"本地新建"和"另一 IDE 删除"
+      this.lastKnownDiskProviderIds = new Set(diskState.settings.providers.map((p) => p.id));
+      this.lastKnownDiskMcpServerIds = new Set(diskState.settings.mcp.servers.map((s) => s.id));
+
+      // 清理无效的 UI 引用
       const validAssistantIds = new Set(mergedAssistants.map((a) => a.id));
-      const currentSelectedId = this.getUiSelectedAssistantId();
+      const currentSelectedId = this.state.selectedAssistantId;
       if (currentSelectedId && !validAssistantIds.has(currentSelectedId)) {
-        const newSelectedId = mergedAssistants.find((a) => !a.isDeleted)?.id ?? mergedAssistants[0]?.id;
-        this.setUiSelectedAssistantId(newSelectedId);
-        uiChanged = true;
+        this.state.selectedAssistantId = mergedAssistants.find((a) => !a.isDeleted)?.id ?? mergedAssistants[0]?.id;
       }
-      // 清理无效的 selectedSessionIdByAssistant 条目（在 globalState 中）
-      const currentSessionIds = this.getUiSelectedSessionIds();
-      for (const assistantId of Object.keys(currentSessionIds)) {
+      // 清理无效的 selectedSessionIdByAssistant 条目
+      for (const assistantId of Object.keys(this.state.selectedSessionIdByAssistant)) {
         if (!validAssistantIds.has(assistantId)) {
-          delete currentSessionIds[assistantId];
-          uiChanged = true;
+          delete this.state.selectedSessionIdByAssistant[assistantId];
         }
-      }
-      if (uiChanged) {
-        this.setUiSelectedSessionIds(currentSessionIds);
       }
 
       normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
       normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
 
-      // 轻量级变更检测：仅比较数据字段，UI 变化用布尔标志追踪
+      // 变更检测：包含 UI 状态
       const afterData = JSON.stringify({
         groups: this.state.groups,
         assistants: this.state.assistants,
         templates: this.state.templates,
-        settings: this.state.settings
+        settings: this.state.settings,
+        selectedAssistantId: this.state.selectedAssistantId,
+        selectedSessionIdByAssistant: this.state.selectedSessionIdByAssistant,
+        collapsedGroupIds: this.state.collapsedGroupIds,
+        sessionPanelCollapsed: this.state.sessionPanelCollapsed
       });
 
-      if (afterData !== beforeData || uiChanged) {
+      if (afterData !== beforeData) {
         this.bump();
+      }
+      } finally {
+        this.reloading = false;
+        // reload 期间被延迟的 persist 现在执行
+        if (this.pendingPersistAfterReload) {
+          this.pendingPersistAfterReload = false;
+          this.schedulePersist();
+        }
       }
     });
     await this.reloadPromise;
@@ -457,14 +543,15 @@ export class ChatStateRepository {
     if (this.cachedStateVersion === this.version && this.cachedState) {
       return this.cachedState;
     }
+    const { settings: _settings, ...stateRest } = this.state;
     const cloned = {
-      ...this.state,
+      ...stateRest,
       groups: this.state.groups.map(cloneGroup),
       assistants: this.state.assistants.map(cloneAssistant),
-      selectedAssistantId: this.getUiSelectedAssistantId(),
-      selectedSessionIdByAssistant: { ...this.getUiSelectedSessionIds() },
-      collapsedGroupIds: [...this.getUiCollapsedGroupIds()],
-      sessionPanelCollapsed: this.getUiSessionPanelCollapsed(),
+      selectedAssistantId: this.state.selectedAssistantId,
+      selectedSessionIdByAssistant: { ...this.state.selectedSessionIdByAssistant },
+      collapsedGroupIds: [...this.state.collapsedGroupIds],
+      sessionPanelCollapsed: this.state.sessionPanelCollapsed,
       templates: this.state.templates.map(cloneTemplate),
       settings: this.getSettings()
     };
@@ -515,6 +602,22 @@ export class ChatStateRepository {
 
   public updateSettings(settings: ChatBuddySettings): void {
     const normalized = sanitizeSettings(settings);
+    // 追踪被删除的 provider ID，防止 persist/reload 合并时从磁盘复活
+    const prevProviderIds = new Set(this.state.settings.providers.map((p) => p.id));
+    for (const provider of normalized.providers) {
+      prevProviderIds.delete(provider.id);
+    }
+    for (const deletedId of prevProviderIds) {
+      this.deletedProviderIds.add(deletedId);
+    }
+    // 追踪被删除的 MCP server ID
+    const prevMcpIds = new Set(this.state.settings.mcp.servers.map((s) => s.id));
+    for (const server of normalized.mcp.servers) {
+      prevMcpIds.delete(server.id);
+    }
+    for (const deletedId of prevMcpIds) {
+      this.deletedMcpServerIds.add(deletedId);
+    }
     this.providerApiKeys = extractProviderApiKeys(normalized.providers);
     this.state.settings = applyProviderApiKeysToSettings(this.providerApiKeys, normalized);
     const validMcpServerIds = new Set(normalized.mcp.servers.map((server) => server.id));
@@ -522,6 +625,7 @@ export class ChatStateRepository {
       ...cloneAssistant(assistant),
       enabledMcpServerIds: assistant.enabledMcpServerIds.filter((serverId) => validMcpServerIds.has(serverId))
     }));
+    this.bump(); // 立即失效缓存，确保后续 getState() 返回最新状态
     normalizeLocalizedDefaultTitles(this.storage, normalized.locale);
     void this.persistenceService.persistSecrets().catch((err) => {
       console.error('[ChatBuddy] persistSecrets error:', err);
@@ -604,6 +708,7 @@ export class ChatStateRepository {
       return false;
     }
     this.state.templates.splice(index, 1);
+    this.deletedTemplateIds.add(templateId);
     this.schedulePersist();
     return true;
   }
@@ -702,6 +807,7 @@ export class ChatStateRepository {
     if (!storageBackup && !legacyState) {
       throw new Error('Invalid import payload');
     }
+    this.ensureStorageReady();
     const merged = storageBackup
       ? this.mergeState({
           ...structuredStateDocumentToPersistedStateLite(storageBackup.structuredState),

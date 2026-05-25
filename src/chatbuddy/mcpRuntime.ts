@@ -44,11 +44,23 @@ export type { McpToolBinding, McpProbeResult } from './mcpTypes';
 export { describeAssistantMcpServers, buildRemotePassthroughTools } from './mcpUtils';
 
 export class McpRuntime {
-  private readonly connections = new Map<string, { promise: Promise<ManagedConnection>; createdAt: number }>();
+  private readonly connections = new Map<string, { promise: Promise<ManagedConnection>; createdAt: number; lastUsedAt: number }>();
   private readonly connectionLocks = new Map<string, Promise<ManagedConnection>>();
   private toolBindingsCache = new Map<string, { bindings: McpToolBinding[]; expiresAt: number }>();
+  private disposed = false;
   private static readonly TOOL_BINDINGS_TTL_MS = 60_000;
   private static readonly CONNECTION_TTL_MS = 30 * 60 * 1000; // 30分钟
+  private static readonly CONNECTION_TIMEOUT_MS = 30_000; // 30秒
+  private static readonly CONNECTION_IDLE_PRUNE_MS = 60_000; // 60秒无使用则可被裁剪
+
+  /** Race a promise against a timeout, rejecting with a descriptive message on timeout. */
+  private static withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  }
 
   public async probeServer(server: McpServerProfile): Promise<import('./mcpTypes').McpProbeResult> {
     let client: McpClient | undefined;
@@ -57,16 +69,23 @@ export class McpRuntime {
       const { Client } = await loadMcpModule();
       client = new Client(CLIENT_INFO);
       transport = await this.connectTransport(client, server);
+      // 捕获 client 引用，避免回调中使用 `client!` 非空断言
+      const clientRef = client;
 
-      const tools = await collectPaginated<McpTool>(async (cursor) => {
-        const response = await client!.listTools(cursor ? { cursor } : undefined);
-        return { items: response.tools ?? [], nextCursor: response.nextCursor };
-      });
+      let tools: McpTool[] = [];
+      try {
+        tools = await collectPaginated<McpTool>(async (cursor) => {
+          const response = await clientRef.listTools(cursor ? { cursor } : undefined);
+          return { items: response.tools ?? [], nextCursor: response.nextCursor };
+        });
+      } catch (toolError) {
+        warn('[MCP] Failed to list tools during probe:', toolError);
+      }
 
       let resources: import('./mcpTypes').McpProbeResult['resources'] = [];
       try {
         const resourceList = await collectPaginated<McpResource>(async (cursor) => {
-          const response = await client!.listResources(cursor ? { cursor } : undefined);
+          const response = await clientRef.listResources(cursor ? { cursor } : undefined);
           return { items: response.resources ?? [], nextCursor: response.nextCursor };
         });
         resources = resourceList
@@ -83,7 +102,7 @@ export class McpRuntime {
       let prompts: import('./mcpTypes').McpProbeResult['prompts'] = [];
       try {
         const promptList = await collectPaginated<McpPrompt>(async (cursor) => {
-          const response = await client!.listPrompts(cursor ? { cursor } : undefined);
+          const response = await clientRef.listPrompts(cursor ? { cursor } : undefined);
           return { items: response.prompts ?? [], nextCursor: response.nextCursor };
         });
         prompts = promptList
@@ -142,10 +161,10 @@ export class McpRuntime {
   }
 
   public async dispose(): Promise<void> {
+    this.disposed = true;
     this.toolBindingsCache.clear();
     this.connectionLocks.clear();
     const entries = [...this.connections.values()];
-    this.connections.clear();
     await Promise.all(
       entries.map(async (entry) => {
         try {
@@ -157,6 +176,7 @@ export class McpRuntime {
         }
       })
     );
+    this.connections.clear();
   }
 
   /**
@@ -169,7 +189,7 @@ export class McpRuntime {
     for (const [serverId, entry] of this.connections.entries()) {
       if (!activeServerIds.has(serverId)) {
         staleIds.push(serverId);
-      } else if (now - entry.createdAt > McpRuntime.CONNECTION_TTL_MS) {
+      } else if (now - entry.createdAt > McpRuntime.CONNECTION_TTL_MS && now - (entry.lastUsedAt ?? entry.createdAt) > McpRuntime.CONNECTION_IDLE_PRUNE_MS) {
         staleIds.push(serverId);
       }
     }
@@ -217,13 +237,17 @@ export class McpRuntime {
     const results = await Promise.allSettled(
       servers.map(async (server) => {
         const connection = await this.getConnection(server);
-        const tools = await collectPaginated<McpTool>(async (cursor) => {
-          const response = await connection.client.listTools(cursor ? { cursor } : undefined);
-          return {
-            items: response.tools ?? [],
-            nextCursor: response.nextCursor
-          };
-        });
+        const tools = await McpRuntime.withTimeout(
+          collectPaginated<McpTool>(async (cursor) => {
+            const response = await connection.client.listTools(cursor ? { cursor } : undefined);
+            return {
+              items: response.tools ?? [],
+              nextCursor: response.nextCursor
+            };
+          }),
+          10_000,
+          `Listing tools from MCP server ${server.name} timed out after 10s`
+        );
         return tools
           .filter((tool) => typeof tool.name === 'string' && tool.name.trim())
           .map((tool) => ({
@@ -247,6 +271,9 @@ export class McpRuntime {
     for (const item of results) {
       if (item.status === 'fulfilled') {
         bindings.push(...item.value);
+      } else {
+        const failedServer = servers[results.indexOf(item)];
+        warn('[MCP] Server failed:', failedServer?.id, item.reason);
       }
     }
     this.toolBindingsCache.set(cacheKey, {
@@ -274,6 +301,7 @@ export class McpRuntime {
       throw new Error(`MCP server not available: ${binding.serverId}`);
     }
     const connection = await this.getConnection(server);
+    this.touchConnection(server.id);
     const parsedArgs = this.parseToolArguments(argsText);
     const timeout = Math.max(1000, server.timeoutMs || 30000);
     const result = await connection.client.callTool(
@@ -293,13 +321,17 @@ export class McpRuntime {
     const results = await Promise.allSettled(
       servers.map(async (server) => {
         const connection = await this.getConnection(server);
-        const resources = await collectPaginated<McpResource>(async (cursor) => {
-          const response = await connection.client.listResources(cursor ? { cursor } : undefined);
-          return {
-            items: response.resources ?? [],
-            nextCursor: response.nextCursor
-          };
-        });
+        const resources = await McpRuntime.withTimeout(
+          collectPaginated<McpResource>(async (cursor) => {
+            const response = await connection.client.listResources(cursor ? { cursor } : undefined);
+            return {
+              items: response.resources ?? [],
+              nextCursor: response.nextCursor
+            };
+          }),
+          10_000,
+          `Listing resources from MCP server ${server.name} timed out after 10s`
+        );
         return resources
           .filter((resource) => typeof resource.uri === 'string' && resource.uri.trim())
           .map((resource) => ({
@@ -316,6 +348,9 @@ export class McpRuntime {
     for (const item of results) {
       if (item.status === 'fulfilled') {
         result.push(...item.value);
+      } else {
+        const failedServer = servers[results.indexOf(item)];
+        warn('[MCP] Server failed:', failedServer?.id, item.reason);
       }
     }
     return result.sort((left, right) => left.name.localeCompare(right.name, 'en'));
@@ -329,6 +364,7 @@ export class McpRuntime {
   ): Promise<string> {
     const server = this.getAssistantServer(settings, assistant, serverId);
     const connection = await this.getConnection(server);
+    this.touchConnection(serverId);
     const result = await connection.client.readResource({ uri }, { timeout: server.timeoutMs });
     return stringifyResourceContents(result.contents ?? []);
   }
@@ -338,13 +374,17 @@ export class McpRuntime {
     const results = await Promise.allSettled(
       servers.map(async (server) => {
         const connection = await this.getConnection(server);
-        const prompts = await collectPaginated<McpPrompt>(async (cursor) => {
-          const response = await connection.client.listPrompts(cursor ? { cursor } : undefined);
-          return {
-            items: response.prompts ?? [],
-            nextCursor: response.nextCursor
-          };
-        });
+        const prompts = await McpRuntime.withTimeout(
+          collectPaginated<McpPrompt>(async (cursor) => {
+            const response = await connection.client.listPrompts(cursor ? { cursor } : undefined);
+            return {
+              items: response.prompts ?? [],
+              nextCursor: response.nextCursor
+            };
+          }),
+          10_000,
+          `Listing prompts from MCP server ${server.name} timed out after 10s`
+        );
         return prompts
           .filter((prompt) => typeof prompt.name === 'string' && prompt.name.trim())
           .map((prompt) => ({
@@ -362,6 +402,9 @@ export class McpRuntime {
     for (const item of results) {
       if (item.status === 'fulfilled') {
         result.push(...item.value);
+      } else {
+        const failedServer = servers[results.indexOf(item)];
+        warn('[MCP] Server failed:', failedServer?.id, item.reason);
       }
     }
     return result.sort((left, right) => left.name.localeCompare(right.name, 'en'));
@@ -376,6 +419,7 @@ export class McpRuntime {
   ): Promise<string> {
     const server = this.getAssistantServer(settings, assistant, serverId);
     const connection = await this.getConnection(server);
+    this.touchConnection(serverId);
     const result = await connection.client.getPrompt(
       {
         name,
@@ -389,6 +433,9 @@ export class McpRuntime {
   }
 
   private async getConnection(server: McpServerProfile): Promise<ManagedConnection> {
+    if (this.disposed) {
+      throw new Error('McpRuntime has been disposed');
+    }
     const existing = this.connections.get(server.id);
     if (existing && Date.now() - existing.createdAt <= McpRuntime.CONNECTION_TTL_MS) {
       return existing.promise;
@@ -407,6 +454,14 @@ export class McpRuntime {
     }
   }
 
+  /** Update the lastUsedAt timestamp for a connection to prevent pruning while in use. */
+  private touchConnection(serverId: string): void {
+    const entry = this.connections.get(serverId);
+    if (entry) {
+      entry.lastUsedAt = Date.now();
+    }
+  }
+
   private async doGetConnection(server: McpServerProfile): Promise<ManagedConnection> {
     // 双重检查
     const existing = this.connections.get(server.id);
@@ -418,7 +473,8 @@ export class McpRuntime {
       this.closeConnectionGracefully(existing.promise);
     }
     const pending = this.createConnection(server);
-    this.connections.set(server.id, { promise: pending, createdAt: Date.now() });
+    const now = Date.now();
+    this.connections.set(server.id, { promise: pending, createdAt: now, lastUsedAt: now });
     try {
       return await pending;
     } catch (error) {
@@ -431,8 +487,14 @@ export class McpRuntime {
     promise.then(
       async (connection) => {
         try {
-          await connection.transport.close();
-          await connection.client.close();
+          const closePromise = Promise.all([connection.transport.close(), connection.client.close()]);
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Graceful close timed out after 5s')), 5000);
+          });
+          await Promise.race([closePromise, timeoutPromise]).finally(() => {
+            if (timer) clearTimeout(timer);
+          });
         } catch (shutdownError) {
           warn('[MCP] Graceful close error:', shutdownError);
         }
@@ -446,7 +508,15 @@ export class McpRuntime {
   private async createConnection(server: McpServerProfile): Promise<ManagedConnection> {
     const { Client } = await loadMcpModule();
     const client = new Client(CLIENT_INFO);
-    const transport = await this.connectTransport(client, server);
+    const timeoutMs = Math.max(1000, server.timeoutMs || McpRuntime.CONNECTION_TIMEOUT_MS);
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
+    const connectPromise = this.connectTransport(client, server);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      connectTimer = setTimeout(() => reject(new Error(`MCP connection to ${server.name} timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+    const transport = await Promise.race([connectPromise, timeoutPromise]).finally(() => {
+      if (connectTimer) clearTimeout(connectTimer);
+    });
     return {
       client,
       transport,
@@ -492,9 +562,15 @@ export class McpRuntime {
     } catch (streamableError) {
       // Streamable HTTP failed; fall back to SSE transport.
       warn('[MCP] StreamableHTTP failed, falling back to SSE:', streamableError);
-      const transport = new SSEClientTransport(url, { requestInit });
-      await serverClient.connect(transport);
-      return transport;
+      try {
+        const transport = new SSEClientTransport(url, { requestInit });
+        await serverClient.connect(transport);
+        return transport;
+      } catch (sseError) {
+        const streamableMsg = toErrorMessage(streamableError, 'unknown');
+        const sseMsg = toErrorMessage(sseError, 'unknown');
+        throw new Error(`SSE transport failed: ${sseMsg} (original StreamableHTTP error: ${streamableMsg})`);
+      }
     }
   }
 

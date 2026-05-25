@@ -30,6 +30,9 @@ type AssistantServiceContext = {
   setSelectedAssistantId: (id: string | undefined) => void;
   getSelectedSessionIds: () => Record<string, string>;
   setSelectedSessionIds: (ids: Record<string, string>) => void;
+  /** 记录已删除的实体 ID，防止 persist/reload 合并时从磁盘复活 */
+  trackDeletedAssistant?: (id: string) => void;
+  trackDeletedGroup?: (id: string) => void;
 };
 
 export class AssistantStateService {
@@ -98,6 +101,7 @@ export class AssistantStateService {
         assistant.originalGroupId = DEFAULT_GROUP_ID;
       }
     }
+    this.context.trackDeletedGroup?.(groupId);
     this.context.persistLater();
     return true;
   }
@@ -299,6 +303,7 @@ export class AssistantStateService {
       const next = state.assistants.find((assistant) => !assistant.isDeleted) ?? state.assistants[0];
       this.context.setSelectedAssistantId(next?.id);
     }
+    this.context.trackDeletedAssistant?.(assistantId);
     this.context.persistLater();
     return true;
   }

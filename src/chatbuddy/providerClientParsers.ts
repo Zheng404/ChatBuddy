@@ -21,8 +21,10 @@ import {
 } from './providerClientMedia';
 
 let fallbackToolCallSeq = 0;
+const FALLBACK_SEQ_WRAP = 0xFFFFF; // 防止无限增长，约 100 万后回绕
 function fallbackToolCallId(): string {
-  return `fallback_${Date.now().toString(36)}_${(++fallbackToolCallSeq).toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  fallbackToolCallSeq = (fallbackToolCallSeq + 1) & FALLBACK_SEQ_WRAP;
+  return `fallback_${Date.now().toString(36)}_${fallbackToolCallSeq.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function extractChatCompletionToolCalls(message: {
@@ -47,7 +49,11 @@ function extractChatCompletionToolCalls(message: {
       return {
         id: toTrimmedString(call?.id) || `${name}-${fallbackToolCallId()}`,
         name,
-        argumentsText: typeof call?.function?.arguments === 'string' ? call.function.arguments : '{}'
+        argumentsText: typeof call?.function?.arguments === 'string'
+          ? call.function.arguments
+          : call?.function?.arguments != null
+            ? JSON.stringify(call.function.arguments)
+            : '{}'
       };
     })
     .filter((call): call is ProviderToolCall => Boolean(call));
@@ -78,7 +84,11 @@ function extractResponsesToolCalls(payload: {
           toTrimmedString(item?.id) ||
           `${name}-${fallbackToolCallId()}`,
         name,
-        argumentsText: typeof item?.arguments === 'string' ? item.arguments : '{}'
+        argumentsText: typeof item?.arguments === 'string'
+          ? item.arguments
+          : item?.arguments != null
+            ? JSON.stringify(item.arguments)
+            : '{}'
       };
     })
     .filter((call): call is ProviderToolCall => Boolean(call));

@@ -113,10 +113,13 @@ export class ChatController {
       },
       isGenerating: () => this._isGenerating,
       setIsGenerating: (generating) => {
+        // Intentional: both toolOrchestrator and generationService register setIsGenerating.
+        // Either service can independently end generation (tool result processing vs. stream completion),
+        // so both paths need to clear the flag.
         this._isGenerating = generating;
         void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
         if (!generating && this.onGenerationEndCallback) {
-          Promise.resolve().then(() => this.onGenerationEndCallback!());
+          Promise.resolve().then(() => this.onGenerationEndCallback!()).catch(() => {});
         }
       },
       getAbortController: () => this.abortController,
@@ -139,11 +142,12 @@ export class ChatController {
       toolOrchestrator: this.toolOrchestrator,
       getLocale: () => this.getLocale(),
       isGenerating: () => this._isGenerating,
+      // Intentional duplicate: see comment above in toolOrchestrator setIsGenerating.
       setIsGenerating: (generating) => {
         this._isGenerating = generating;
         void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
         if (!generating && this.onGenerationEndCallback) {
-          Promise.resolve().then(() => this.onGenerationEndCallback!());
+          Promise.resolve().then(() => this.onGenerationEndCallback!()).catch(() => {});
         }
       },
       getAbortController: () => this.abortController,
@@ -306,6 +310,7 @@ export class ChatController {
       delete this.sessionTempModelRefBySession[session.id];
       delete this.sessionTempParamsBySession[session.id];
     }
+    delete this.lastSelectedSessionIdByAssistant[assistantId];
     this.panelManager.disposePanelForAssistant(assistantId);
   }
 
@@ -334,11 +339,11 @@ export class ChatController {
     this.stopGeneration('manual');
     this.stateCache.clear();
     // 兜底清理：防止面板销毁回调未触发时定时器泄漏
-    const panels = [
+    const panelSet = new Set([
       this.panelManager.getActivePanel(),
       ...this.panelManager.getPanelsByAssistantId().values()
-    ];
-    for (const panel of panels) {
+    ]);
+    for (const panel of panelSet) {
       if (!panel) {
         continue;
       }
@@ -386,6 +391,7 @@ export class ChatController {
         repository: this.repository,
         getLocale: () => this.getLocale(),
         hasPendingToolContinuation: Boolean(this.pendingToolContinuation),
+        isGenerating: this._isGenerating,
         handleReady: (targetContext) => this.handlePanelReady(targetContext),
         postError: (errorMessage, targetContext) => this.postError(errorMessage, targetContext),
         postState: (errorMessage, targetContext) => this.postState(errorMessage, targetContext),
@@ -418,6 +424,10 @@ export class ChatController {
     } catch (error) {
       if (!this.isBenignError(error)) {
         warn('Unhandled webview message error:', error);
+        this.postError(
+          error instanceof Error ? error.message : String(error),
+          context
+        );
       }
     }
   }
@@ -837,8 +847,6 @@ export class ChatController {
   }
 
   private async selectImages(context?: PanelMessageContext): Promise<void> {
-    const locale = this.getLocale();
-    const strings = getStrings(locale);
     const assistant = this.repository.getSelectedAssistant();
     if (!assistant || assistant.isDeleted) {
       return;
@@ -848,7 +856,7 @@ export class ChatController {
         canSelectFiles: true,
         canSelectFolders: false,
         canSelectMany: true,
-        openLabel: strings.imageRemove || 'Select images',
+        openLabel: undefined,
         filters: {
           Images: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']
         }
@@ -861,16 +869,7 @@ export class ChatController {
         try {
           const raw = await vscode.workspace.fs.readFile(uri);
           const ext = uri.path.split('.').pop()?.toLowerCase() || '';
-          const mimeMap: Record<string, string> = {
-            png: 'image/png',
-            jpg: 'image/jpeg',
-            jpeg: 'image/jpeg',
-            gif: 'image/gif',
-            webp: 'image/webp',
-            bmp: 'image/bmp',
-            svg: 'image/svg+xml'
-          };
-          const mimeType = mimeMap[ext] || 'image/png';
+          const mimeType = ChatController.IMAGE_MIME_MAP[ext] || 'image/png';
           const base64 = Buffer.from(raw).toString('base64');
           images.push({ base64, mimeType });
         } catch {

@@ -481,6 +481,11 @@ export function getSettingsCenterBaseCss(): string {
         margin-top: 14px;
       }
 
+      #backupListContainer {
+        max-height: 320px;
+        overflow-y: auto;
+      }
+
       .backup-item {
         display: flex;
         align-items: center;

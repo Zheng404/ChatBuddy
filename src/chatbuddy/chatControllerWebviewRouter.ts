@@ -37,6 +37,7 @@ export type ChatControllerWebviewRouterArgs = {
   repository: RouterRepository;
   getLocale: () => RuntimeLocale;
   hasPendingToolContinuation: boolean;
+  isGenerating: boolean;
   handleReady: (context?: ChatControllerPanelMessageContext) => void;
   postError: (message: string, context?: ChatControllerPanelMessageContext) => void;
   postState: (error?: string, context?: ChatControllerPanelMessageContext) => void;
@@ -76,6 +77,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
     repository,
     getLocale,
     hasPendingToolContinuation,
+    isGenerating,
     handleReady,
     postError,
     postState,
@@ -114,6 +116,18 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
     postError(notice, context);
     postState(notice, context);
     return;
+  }
+
+  // Block state-changing messages during generation to prevent data corruption
+  if (isGenerating) {
+    const allowedDuringGeneration = new Set<string>([
+      'stopGeneration',
+      'toggleSessionPanel',
+      'ready'
+    ]);
+    if (!allowedDuringGeneration.has(message.type)) {
+      return;
+    }
   }
 
   switch (message.type) {
@@ -290,7 +304,6 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       return;
     case 'stopGeneration':
       stopGeneration('manual');
-      postState(undefined, context);
       return;
     case 'saveAsTemplate': {
       repository.saveAsTemplate(message.assistantId, message.name, message.description);

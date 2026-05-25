@@ -16,21 +16,11 @@ export interface MigrationResult {
   skipped?: number;
 }
 
-/** 检查目标文件是否已存在 */
-async function destExists(destPath: string): Promise<boolean> {
-  try {
-    await fs.promises.access(destPath, fs.constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** 递归复制目录内容，跳过已存在的目标文件 */
+/** 递归复制目录内容，覆盖已存在的目标文件（避免新旧混合产生不一致状态） */
 async function copyDirectoryContents(
   src: string,
   dest: string,
-  counter: { count: number; skipped: number },
+  counter: { count: number },
   onProgress?: (copied: number, currentFile: string) => void
 ): Promise<void> {
   await ensureDir(dest);
@@ -43,10 +33,6 @@ async function copyDirectoryContents(
     if (entry.isDirectory()) {
       await copyDirectoryContents(srcPath, destPath, counter, onProgress);
     } else if (entry.isFile()) {
-      if (await destExists(destPath)) {
-        counter.skipped++;
-        continue;
-      }
       await fs.promises.copyFile(srcPath, destPath);
       counter.count++;
       onProgress?.(counter.count, entry.name);
@@ -85,7 +71,7 @@ export async function migrateStorage(
     return { success: false, reason: 'Failed to create target storage directory' };
   }
 
-  const counter = { count: 0, skipped: 0 };
+  const counter = { count: 0 };
 
   try {
     for (const subdir of COMPASS_SUBDIRS) {
@@ -113,7 +99,7 @@ export async function migrateStorage(
       // 标记写入失败不影响迁移结果
     }
 
-    return { success: true, filesCopied: counter.count, skipped: counter.skipped };
+    return { success: true, filesCopied: counter.count };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, reason: `Migration failed: ${msg}` };

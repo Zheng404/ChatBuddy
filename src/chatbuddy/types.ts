@@ -273,9 +273,6 @@ export interface LocalBackupSettings {
   intervalHours: number;
   maxCount: number;
   maxAgeDays: number;
-  encryptionEnabled?: boolean;
-  /** 备份加密密码，通过 Compass 共享存储同步到其他 IDE 实例 */
-  password?: string;
 }
 
 export interface BackupFileEntry {

@@ -8,6 +8,7 @@ export function getDataManagementJs(): string {
       function switchDataTab(tab) {
         if (tab === 'local') { activeDataTab = 'local'; }
         else if (tab === 'sync') { activeDataTab = 'sync'; }
+        else if (tab === 'reset') { activeDataTab = 'reset'; }
         else { activeDataTab = 'transfer'; }
         renderDataTabs();
         renderDataTabVisibility();
@@ -20,10 +21,16 @@ export function getDataManagementJs(): string {
         if (dom.dataTabSync) {
           dom.dataTabSync.textContent = strings.dataTabSync || 'Data Sync';
         }
+        if (dom.dataTabReset) {
+          dom.dataTabReset.textContent = strings.dataTabReset || 'Reset';
+        }
         dom.dataTabTransfer.classList.toggle('active', activeDataTab === 'transfer');
         dom.dataTabLocal.classList.toggle('active', activeDataTab === 'local');
         if (dom.dataTabSync) {
           dom.dataTabSync.classList.toggle('active', activeDataTab === 'sync');
+        }
+        if (dom.dataTabReset) {
+          dom.dataTabReset.classList.toggle('active', activeDataTab === 'reset');
         }
       }
 
@@ -49,7 +56,6 @@ export function getDataManagementJs(): string {
         renderDataTabs();
         renderDataTabVisibility();
         renderLocalBackupSettings();
-        renderManualBackupSection();
         renderBackupList();
       }
 
@@ -95,50 +101,10 @@ export function getDataManagementJs(): string {
         dom.intervalInput.value = settings.intervalHours || 24;
         dom.maxCountInput.value = settings.maxCount !== undefined ? settings.maxCount : 10;
         dom.maxAgeInput.value = settings.maxAgeDays !== undefined ? settings.maxAgeDays : 30;
-        if (dom.backupEncryptionToggle) {
-          dom.backupEncryptionToggle.checked = !!settings.encryptionEnabled;
-        }
-      }
-
-      function renderManualBackupSection() {
-        var strings = runtimeState.strings || {};
         dom.manualBackupTitle.textContent = strings.manualBackupTitle || '';
         dom.triggerBackupBtn.textContent = strings.triggerBackupAction || '';
         dom.refreshBackupListBtn.textContent = strings.refreshBackupListAction || '';
         dom.backupHistoryTitle.textContent = strings.backupHistoryTitle || '';
-        renderBackupEncryptionSection();
-      }
-
-      function renderBackupEncryptionSection() {
-        var strings = runtimeState.strings || {};
-        var settings = (runtimeState.settings && runtimeState.settings.localBackup) || {};
-        if (dom.backupEncryptionSectionTitle) {
-          dom.backupEncryptionSectionTitle.textContent = strings.backupEncryptionSectionTitle || '';
-        }
-        if (dom.backupEncryptionHelp) {
-          dom.backupEncryptionHelp.textContent = strings.backupEncryptionHelp || '';
-        }
-        if (dom.backupEncryptionLabel) {
-          dom.backupEncryptionLabel.textContent = strings.backupEncryptionLabel || '';
-        }
-        if (dom.backupEncryptionToggle) {
-          dom.backupEncryptionToggle.checked = !!settings.encryptionEnabled;
-        }
-        if (dom.backupPasswordStatusLabel) {
-          dom.backupPasswordStatusLabel.textContent = runtimeState.hasBackupPassword
-            ? (strings.backupPasswordSet || 'Password set')
-            : (strings.backupPasswordNotSet || 'Password not set');
-          dom.backupPasswordStatusLabel.className = 'backup-password-status' + (runtimeState.hasBackupPassword ? ' has-password' : '');
-        }
-        if (dom.backupPasswordSetBtn) {
-          dom.backupPasswordSetBtn.textContent = runtimeState.hasBackupPassword
-            ? (strings.backupPasswordChangeAction || 'Change Password')
-            : (strings.backupPasswordSetAction || 'Set Password');
-        }
-        if (dom.backupPasswordClearBtn) {
-          dom.backupPasswordClearBtn.textContent = strings.backupPasswordClearAction || 'Clear Password';
-          dom.backupPasswordClearBtn.style.display = runtimeState.hasBackupPassword ? '' : 'none';
-        }
       }
 
       function formatFileSize(bytes) {

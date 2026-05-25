@@ -52,7 +52,7 @@ export function getChatBodyHtml(): string {
               <div class="composer-inline-controls">
                 <select id="tempModelSelect" class="model-select"></select>
                 <span class="chip temp-chip" id="tempModelChip"></span>
-                <span class="chip temp-chip" id="tempParamsChip"></span>
+                <span class="chip temp-chip" id="tempParamsChipInline"></span>
                 <div class="temp-params-popup" id="tempParamsPopup">
                   <div class="temp-params-popup-header">
                     <span id="tempParamsTitle"></span>

@@ -153,7 +153,7 @@ export function createDataActionHandlers(args: {
         if (!isZipArchive(raw)) {
           throw new Error('Expected ZIP backup archive');
         }
-        parsed = extractBackupPayloadFromArchive(raw);
+        parsed = await extractBackupPayloadFromArchive(raw);
       } catch (err) {
         warn('Failed to parse backup file:', err);
         return {

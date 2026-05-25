@@ -66,6 +66,10 @@ export function getEnabledServers(settings: ChatBuddySettings, assistant: Assist
     if (!server.groupId) {
       return true;
     }
+    if (!groupEnabled.has(server.groupId)) {
+      // Group was deleted — treat as disabled
+      return false;
+    }
     return groupEnabled.get(server.groupId) !== false;
   });
 }

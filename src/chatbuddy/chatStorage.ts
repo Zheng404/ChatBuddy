@@ -18,7 +18,7 @@ import {
   createCompassPaths,
   type CompassPaths
 } from './compassStorage';
-import { ensureDir, fileExists, moveDirectoryContents, removeEmptyDirectoriesRecursively } from './compassStorage/io';
+import { ensureDir, fileExists, getFileHash, moveDirectoryContents, readJsonFile, removeEmptyDirectoriesRecursively } from './compassStorage/io';
 import { COMPASS_META_DIR_NAME, COMPASS_SESSIONS_DIR_NAME } from './compassStorage/paths';
 import { SyncWatcher } from './syncWatcher';
 
@@ -316,6 +316,29 @@ export class ChatStorage {
     return this.settingsStore.getProviderApiKeys();
   }
 
+  /**
+   * 从磁盘重新读取 API keys 文件，不影响当前内存状态。
+   * 用于跨 IDE reload/persist 时获取其他 IDE 写入的新 keys。
+   */
+  public async readProviderApiKeysFromDisk(): Promise<Record<string, string>> {
+    const paths = this.paths;
+    if (!paths) {
+      return {};
+    }
+    // 仅读取 API keys 文件，避免加载全部 10 个结构化文件
+    const raw = await readJsonFile(paths.providerApiKeysPath) as Record<string, string> | undefined;
+    if (!raw || typeof raw !== 'object') {
+      return {};
+    }
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === 'string' && key.trim()) {
+        result[key.trim()] = value;
+      }
+    }
+    return result;
+  }
+
   public writeProviderApiKeys(providerApiKeys: Record<string, string>, persist = true): void {
     this.settingsStore.setProviderApiKeys(providerApiKeys);
     if (persist) {
@@ -341,9 +364,40 @@ export class ChatStorage {
     return this.paths?.rootPath;
   }
 
-  /** 获取 state.core.json 的绝对路径（用于跨 IDE 写前读取合并） */
+  /** 获取 state.core.json 的绝对路径（用于跨 IDE mtime 乐观锁） */
   public getStateCorePath(): string | undefined {
     return this.paths?.stateCorePath;
+  }
+
+  /** 获取 CompassPaths（用于外部读取磁盘全量状态） */
+  public getPaths(): CompassPaths | undefined {
+    return this.paths;
+  }
+
+  /**
+   * 从磁盘重新加载所有状态文件到一个新的临时 CompassSettingsStore，
+   * 返回完整的 PersistedStateLite 和 state.core.json 的 mtime。
+   * 不影响当前内存中的 settingsStore。
+   * 用于跨 IDE persist 时写前合并。
+   */
+  public async readFullDiskState(): Promise<{ state: PersistedStateLite | undefined; contentHash: string }> {
+    const paths = this.paths;
+    if (!paths) {
+      return { state: undefined, contentHash: '' };
+    }
+    // 使用 state.core.json 的内容哈希作为乐观锁（比 mtime 精度更高）
+    const contentHash = await getFileHash(paths.stateCorePath);
+    if (!contentHash) {
+      return { state: undefined, contentHash: '' };
+    }
+    // 创建临时 store 从磁盘加载所有文件
+    const tempStore = new CompassSettingsStore();
+    await tempStore.load(paths);
+    const state = tempStore.readStateLite();
+    if (!state || typeof state !== 'object' || Array.isArray(state)) {
+      return { state: undefined, contentHash };
+    }
+    return { state: state as PersistedStateLite, contentHash };
   }
 
   public clearSessionMessages(assistantId: string, sessionId: string, updatedAt: number, persist = true): boolean {
@@ -444,34 +498,16 @@ export class ChatStorage {
       await ensureDir(paths.metaPath);
       await ensureDir(paths.sessionsPath);
 
-      try {
-        await this.sessionStore.persist(paths);
-        await this.kvStore.persist(paths);
-        await this.settingsStore.persist(paths);
-      } catch (err) {
-        // 数据写入失败时清理残留标记，防止其他 IDE 误判
-        if (this.syncWatcher) {
-          await this.syncWatcher.writeSelfWriteMarker([]).catch(() => {});
-        }
-        throw err;
+      // 【重要】先写自写标记，再写数据文件。
+      // 确保另一个 IDE 在检测到数据变更时能正确读到本 IDE 的标记。
+      // 如果标记在数据之后写入，另一个 IDE 可能在窗口期读到旧标记而误判为自写。
+      if (this.syncWatcher) {
+        await this.syncWatcher.writeSelfWriteMarker([]);
       }
 
-      // 数据写入成功后写入自写标记（含完整文件列表）
-      if (this.syncWatcher) {
-        const writtenFiles: string[] = [];
-        writtenFiles.push(paths.indexPath);
-        writtenFiles.push(paths.stateCorePath);
-        writtenFiles.push(paths.settingsGeneralPath);
-        writtenFiles.push(paths.settingsModelConfigPath);
-        writtenFiles.push(paths.settingsDefaultModelsPath);
-        writtenFiles.push(paths.settingsMcpPath);
-        writtenFiles.push(paths.providerApiKeysPath);
-        writtenFiles.push(paths.templatesPath);
-        if (paths.kvPath) {
-          writtenFiles.push(paths.kvPath);
-        }
-        await this.syncWatcher.writeSelfWriteMarker(writtenFiles);
-      }
+      await this.sessionStore.persist(paths);
+      await this.kvStore.persist(paths);
+      await this.settingsStore.persist(paths);
     };
 
     this.persistQueue = this.persistQueue.then(persistTask, persistTask);

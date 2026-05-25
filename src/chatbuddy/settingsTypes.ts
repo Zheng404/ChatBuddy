@@ -57,6 +57,7 @@ export type SettingsCenterMessage =
       payload: {
         providerId: string;
         providerName: string;
+        skipConfirm?: boolean;
       };
     }
   | {
@@ -94,9 +95,6 @@ export type SettingsCenterMessage =
   | { type: 'restoreLocalBackup'; payload: { fileName: string } }
   | { type: 'deleteLocalBackup'; payload: { fileName: string } }
   | { type: 'refreshBackupList' }
-  | { type: 'setBackupPassword'; payload?: { password: string } }
-  | { type: 'clearBackupPassword' }
-  | { type: 'queryBackupPasswordStatus' }
   | { type: 'requestAddMcpGroup' }
   | { type: 'requestDeleteMcpGroup'; payload: { groupId: string; groupName: string } }
   | { type: 'switchStorageMode'; payload: { mode: StorageMode } }
@@ -180,7 +178,6 @@ export type SettingsCenterOutbound =
   | { type: 'backupDirSelected'; payload: { dir: string } }
   | { type: 'backupList'; payload: { items: import('./types').BackupFileEntry[] } }
   | { type: 'backupOperationResult'; payload: { success: boolean; message: string } }
-  | { type: 'backupPasswordStatus'; payload: { hasPassword: boolean } }
   | { type: 'mcpGroupAdded'; payload: { name: string } }
   | { type: 'mcpGroupDeleted'; payload: { groupId: string } }
   | { type: 'storageMigrationPrompt'; payload: { targetMode: StorageMode } }

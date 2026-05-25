@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { createInitialState } from '../chatbuddy/stateSanitizers';
 import { StatePersistenceService } from '../chatbuddy/stateRepositoryPersistenceService';
 import type { PersistedStateLite } from '../chatbuddy/types';
-import type * as vscode from 'vscode';
 
 test('persist can recover after a failed persist attempt', async () => {
   let state: PersistedStateLite = createInitialState();
@@ -39,11 +38,12 @@ test('persist can recover after a failed persist attempt', async () => {
     getProviderApiKeys: () => ({}),
     setProviderApiKeys: () => undefined,
     bumpVersion: () => undefined,
-    getGlobalState: () => ({
-      get: () => undefined,
-      update: () => Promise.resolve(),
-      keys: () => []
-    }) as unknown as vscode.Memento
+    getDeletedProviderIds: () => new Set(),
+    getDeletedMcpServerIds: () => new Set(),
+    getDeletedAssistantIds: () => new Set(),
+    getDeletedGroupIds: () => new Set(),
+    getDeletedTemplateIds: () => new Set(),
+    clearDeletedEntityIds: () => undefined
   });
 
   (persistence as unknown as { persistMaxRetries: number }).persistMaxRetries = 0;

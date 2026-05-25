@@ -45,6 +45,15 @@ export function applyProviderApiKeysToSettings(
   apiKeys: Record<string, string>,
   settings: ChatBuddySettings
 ): ChatBuddySettings {
+  // 短路检测：如果没有 API keys 且所有 provider 的 apiKey 已为空，直接返回原对象
+  const hasKeys = Object.keys(apiKeys).length > 0;
+  if (!hasKeys && settings.providers.every((p) => !p.apiKey)) {
+    return settings;
+  }
+  // 检测是否真的需要更新：所有 provider 的 apiKey 已与目标一致时直接返回
+  if (hasKeys && settings.providers.every((p) => p.apiKey === (apiKeys[p.id] ?? ''))) {
+    return settings;
+  }
   return {
     ...settings,
     providers: settings.providers.map((provider) => ({

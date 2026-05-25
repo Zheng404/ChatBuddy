@@ -18,11 +18,15 @@ import {
   isOllamaProvider,
   normalizeBaseUrl
 } from './providerClientRequestBuilders';
+import { retryWithBackoff } from './utils';
 
 function toErrorMessage(status: number, fallback: string, locale: RuntimeLocale): string {
   const strings = getStrings(locale);
   if (status === 401) {
     return strings.authFailed;
+  }
+  if (status === 403) {
+    return strings.accessDenied;
   }
   if (status === 429) {
     return strings.rateLimited;
@@ -33,6 +37,8 @@ function toErrorMessage(status: number, fallback: string, locale: RuntimeLocale)
   return fallback;
 }
 
+// 注意：HttpError 与 providerClient.ts 中的定义重复，因循环依赖无法共享。
+// 若将来提取到共享模块（如 utils/httpError.ts），可消除此重复。
 export class HttpError extends Error {
   public readonly status: number;
 
@@ -60,13 +66,19 @@ async function fetchStandardModels(
   locale: RuntimeLocale,
   signal?: AbortSignal
 ): Promise<ProviderModelProfile[]> {
-  const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/models`, {
-    method: 'GET',
-    headers: createHeaders(provider, false),
-    signal
-  });
-  await ensureSuccess(response, locale);
-  return parseStandardModelList(await response.json());
+  return retryWithBackoff(async () => {
+    const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/models`, {
+      method: 'GET',
+      headers: createHeaders(provider, false),
+      signal
+    });
+    await ensureSuccess(response, locale);
+    return parseStandardModelList(
+      response.status === 204 || response.headers.get('content-length') === '0'
+        ? {}
+        : await response.json()
+    );
+  }, { signal });
 }
 
 async function fetchGeminiModels(
@@ -74,17 +86,23 @@ async function fetchGeminiModels(
   locale: RuntimeLocale,
   signal?: AbortSignal
 ): Promise<ProviderModelProfile[]> {
-  const base = normalizeBaseUrl(provider.baseUrl).replace(/\/openai$/, '');
-  const url = provider.apiKey.trim()
-    ? `${base}/models?key=${encodeURIComponent(provider.apiKey.trim())}`
-    : `${base}/models`;
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: createHeaders(provider, false),
-    signal
-  });
-  await ensureSuccess(response, locale);
-  return parseGeminiModels(await response.json());
+  return retryWithBackoff(async () => {
+    const base = normalizeBaseUrl(provider.baseUrl).replace(/\/openai$/, '');
+    const url = provider.apiKey.trim()
+      ? `${base}/models?key=${encodeURIComponent(provider.apiKey.trim())}`
+      : `${base}/models`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: createHeaders(provider, false),
+      signal
+    });
+    await ensureSuccess(response, locale);
+    return parseGeminiModels(
+      response.status === 204 || response.headers.get('content-length') === '0'
+        ? {}
+        : await response.json()
+    );
+  }, { signal });
 }
 
 async function fetchOllamaModels(
@@ -92,14 +110,20 @@ async function fetchOllamaModels(
   locale: RuntimeLocale,
   signal?: AbortSignal
 ): Promise<ProviderModelProfile[]> {
-  const base = normalizeBaseUrl(provider.baseUrl).replace(/\/v1$/, '');
-  const response = await fetch(`${base}/api/tags`, {
-    method: 'GET',
-    headers: createHeaders(provider, false),
-    signal
-  });
-  await ensureSuccess(response, locale);
-  return parseOllamaModels(await response.json());
+  return retryWithBackoff(async () => {
+    const base = normalizeBaseUrl(provider.baseUrl).replace(/\/v1$/, '');
+    const response = await fetch(`${base}/api/tags`, {
+      method: 'GET',
+      headers: createHeaders(provider, false),
+      signal
+    });
+    await ensureSuccess(response, locale);
+    return parseOllamaModels(
+      response.status === 204 || response.headers.get('content-length') === '0'
+        ? {}
+        : await response.json()
+    );
+  }, { signal });
 }
 
 export async function fetchProviderModels(

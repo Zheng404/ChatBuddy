@@ -501,8 +501,8 @@ export function getChatMarkdownRendererScript(args: {
         var doc = parser.parseFromString(svg, 'image/svg+xml');
         var root = doc.documentElement;
         if (!root || root.tagName.toLowerCase() !== 'svg') {
-          // 解析失败或非 SVG，返回原始内容（由调用方处理）
-          return svg;
+          // 解析失败或非 SVG，返回安全占位符而非原始内容以防止 XSS
+          return '<div class="mermaid-error">SVG render failed</div>';
         }
         var dangerous = root.querySelectorAll('script, iframe, object, embed, foreignObject');
         for (var i = 0; i < dangerous.length; i++) { dangerous[i].remove(); }

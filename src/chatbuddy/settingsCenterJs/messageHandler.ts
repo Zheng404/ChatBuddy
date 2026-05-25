@@ -67,10 +67,6 @@ export function getMessageHandlerJs(): string {
           runtimeState.backupFiles = message.payload.items || [];
           renderBackupList();
         }
-        if (message && message.type === 'backupPasswordStatus') {
-          runtimeState.hasBackupPassword = !!(message.payload && message.payload.hasPassword);
-          renderBackupEncryptionSection();
-        }
         if (message && message.type === 'backupOperationResult') {
           if (message.payload.message) {
             showToast(message.payload.message, message.payload.success ? 'success' : 'error');

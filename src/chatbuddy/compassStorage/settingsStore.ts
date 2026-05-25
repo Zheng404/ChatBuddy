@@ -421,16 +421,26 @@ export class CompassSettingsStore {
         generation: (this.structuredCommit?.generation ?? 0) + 1,
         writtenAt: new Date().toISOString()
       };
-      await Promise.all([
-        writeJsonAtomic(paths.stateCorePath, document.core),
-        writeJsonAtomic(paths.uiSelectionPath, document.ui),
-        writeJsonAtomic(paths.settingsGeneralPath, document.settingsGeneral),
-        writeJsonAtomic(paths.settingsModelConfigPath, document.settingsModelConfig),
-        writeJsonAtomic(paths.settingsDefaultModelsPath, document.settingsDefaultModels),
-        writeJsonAtomic(paths.settingsMcpPath, document.settingsMcp)
-      ]);
-      await writeJsonAtomic(paths.structuredStateCommitPath, commit);
-      this.structuredCommit = cloneStructuredStateCommit(commit);
+      let structuredWriteOk = false;
+      try {
+        await Promise.all([
+          writeJsonAtomic(paths.stateCorePath, document.core),
+          writeJsonAtomic(paths.uiSelectionPath, document.ui),
+          writeJsonAtomic(paths.settingsGeneralPath, document.settingsGeneral),
+          writeJsonAtomic(paths.settingsModelConfigPath, document.settingsModelConfig),
+          writeJsonAtomic(paths.settingsDefaultModelsPath, document.settingsDefaultModels),
+          writeJsonAtomic(paths.settingsMcpPath, document.settingsMcp)
+        ]);
+        structuredWriteOk = true;
+      } catch (writeError) {
+        console.warn('[Compass] One or more structured state files failed to write, skipping commit file:', writeError);
+        // 不 return — 继续写入 API keys，避免结构化文件写入失败导致 API keys 丢失
+      }
+      // 仅在结构化文件全部写入成功时写 commit 标记
+      if (structuredWriteOk) {
+        await writeJsonAtomic(paths.structuredStateCommitPath, commit);
+        this.structuredCommit = cloneStructuredStateCommit(commit);
+      }
       await removeFileIfExists(paths.legacyStatePath);
       this.legacyStatePayload = undefined;
     } else {
@@ -451,18 +461,22 @@ export class CompassSettingsStore {
       }
     }
 
-    if (Object.keys(this.providerApiKeys).length) {
-      await writeJsonAtomic(paths.providerApiKeysPath, this.providerApiKeys);
-      await removeFileIfExists(paths.legacyProviderApiKeysPath);
-      this.legacyProviderApiKeysPayload = undefined;
-      return;
-    }
-
-    await removeFileIfExists(paths.providerApiKeysPath);
-    if (this.legacyProviderApiKeysPayload && this.legacyProviderApiKeysPayload.trim()) {
-      await writeTextAtomic(paths.legacyProviderApiKeysPath, this.legacyProviderApiKeysPayload);
-    } else {
-      await removeFileIfExists(paths.legacyProviderApiKeysPath);
+    // API keys 独立写入，不受结构化文件写入结果影响
+    try {
+      if (Object.keys(this.providerApiKeys).length) {
+        await writeJsonAtomic(paths.providerApiKeysPath, this.providerApiKeys);
+        await removeFileIfExists(paths.legacyProviderApiKeysPath);
+        this.legacyProviderApiKeysPayload = undefined;
+      } else {
+        await removeFileIfExists(paths.providerApiKeysPath);
+        if (this.legacyProviderApiKeysPayload && this.legacyProviderApiKeysPayload.trim()) {
+          await writeTextAtomic(paths.legacyProviderApiKeysPath, this.legacyProviderApiKeysPayload);
+        } else {
+          await removeFileIfExists(paths.legacyProviderApiKeysPath);
+        }
+      }
+    } catch (apiKeyError) {
+      console.warn('[Compass] Failed to write API keys file:', apiKeyError);
     }
   }
 

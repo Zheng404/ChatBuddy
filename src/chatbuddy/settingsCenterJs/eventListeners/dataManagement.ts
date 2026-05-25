@@ -55,6 +55,11 @@ export function getDataManagementJs(): string {
           switchDataTab('sync');
         });
       }
+      if (dom.dataTabReset) {
+        dom.dataTabReset.addEventListener('click', () => {
+          switchDataTab('reset');
+        });
+      }
       // Local backup controls
       var backupAutoSaveTimer = undefined;
       function autoSaveBackupSettings() {
@@ -69,7 +74,6 @@ export function getDataManagementJs(): string {
               intervalHours: parseInt(dom.intervalInput.value, 10) || 24,
               maxCount: parseInt(dom.maxCountInput.value, 10) || 0,
               maxAgeDays: parseInt(dom.maxAgeInput.value, 10) || 0,
-              encryptionEnabled: dom.backupEncryptionToggle ? dom.backupEncryptionToggle.checked : false
             }
           });
         }, 400);
@@ -83,27 +87,6 @@ export function getDataManagementJs(): string {
       dom.intervalInput.addEventListener('change', autoSaveBackupSettings);
       dom.maxCountInput.addEventListener('change', autoSaveBackupSettings);
       dom.maxAgeInput.addEventListener('change', autoSaveBackupSettings);
-
-      // Backup encryption controls
-      if (dom.backupEncryptionToggle) {
-        dom.backupEncryptionToggle.addEventListener('change', () => {
-          if (backupAutoSaveTimer) { clearTimeout(backupAutoSaveTimer); }
-          if (!runtimeState.settings) { runtimeState.settings = {}; }
-          if (!runtimeState.settings.localBackup) { runtimeState.settings.localBackup = {}; }
-          runtimeState.settings.localBackup.encryptionEnabled = dom.backupEncryptionToggle.checked;
-          autoSaveBackupSettings();
-        });
-      }
-      if (dom.backupPasswordSetBtn) {
-        dom.backupPasswordSetBtn.addEventListener('click', () => {
-          vscode.postMessage({ type: 'setBackupPassword' });
-        });
-      }
-      if (dom.backupPasswordClearBtn) {
-        dom.backupPasswordClearBtn.addEventListener('click', () => {
-          vscode.postMessage({ type: 'clearBackupPassword' });
-        });
-      }
 
       dom.triggerBackupBtn.addEventListener('click', () => {
         vscode.postMessage({ type: 'triggerLocalBackup' });

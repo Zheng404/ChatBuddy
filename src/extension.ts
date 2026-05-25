@@ -137,7 +137,7 @@ export async function activate(context: vscode.ExtensionContext) {
     chatController.applySettings(settings);
     // Prune MCP connections for servers that were removed or disabled
     const activeServerIds = new Set(settings.mcp.servers.map((s) => s.id));
-    void mcpRuntime.pruneConnections(activeServerIds);
+    void mcpRuntime.pruneConnections(activeServerIds).catch(e => warn('MCP prune error:', e));
     restartBackupTimer(settings);
     refreshAll();
     updateTreeMessage();
@@ -166,18 +166,6 @@ export async function activate(context: vscode.ExtensionContext) {
     handleImportData,
     handleImportLegacyData,
     handleSelectiveExportData,
-    getBackupPassword: async () => {
-      const fromSecrets = await context.secrets.get('chatbuddy.backupPassword');
-      if (fromSecrets) { return fromSecrets; }
-      // 回退：从 Compass 共享存储读取密码（跨 IDE 同步场景）
-      const fromSettings = repository.getSettings().localBackup.password;
-      if (fromSettings) {
-        await context.secrets.store('chatbuddy.backupPassword', fromSettings);
-      }
-      return fromSettings || undefined;
-    },
-    setBackupPassword: async (password: string) => context.secrets.store('chatbuddy.backupPassword', password),
-    clearBackupPassword: async () => context.secrets.delete('chatbuddy.backupPassword'),
     onBackupSettingsChanged: () => restartBackupTimer(),
     refreshAll,
     updateTreeMessage,
@@ -216,7 +204,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const intervalMs = getBackupIntervalMs(current.localBackup);
     if (intervalMs > 0) {
       backupTimer = setInterval(() => {
-        void runScheduledBackup(repository, current.localBackup);
+        const settings = repository.getSettings();
+        void runScheduledBackup(repository, settings.localBackup).catch(e => warn('Scheduled backup error:', e));
       }, intervalMs);
     }
   };
@@ -240,23 +229,13 @@ export async function activate(context: vscode.ExtensionContext) {
           }
 
           void repository.reloadFromSharedStorage(categories).then(async () => {
-            // 同步备份密码：从 Compass 共享存储同步到 context.secrets
-            const settings = repository.getSettings();
-            const existingPassword = await context.secrets.get('chatbuddy.backupPassword');
-            if (settings.localBackup.password && !existingPassword) {
-              await context.secrets.store('chatbuddy.backupPassword', settings.localBackup.password);
-            } else if (!settings.localBackup.password && existingPassword) {
-              await context.secrets.delete('chatbuddy.backupPassword');
-            }
             // 备份设置可能已变更（间隔、目录、启停），重启定时器
             restartBackupTimer();
             refreshAll();
             updateTreeMessage();
             // 刷新聊天面板，使 WebView 加载最新的会话数据
             chatController.postStateToActivePanel();
-            // 通知设置中心刷新密码状态（跨 IDE 同步场景）
-            settingsCenterPanelController.postBackupPasswordStatus();
-          });
+          }).catch(e => warn('Reload from shared storage error:', e));
         },
         getIsGenerating: () => chatController.isGenerating()
       });

@@ -73,9 +73,6 @@ export class SettingsCenterPanelController {
     private readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
     private readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
     private readonly onSelectiveExport: (categories: string[]) => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined,
-    private readonly onGetBackupPassword: () => Promise<string | undefined>,
-    private readonly onSetBackupPassword: (password: string) => Promise<void>,
-    private readonly onClearBackupPassword: () => Promise<void>,
     private readonly onBackupSettingsChanged?: () => void
   ) {
     this.handlerDeps = {
@@ -88,9 +85,6 @@ export class SettingsCenterPanelController {
       onImportData: this.onImportData,
       onImportLegacyData: this.onImportLegacyData,
       onSelectiveExport: this.onSelectiveExport,
-      onGetBackupPassword: this.onGetBackupPassword,
-      onSetBackupPassword: this.onSetBackupPassword,
-      onClearBackupPassword: this.onClearBackupPassword,
       onBackupSettingsChanged: this.onBackupSettingsChanged,
       getLocale: () => this.getLocale(),
       getStrings: () => this.getStrings(),
@@ -130,8 +124,7 @@ export class SettingsCenterPanelController {
       this.updatePanelPresentation();
       this.postState();
       this.postCachedProbeResults();
-      this.postBackupPasswordStatus();
-      void this.probeAllMcpServers().catch(() => {});
+      void this.probeAllMcpServers().catch((err) => { warn('[Settings] MCP probe failed:', err); });
       return;
     }
 
@@ -166,6 +159,7 @@ export class SettingsCenterPanelController {
   }
 
   private postMessage(message: SettingsCenterOutbound): void {
+    // postMessage may reject when the panel is disposed before delivery; safe to ignore
     void this.panel?.webview.postMessage(message).then(undefined, () => {});
   }
 
@@ -246,14 +240,6 @@ export class SettingsCenterPanelController {
     this.postMessage({
       type: 'mcpProbeResult',
       payload: { results: filtered, lastProbeAt: cache.lastProbeAt, fromCache: true }
-    });
-  }
-
-  postBackupPasswordStatus(): void {
-    void this.onGetBackupPassword().then((password) => {
-      this.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: !!password } });
-    }).catch(() => {
-      this.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: false } });
     });
   }
 

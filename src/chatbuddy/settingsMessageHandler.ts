@@ -21,7 +21,7 @@ import {
 import type { ChatBuddySettings, McpServerProfile, RuntimeLocale, RuntimeStrings } from './types';
 import { migrateStorage, validateStorageData } from './syncMigration';
 import { ensureStorageDir, getSharedStoragePath, hasCompassData, type StorageMode } from './syncConfig';
-import { normalizeProvider, toErrorMessage } from './utils';
+import { normalizeProvider, toErrorMessage, warn } from './utils';
 import type {
   SettingsActionResult,
   SettingsCenterMessage,
@@ -41,9 +41,6 @@ export interface SettingsMessageHandlerDeps {
   readonly onImportData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
   readonly onImportLegacyData: () => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
   readonly onSelectiveExport: (categories: string[]) => Promise<SettingsActionResult | undefined> | SettingsActionResult | undefined;
-  readonly onGetBackupPassword: () => Promise<string | undefined>;
-  readonly onSetBackupPassword: (password: string) => Promise<void>;
-  readonly onClearBackupPassword: () => Promise<void>;
   /** 备份设置变更后回调（用于重启自动备份定时器） */
   onBackupSettingsChanged?: () => void;
   getLocale(): RuntimeLocale;
@@ -54,12 +51,40 @@ export interface SettingsMessageHandlerDeps {
   probeSingleMcpServer(server: McpServerProfile): Promise<void>;
 }
 
+// ─── 删除竞态保护 ──────────────────────────────────────────────────
+// 当 webview 删除 provider 后，可能仍有该 provider 的 autosave saveProvider
+// 消息在队列中等待处理。upsert 逻辑会将已删除的 provider 重新添加回去。
+// 通过记录最近删除的 provider ID 来阻止这种竞态重建。
+const recentlyDeletedProviderIds = new Set<string>();
+const RECENTLY_DELETED_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const recentlyDeletedTimestamps = new Map<string, number>();
+const recentlyDeletedMcpServerIds = new Set<string>();
+const recentlyDeletedMcpServerTimestamps = new Map<string, number>();
+
+// 定期清理过期条目，避免模块级 Set/Map 无限增长
+function cleanupStaleDeletedIds(): void {
+  const now = Date.now();
+  for (const [id, ts] of recentlyDeletedTimestamps) {
+    if (now - ts > RECENTLY_DELETED_TTL_MS) {
+      recentlyDeletedProviderIds.delete(id);
+      recentlyDeletedTimestamps.delete(id);
+    }
+  }
+  for (const [id, ts] of recentlyDeletedMcpServerTimestamps) {
+    if (now - ts > RECENTLY_DELETED_TTL_MS) {
+      recentlyDeletedMcpServerIds.delete(id);
+      recentlyDeletedMcpServerTimestamps.delete(id);
+    }
+  }
+}
+
 // ─── 消息处理器 ──────────────────────────────────────────────────────
 
 export async function handleSettingsMessage(
   message: SettingsCenterMessage,
   deps: SettingsMessageHandlerDeps
 ): Promise<void> {
+  cleanupStaleDeletedIds();
   if (message.type === 'ready') {
     deps.postState();
     return;
@@ -143,8 +168,14 @@ export async function handleSettingsMessage(
   }
 
   if (message.type === 'saveMcpServers') {
+    cleanupStaleDeletedIds();
     const current = deps.repository.getSettings();
-    deps.onSave(normalizeMcpServers(message.payload, current));
+    // 过滤已删除的 MCP server，防止竞态重建
+    const rawPayload = message.payload;
+    const filteredPayload = Array.isArray(rawPayload)
+      ? rawPayload.filter((s: { id: string }) => !recentlyDeletedMcpServerIds.has(s.id))
+      : { ...rawPayload, servers: rawPayload.servers.filter((s: { id: string }) => !recentlyDeletedMcpServerIds.has(s.id)) };
+    deps.onSave(normalizeMcpServers(filteredPayload, current));
     deps.postState(deps.getStrings().mcpSettingsSaved, 'success');
     return;
   }
@@ -191,18 +222,22 @@ export async function handleSettingsMessage(
   }
 
   if (message.type === 'probeMcpServers') {
-    void deps.probeAllMcpServers().catch(() => {});
+    void deps.probeAllMcpServers().catch((err) => { warn('[Settings] MCP probe failed:', err); });
     return;
   }
 
   if (message.type === 'testMcpServer') {
-    void deps.probeSingleMcpServer(message.payload.server).catch(() => {});
+    void deps.probeSingleMcpServer(message.payload.server).catch((err) => { warn('[Settings] MCP server probe failed:', err); });
     return;
   }
 
   if (message.type === 'saveProvider') {
     const provider = normalizeProvider(message.payload.provider);
     const silent = message.payload.silent === true;
+    // 阻止已删除 provider 的延迟 autosave 消息重建供应商
+    if (recentlyDeletedProviderIds.has(provider.id)) {
+      return;
+    }
     const current = deps.repository.getSettings();
     const nextProviders = current.providers.map((item) => (item.id === provider.id ? provider : item));
     const providerExists = nextProviders.some((item) => item.id === provider.id);
@@ -271,15 +306,18 @@ export async function handleSettingsMessage(
       return;
     }
 
-    const confirmDelete = await vscode.window.showWarningMessage(
-      formatString(strings.confirmDeleteProvider, {
-        name: providerName || providerId
-      }),
-      { modal: true },
-      strings.deleteProviderAction
-    );
-    if (confirmDelete !== strings.deleteProviderAction) {
-      return;
+    // webview 已确认时跳过 VS Code 原生对话框，避免关闭面板导致对话框被取消
+    if (!message.payload.skipConfirm) {
+      const confirmDelete = await vscode.window.showWarningMessage(
+        formatString(strings.confirmDeleteProvider, {
+          name: providerName || providerId
+        }),
+        { modal: true },
+        strings.deleteProviderAction
+      );
+      if (confirmDelete !== strings.deleteProviderAction) {
+        return;
+      }
     }
 
     const current = deps.repository.getSettings();
@@ -288,6 +326,11 @@ export async function handleSettingsMessage(
       deps.postState();
       return;
     }
+
+    // 记录已删除的 provider ID，阻止后续延迟到达的 saveProvider 消息重建该供应商
+    cleanupStaleDeletedIds();
+    recentlyDeletedProviderIds.add(providerId);
+    recentlyDeletedTimestamps.set(providerId, Date.now());
 
     deps.onSave({
       ...current,
@@ -323,6 +366,10 @@ export async function handleSettingsMessage(
       deps.postState();
       return;
     }
+
+    // 追踪已删除的 MCP server ID，防止 reload 合并时从磁盘复活
+    recentlyDeletedMcpServerIds.add(serverId);
+    recentlyDeletedMcpServerTimestamps.set(serverId, Date.now());
 
     deps.onSave({
       ...current,
@@ -539,7 +586,7 @@ export async function handleSettingsMessage(
 
   if (message.type === 'saveLocalBackupSettings') {
     const current = deps.repository.getSettings();
-    deps.onSave({ ...current, localBackup: { ...message.payload, password: current.localBackup.password } });
+    deps.onSave({ ...current, localBackup: { ...message.payload } });
     deps.onBackupSettingsChanged?.();
     deps.postState(deps.getStrings().backupSettingsSaved, 'success');
     return;
@@ -552,15 +599,7 @@ export async function handleSettingsMessage(
         deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupDirNotSet } });
         return;
       }
-      let password: string | undefined;
-      if (settings.encryptionEnabled) {
-        password = await deps.onGetBackupPassword();
-        if (!password) {
-          deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupPasswordRequired || 'Backup password is required' } });
-          return;
-        }
-      }
-      await createLocalBackup(deps.repository, settings.directory, password);
+      await createLocalBackup(deps.repository, settings.directory);
       await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
       const items = await listLocalBackups(settings.directory);
       deps.postMessage({ type: 'backupList', payload: { items } });
@@ -575,81 +614,11 @@ export async function handleSettingsMessage(
     try {
       const settings = deps.repository.getSettings().localBackup;
       const fileName = message.payload.fileName;
-      let password: string | undefined;
-      if (fileName.endsWith('.enc.zip')) {
-        password = await deps.onGetBackupPassword();
-        if (!password) {
-          const inputPassword = await vscode.window.showInputBox({
-            prompt: deps.getStrings().backupPasswordPrompt || 'Enter backup password',
-            password: true,
-            ignoreFocusOut: true
-          });
-          if (!inputPassword) {
-            deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: deps.getStrings().backupPasswordRequired || 'Backup password is required' } });
-            return;
-          }
-          password = inputPassword;
-        }
-      }
-      await restoreLocalBackup(deps.repository, settings.directory, fileName, password);
+      await restoreLocalBackup(deps.repository, settings.directory, fileName);
       deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupRestored } });
       deps.postState(deps.getStrings().backupRestored, 'success');
     } catch (err) {
       deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
-    }
-    return;
-  }
-
-  if (message.type === 'setBackupPassword') {
-    try {
-      let password = message.payload?.password;
-      if (!password) {
-        password = await vscode.window.showInputBox({
-          prompt: deps.getStrings().backupPasswordPrompt || 'Enter backup password',
-          password: true,
-          ignoreFocusOut: true,
-          validateInput: (value) => {
-            if (!value || !value.trim()) {
-              return deps.getStrings().backupPasswordEmpty || 'Password cannot be empty';
-            }
-            return undefined;
-          }
-        });
-        if (!password) { return; }
-      }
-      await deps.onSetBackupPassword(password.trim());
-      // 同步密码到 Compass 共享存储，以便跨 IDE 实例同步
-      const currentSettings = deps.repository.getSettings();
-      deps.onSave({ ...currentSettings, localBackup: { ...currentSettings.localBackup, password: password.trim() } });
-      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: true } });
-      deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupPasswordSaved || 'Backup password saved' } });
-    } catch (err) {
-      deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
-    }
-    return;
-  }
-
-  if (message.type === 'clearBackupPassword') {
-    try {
-      await deps.onClearBackupPassword();
-      // 从 Compass 共享存储中移除密码
-      const currentSettings = deps.repository.getSettings();
-      const { password: _pw, ...backupWithoutPassword } = currentSettings.localBackup;
-      deps.onSave({ ...currentSettings, localBackup: backupWithoutPassword });
-      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: false } });
-      deps.postMessage({ type: 'backupOperationResult', payload: { success: true, message: deps.getStrings().backupPasswordCleared || 'Backup password cleared' } });
-    } catch (err) {
-      deps.postMessage({ type: 'backupOperationResult', payload: { success: false, message: toErrorMessage(err, deps.getStrings().unknownError) } });
-    }
-    return;
-  }
-
-  if (message.type === 'queryBackupPasswordStatus') {
-    try {
-      const password = await deps.onGetBackupPassword();
-      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: !!password } });
-    } catch {
-      deps.postMessage({ type: 'backupPasswordStatus', payload: { hasPassword: false } });
     }
     return;
   }
@@ -722,7 +691,9 @@ export async function handleSettingsMessage(
 
   if (message.type === 'confirmStorageMigration') {
     const strings = deps.getStrings();
-    const { mode, migrate } = message.payload as { mode: StorageMode; migrate: boolean };
+    const payload = message.payload as { mode: StorageMode; migrate: boolean };
+    if (typeof payload.mode !== 'string' || typeof payload.migrate !== 'boolean') { return; }
+    const { mode, migrate } = payload;
 
     // Determine source and target paths
     const currentPath = deps.repository.getStorageRootPath();

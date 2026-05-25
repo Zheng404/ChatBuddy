@@ -376,7 +376,7 @@ export function getChatUiScript(): string {
                     if (!img.base64) { return ''; }
                     var mime = String(img.mimeType || '').toLowerCase();
                     if (['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'].indexOf(mime) === -1) { return ''; }
-                    return '<img class="message-image" src="data:' + mime + ';base64,' + img.base64 + '" />';
+                    return '<img class="message-image" src="data:' + escapeHtmlAttr(mime) + ';base64,' + escapeHtmlAttr(img.base64) + '" />';
                   }).join('')
                 : '') + '</div>' +
               '<div class="message-files">' + (Array.isArray(message.files) && message.files.length > 0

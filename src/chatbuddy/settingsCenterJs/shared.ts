@@ -43,6 +43,7 @@ export function getSharedJs(): string {
         dataTabTransfer: document.getElementById('dataTabTransfer'),
         dataTabLocal: document.getElementById('dataTabLocal'),
         dataTabSync: document.getElementById('dataTabSync'),
+        dataTabReset: document.getElementById('dataTabReset'),
         templatesSectionTitle: document.getElementById('templatesSectionTitle'),
         templatesSectionDescription: document.getElementById('templatesSectionDescription'),
         templatesListContainer: document.getElementById('templatesListContainer'),
@@ -60,13 +61,6 @@ export function getSharedJs(): string {
         manualBackupTitle: document.getElementById('manualBackupTitle'),
         triggerBackupBtn: document.getElementById('triggerBackupBtn'),
         refreshBackupListBtn: document.getElementById('refreshBackupListBtn'),
-        backupEncryptionSectionTitle: document.getElementById('backupEncryptionSectionTitle'),
-        backupEncryptionHelp: document.getElementById('backupEncryptionHelp'),
-        backupEncryptionToggle: document.getElementById('backupEncryptionToggle'),
-        backupEncryptionLabel: document.getElementById('backupEncryptionLabel'),
-        backupPasswordStatusLabel: document.getElementById('backupPasswordStatusLabel'),
-        backupPasswordSetBtn: document.getElementById('backupPasswordSetBtn'),
-        backupPasswordClearBtn: document.getElementById('backupPasswordClearBtn'),
         backupHistoryTitle: document.getElementById('backupHistoryTitle'),
         backupListContainer: document.getElementById('backupListContainer'),
         autoBackupSectionTitle: document.getElementById('autoBackupSectionTitle'),
@@ -228,7 +222,6 @@ export function getSharedJs(): string {
         noticeTone: 'info',
         backupFiles: [],
         mcpLastProbeAt: 0,
-        hasBackupPassword: false,
         templates: []
       };
       let activeSection = 'general';
@@ -249,6 +242,7 @@ export function getSharedJs(): string {
       let manualModelModalState = null;
       let discardModalResolver = null;
       let providerEditorId = '';
+      let deletedProviderIds = new Set();
       let searchKeyword = '';
       let lastToastNotice = '';
       let mcpServers = [];

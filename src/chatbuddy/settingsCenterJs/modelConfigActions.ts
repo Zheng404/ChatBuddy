@@ -58,24 +58,21 @@ export function getModelConfigActionsJs(): string {
         if (!provider) {
           return;
         }
-        if (!(await confirmDiscardCurrentProviderChanges())) {
-          return;
-        }
         const providerId = provider.id;
-        if (persistedProvidersById[providerId]) {
-          vscode.postMessage({
-            type: 'deleteProvider',
-            payload: {
-              providerId,
-              providerName: provider.name || runtimeState.strings.providerDraftName || ''
-            }
-          });
+        const providerName = provider.name || runtimeState.strings.providerDraftName || '';
+        // 先在 webview 内弹确认框，避免 VS Code 原生弹窗被关闭面板取消
+        const confirmed = await openDeleteProviderModal(providerName);
+        if (!confirmed) {
           return;
         }
+        cancelProviderAutosave(providerId);
+        dirtyProviderIds.delete(providerId);
+        delete providerSaveStatusById[providerId];
+        delete persistedProvidersById[providerId];
+        deletedProviderIds.add(providerId);
         providers = providers.filter((item) => item.id !== providerId);
         delete fetchedModelsByProvider[providerId];
         delete testModelByProviderId[providerId];
-        dirtyProviderIds.delete(providerId);
         providerEditorId = providers[0] ? providers[0].id : '';
         resetEditorTab();
         if (fetchModelsModalProviderId === providerId) {
@@ -85,6 +82,14 @@ export function getModelConfigActionsJs(): string {
           closeManualModelModal();
         }
         renderAll();
+        vscode.postMessage({
+          type: 'deleteProvider',
+          payload: {
+            providerId,
+            providerName,
+            skipConfirm: true
+          }
+        });
       }
 
       function discardProviderChanges(providerId) {
@@ -217,7 +222,10 @@ export function getModelConfigActionsJs(): string {
             closeManualModelModal();
           }
         }
-        closeDiscardChangesModal(false);
+        // 仅在"放弃更改"模式下自动关闭，避免干扰"删除确认"流程
+        if (discardModalMode === 'discard') {
+          closeDiscardChangesModal(false);
+        }
       }
 `;
 }

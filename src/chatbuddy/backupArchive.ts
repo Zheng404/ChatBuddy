@@ -4,7 +4,10 @@
  * 提供 ZIP 格式的数据备份/恢复功能，将 Compass 结构化存储的多个文件
  * 打包为单个 ZIP 归档，支持压缩和完整的数据重建。
  */
-import { inflateRawSync } from 'zlib';
+import { inflateRaw } from 'zlib';
+import { promisify } from 'util';
+
+const inflateRawAsync = promisify(inflateRaw);
 
 import {
   COMPASS_LAYOUT_VERSION,
@@ -336,7 +339,7 @@ function findEndOfCentralDirectoryOffset(data: Buffer): number {
   throw new Error('ZIP end of central directory not found');
 }
 
-export function readZipArchiveEntries(data: Uint8Array): Map<string, Uint8Array> {
+export async function readZipArchiveEntries(data: Uint8Array): Promise<Map<string, Uint8Array>> {
   const archive = Buffer.from(data);
   const eocdOffset = findEndOfCentralDirectoryOffset(archive);
   const totalEntries = archive.readUInt16LE(eocdOffset + 10);
@@ -346,6 +349,9 @@ export function readZipArchiveEntries(data: Uint8Array): Map<string, Uint8Array>
   let offset = centralDirectoryOffset;
 
   for (let index = 0; index < totalEntries; index += 1) {
+    if (offset + 46 > archive.length) {
+      throw new Error('Corrupt backup: truncated ZIP entry');
+    }
     if (archive.readUInt32LE(offset) !== ZIP_CENTRAL_DIRECTORY_SIGNATURE) {
       throw new Error('ZIP central directory entry is invalid');
     }
@@ -359,7 +365,7 @@ export function readZipArchiveEntries(data: Uint8Array): Map<string, Uint8Array>
     const commentLength = archive.readUInt16LE(offset + 32);
     const localHeaderOffset = archive.readUInt32LE(offset + 42);
 
-    const name = archive.subarray(offset + 46, offset + 46 + nameLength).toString((flags & ZIP_UTF8_FLAG) ? 'utf8' : 'utf8');
+    const name = archive.subarray(offset + 46, offset + 46 + nameLength).toString((flags & ZIP_UTF8_FLAG) ? 'utf8' : 'latin1');
 
     if (archive.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER_SIGNATURE) {
       throw new Error(`ZIP local header is invalid for entry: ${name}`);
@@ -382,7 +388,7 @@ export function readZipArchiveEntries(data: Uint8Array): Map<string, Uint8Array>
     if (compressionMethod === ZIP_STORE_METHOD) {
       content = Buffer.from(compressedData);
     } else if (compressionMethod === ZIP_DEFLATE_METHOD) {
-      content = inflateRawSync(compressedData);
+      content = await inflateRawAsync(compressedData);
     } else {
       throw new Error(`Unsupported ZIP compression method: ${compressionMethod}`);
     }
@@ -580,8 +586,8 @@ function parseSessionsFromArchive(entries: Map<string, Uint8Array>): ChatBuddyBa
   });
 }
 
-export function extractBackupPayloadFromArchive(data: Uint8Array): unknown {
-  const entries = readZipArchiveEntries(data);
+export async function extractBackupPayloadFromArchive(data: Uint8Array): Promise<unknown> {
+  const entries = await readZipArchiveEntries(data);
   const manifest = parseBackupArchiveManifest(entries);
 
   return {

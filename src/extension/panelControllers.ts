@@ -26,9 +26,6 @@ export function createPanelControllers(args: {
   handleImportData: () => Promise<DataActionResult | undefined>;
   handleImportLegacyData: () => Promise<DataActionResult | undefined>;
   handleSelectiveExportData: (categories: string[]) => Promise<DataActionResult | undefined>;
-  getBackupPassword: () => Promise<string | undefined>;
-  setBackupPassword: (password: string) => Promise<void>;
-  clearBackupPassword: () => Promise<void>;
   onBackupSettingsChanged?: () => void;
   refreshAll: () => void;
   updateTreeMessage: () => void;
@@ -47,9 +44,6 @@ export function createPanelControllers(args: {
     handleImportData,
     handleImportLegacyData,
     handleSelectiveExportData,
-    getBackupPassword,
-    setBackupPassword,
-    clearBackupPassword,
     onBackupSettingsChanged,
     refreshAll,
     updateTreeMessage,
@@ -66,9 +60,6 @@ export function createPanelControllers(args: {
     handleImportData,
     handleImportLegacyData,
     handleSelectiveExportData,
-    getBackupPassword,
-    setBackupPassword,
-    clearBackupPassword,
     onBackupSettingsChanged
   );
 

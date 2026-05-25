@@ -8,6 +8,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -54,12 +55,27 @@ export async function writeTextAtomic(filePath: string, content: string): Promis
 }
 
 export async function writeJsonAtomic(filePath: string, data: unknown): Promise<void> {
-  await writeTextAtomic(filePath, JSON.stringify(data, null, 2));
+  let json: string;
+  try {
+    json = JSON.stringify(data, null, 2);
+  } catch (stringifyError) {
+    throw new Error(`[Compass] Failed to serialize JSON for ${filePath}: ${stringifyError instanceof Error ? stringifyError.message : String(stringifyError)}`);
+  }
+  await writeTextAtomic(filePath, json);
 }
 
 export async function appendTextFile(filePath: string, content: string): Promise<void> {
   await ensureDir(path.dirname(filePath));
-  await fs.promises.appendFile(filePath, content, 'utf-8');
+  // 使用 'a' 模式（追加）写入。
+  // 注意：对于超过 PIPE_BUF（Linux 通常 4096 字节）的写入，
+  // 内核不保证原子性，多进程并发追加可能导致交错。
+  // 当前场景（JSONL 会话消息追加）为单进程顺序写入，不存在此风险。
+  const fd = await fs.promises.open(filePath, 'a');
+  try {
+    await fd.writeFile(content, 'utf-8');
+  } finally {
+    await fd.close();
+  }
 }
 
 /**
@@ -73,6 +89,22 @@ export async function getFileMtime(filePath: string): Promise<number> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return -1;
+    }
+    throw err;
+  }
+}
+
+/**
+ * 计算文件内容的 SHA-256 哈希值。
+ * 文件不存在返回空字符串，用于乐观锁比较（比 mtime 更可靠）。
+ */
+export async function getFileHash(filePath: string): Promise<string> {
+  try {
+    const content = await fs.promises.readFile(filePath);
+    return crypto.createHash('sha256').update(content).digest('hex');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return '';
     }
     throw err;
   }

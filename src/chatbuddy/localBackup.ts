@@ -9,34 +9,30 @@ import * as path from 'path';
 
 import { createBackupArchive, extractBackupPayloadFromArchive } from './backupArchive';
 import { LOCAL_BACKUP } from './constants';
-import { decryptBackup, encryptBackup, isEncryptedBackup, ENCRYPTED_FILE_SUFFIX } from './localBackupEncryption';
 import type { BackupFileEntry, LocalBackupSettings } from './types';
 import type { ChatStateRepository } from './stateRepository';
 
 const BACKUP_FILE_PREFIX = 'chatbuddy-backup-';
 const BACKUP_FILE_EXTENSION = '.zip';
-const BACKUP_ENCRYPTED_EXTENSION = ENCRYPTED_FILE_SUFFIX;
 
 /**
  * Create a local backup ZIP in the configured directory.
- * If `encryptionPassword` is provided, the archive is encrypted before writing.
  * Returns the file name of the created backup.
  */
 export async function createLocalBackup(
   repository: ChatStateRepository,
-  directory: string,
-  encryptionPassword?: string
+  directory: string
 ): Promise<string> {
   await ensureDirectory(directory);
 
-  const useEncryption = !!encryptionPassword;
-  const fileName = buildTimestampedFileName(useEncryption);
+  const fileName = buildTimestampedFileName();
   const filePath = path.join(directory, fileName);
   const backup = repository.exportBackupData();
   const archive = createBackupArchive(backup);
-  const finalBytes = useEncryption ? await encryptBackup(archive, encryptionPassword!) : archive;
 
-  await fs.promises.writeFile(filePath, Buffer.from(finalBytes));
+  const tmpPath = filePath + '.tmp';
+  await fs.promises.writeFile(tmpPath, Buffer.from(archive));
+  await fs.promises.rename(tmpPath, filePath);
   return fileName;
 }
 
@@ -61,7 +57,7 @@ export async function listLocalBackups(directory: string): Promise<BackupFileEnt
     if (!entry.isFile() || !entry.name.startsWith(BACKUP_FILE_PREFIX)) {
       continue;
     }
-    if (!entry.name.endsWith(BACKUP_FILE_EXTENSION) && !entry.name.endsWith(BACKUP_ENCRYPTED_EXTENSION)) {
+    if (!entry.name.endsWith(BACKUP_FILE_EXTENSION)) {
       continue;
     }
 
@@ -88,15 +84,13 @@ export async function listLocalBackups(directory: string): Promise<BackupFileEnt
 
 /**
  * 从备份文件名解析时间戳。
- * 文件名格式: chatbuddy-backup-YYYYMMDD-HHMMSS.zip[.enc]
+ * 文件名格式: chatbuddy-backup-YYYYMMDD-HHMMSS.zip
  * 返回 ISO 8601 字符串，解析失败返回 undefined。
  */
 function parseBackupTimestampFromFileName(fileName: string): string | undefined {
-  // 去掉扩展名: .zip 或 .enc.zip
+  // 去掉扩展名: .zip
   let stem = fileName;
-  if (stem.endsWith(BACKUP_ENCRYPTED_EXTENSION)) {
-    stem = stem.slice(0, -BACKUP_ENCRYPTED_EXTENSION.length);
-  } else if (stem.endsWith(BACKUP_FILE_EXTENSION)) {
+  if (stem.endsWith(BACKUP_FILE_EXTENSION)) {
     stem = stem.slice(0, -BACKUP_FILE_EXTENSION.length);
   }
   if (!stem.startsWith(BACKUP_FILE_PREFIX)) {
@@ -123,38 +117,29 @@ function parseBackupTimestampFromFileName(fileName: string): string | undefined 
   ) {
     return undefined;
   }
-  return date.toISOString();
+  return localDateToTimestamp(date);
 }
 
 /**
  * Delete a specific backup file.
  */
 export async function deleteLocalBackup(directory: string, fileName: string): Promise<void> {
-  validateFileName(fileName);
-  await fs.promises.unlink(path.join(directory, fileName));
+  const filePath = resolveAndValidatePath(directory, fileName);
+  await fs.promises.unlink(filePath);
 }
 
 /**
  * Restore from a specific local backup file.
- * If the file is encrypted, `decryptionPassword` must be provided.
  */
 export async function restoreLocalBackup(
   repository: ChatStateRepository,
   directory: string,
-  fileName: string,
-  decryptionPassword?: string
+  fileName: string
 ): Promise<void> {
-  validateFileName(fileName);
-  const filePath = path.join(directory, fileName);
+  const filePath = resolveAndValidatePath(directory, fileName);
   const raw = await fs.promises.readFile(filePath);
-  let archiveBytes: Uint8Array = new Uint8Array(raw);
-  if (isEncryptedBackup(archiveBytes)) {
-    if (!decryptionPassword) {
-      throw new Error('Encrypted backup requires a password');
-    }
-    archiveBytes = await decryptBackup(archiveBytes, decryptionPassword);
-  }
-  const parsed = extractBackupPayloadFromArchive(archiveBytes);
+  const archiveBytes: Uint8Array = new Uint8Array(raw);
+  const parsed = await extractBackupPayloadFromArchive(archiveBytes);
   await repository.importBackupData(parsed);
 }
 
@@ -216,20 +201,10 @@ const LOCK_TIMEOUT_MS = 60_000; // 1 minute
  */
 export async function runScheduledBackup(
   repository: ChatStateRepository,
-  settings: LocalBackupSettings,
-  encryptionPassword?: string
+  settings: LocalBackupSettings
 ): Promise<void> {
   if (!settings.enabled || !settings.directory) {
     return;
-  }
-
-  let password: string | undefined;
-  if (settings.encryptionEnabled) {
-    if (!encryptionPassword) {
-      console.warn('[ChatBuddy] Scheduled backup skipped: encryption enabled but no password set.');
-      return;
-    }
-    password = encryptionPassword;
   }
 
   if (!await acquireBackupLock(settings.directory)) {
@@ -240,7 +215,7 @@ export async function runScheduledBackup(
     if (await hasRecentBackup(settings.directory, settings.intervalHours)) {
       return;
     }
-    await createLocalBackup(repository, settings.directory, password);
+    await createLocalBackup(repository, settings.directory);
     await cleanExpiredBackups(settings.directory, settings.maxCount, settings.maxAgeDays);
   } finally {
     await releaseBackupLock(settings.directory);
@@ -261,23 +236,49 @@ async function hasRecentBackup(directory: string, intervalHours: number): Promis
 
 async function acquireBackupLock(directory: string): Promise<boolean> {
   const lockPath = path.join(directory, LOCK_FILE_NAME);
+  await ensureDirectory(directory);
+
+  // 使用 mkdir 原子操作获取锁（比 open('wx') + unlink 更安全）
   try {
-    const content = await fs.promises.readFile(lockPath, 'utf-8');
+    await fs.promises.mkdir(lockPath);
+    const fd = await fs.promises.open(path.join(lockPath, 'stamp'), 'w');
+    await fd.writeFile(String(Date.now()), 'utf-8');
+    await fd.close();
+    return true;
+  } catch (openError) {
+    if ((openError as NodeJS.ErrnoException)?.code !== 'EEXIST') {
+      return false;
+    }
+  }
+
+  // Lock directory exists — check if it's expired
+  try {
+    const content = await fs.promises.readFile(path.join(lockPath, 'stamp'), 'utf-8');
     const lockedAt = parseInt(content, 10);
     if (!isNaN(lockedAt) && Date.now() - lockedAt < LOCK_TIMEOUT_MS) {
       return false; // Another IDE holds the lock
     }
   } catch {
-    // Lock file doesn't exist, proceed
+    return false;
   }
-  await ensureDirectory(directory);
-  await fs.promises.writeFile(lockPath, String(Date.now()));
-  return true;
+
+  // Lock is expired — use mkdir for atomic lock acquisition (避免 unlink+open TOCTOU 竞态)
+  // mkdir 在所有文件系统上都是原子的：成功即获得锁，EEXIST 即被他人持有
+  try {
+    await fs.promises.mkdir(lockPath);
+    // mkdir 成功，写入时间戳到标记文件
+    const fd = await fs.promises.open(path.join(lockPath, 'stamp'), 'w');
+    await fd.writeFile(String(Date.now()), 'utf-8');
+    await fd.close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function releaseBackupLock(directory: string): Promise<void> {
   try {
-    await fs.promises.unlink(path.join(directory, LOCK_FILE_NAME));
+    await fs.promises.rm(path.join(directory, LOCK_FILE_NAME), { recursive: true });
   } catch {
     // Lock already removed
   }
@@ -295,11 +296,20 @@ export function getBackupIntervalMs(settings: LocalBackupSettings): number {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildTimestampedFileName(encrypted = false): string {
+function buildTimestampedFileName(): string {
   const now = new Date();
   const pad = (value: number) => String(value).padStart(2, '0');
   const stem = `${BACKUP_FILE_PREFIX}${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return encrypted ? `${stem}${BACKUP_ENCRYPTED_EXTENSION}` : `${stem}${BACKUP_FILE_EXTENSION}`;
+  return `${stem}${BACKUP_FILE_EXTENSION}`;
+}
+
+/**
+ * 将本地时间 Date 对象转为与文件名一致的 ISO 8601 字符串（保留本地时区信息）。
+ * 避免使用 toISOString() 导致 UTC 偏移不一致。
+ */
+function localDateToTimestamp(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 async function ensureDirectory(directory: string): Promise<void> {
@@ -307,11 +317,24 @@ async function ensureDirectory(directory: string): Promise<void> {
 }
 
 function validateFileName(fileName: string): void {
-  if (!fileName.startsWith(BACKUP_FILE_PREFIX) ||
-      (!fileName.endsWith(BACKUP_FILE_EXTENSION) && !fileName.endsWith(BACKUP_ENCRYPTED_EXTENSION))) {
+  if (!fileName.startsWith(BACKUP_FILE_PREFIX) || !fileName.endsWith(BACKUP_FILE_EXTENSION)) {
     throw new Error(`Invalid backup file name: ${fileName}`);
   }
   if (fileName.includes('/') || fileName.includes('\\') || fileName.includes('..')) {
     throw new Error(`Unsafe backup file name: ${fileName}`);
   }
+}
+
+/**
+ * Resolve a file path within a directory and verify it doesn't escape the directory.
+ * Throws if the resolved path is outside the target directory.
+ */
+export function resolveAndValidatePath(directory: string, fileName: string): string {
+  validateFileName(fileName);
+  const resolved = path.resolve(directory, fileName);
+  const resolvedDir = path.resolve(directory);
+  if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
+    throw new Error(`Path traversal detected: ${fileName}`);
+  }
+  return resolved;
 }

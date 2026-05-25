@@ -1,9 +1,10 @@
 /**
  * Retry a function with exponential backoff.
  *
- * Only retries on HTTP status codes that indicate transient failures
- * (429 rate-limited, 5xx server errors). Client errors (4xx except 429)
- * are not retried.
+ * Retries on HTTP status codes that indicate transient failures
+ * (429 rate-limited, 5xx server errors) and network-level errors
+ * (ECONNREFUSED, ETIMEDOUT, ENOTFOUND, fetch TypeError).
+ * Client errors (4xx except 429) are not retried.
  */
 export interface RetryOptions {
   /** Maximum number of retry attempts (default: 2, i.e. 3 total calls). */
@@ -16,17 +17,32 @@ export interface RetryOptions {
   jitterMs?: number;
   /** Custom predicate to decide whether a given error is retryable. */
   isRetryable?(error: unknown): boolean;
+  /** AbortSignal to cancel pending retries. */
+  signal?: AbortSignal;
 }
 
-const DEFAULT_OPTIONS: Required<Omit<RetryOptions, 'isRetryable'>> = {
+const DEFAULT_OPTIONS: Required<Omit<RetryOptions, 'isRetryable' | 'signal'>> = {
   maxRetries: 2,
   baseDelayMs: 1000,
   backoffFactor: 2,
   jitterMs: 500
 };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  }
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function jitter(ms: number, range: number): number {
@@ -47,6 +63,34 @@ function isTransientHttpStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+/** 精确匹配的网络相关 errno 代码，避免 `code.startsWith('E')` 误判。 */
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND',
+  'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'ECONNABORTED',
+]);
+
+function isNetworkError(error: unknown): boolean {
+  if (error instanceof TypeError && error.message === 'fetch failed') {
+    return true;
+  }
+  if (error instanceof Error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code)) {
+      return true;
+    }
+    // Some fetch implementations wrap network errors with a cause
+    const cause = (error as { cause?: unknown }).cause;
+    if (cause && isNetworkError(cause)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   options: RetryOptions = {}
@@ -64,7 +108,9 @@ export async function retryWithBackoff<T>(
       const retryable =
         options.isRetryable
           ? options.isRetryable(err)
-          : status !== undefined && isTransientHttpStatus(status);
+          : status !== undefined
+            ? isTransientHttpStatus(status)
+            : isNetworkError(err) && !isAbortError(err);
 
       if (!retryable || attempt >= opts.maxRetries) {
         throw err;
@@ -74,7 +120,7 @@ export async function retryWithBackoff<T>(
         opts.baseDelayMs * Math.pow(opts.backoffFactor, attempt),
         opts.jitterMs
       );
-      await sleep(Math.max(0, delay));
+      await abortableSleep(Math.max(0, delay), options.signal);
     }
   }
 

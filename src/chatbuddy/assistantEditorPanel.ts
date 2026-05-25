@@ -78,6 +78,7 @@ export class AssistantEditorPanelController {
           if (!selected || !this.panel) {
             return;
           }
+          // postMessage may reject when the panel is disposed before delivery; safe to ignore
           void this.panel.webview.postMessage({
             type: 'avatarPicked',
             payload: {
@@ -246,6 +247,7 @@ export class AssistantEditorPanelController {
       })),
       notice
     };
+    // postMessage may reject when the panel is disposed before delivery; safe to ignore
     void this.panel.webview.postMessage({ type: 'state', payload }).then(undefined, () => {});
   }
 

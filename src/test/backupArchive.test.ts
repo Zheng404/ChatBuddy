@@ -195,8 +195,8 @@ test('createBackupArchive packages manifest metadata and restores payload from s
 
     const backup = repository.exportBackupData();
     const archive = createBackupArchive(backup);
-    const entries = readZipArchiveEntries(archive);
-    const restored = extractBackupPayloadFromArchive(archive);
+    const entries = await readZipArchiveEntries(archive);
+    const restored = await extractBackupPayloadFromArchive(archive);
     const manifest = readArchiveJson<Record<string, unknown>>(entries, BACKUP_ARCHIVE_MANIFEST_PATH);
     const manifestStorage = manifest.storage as Record<string, unknown>;
 
@@ -230,10 +230,10 @@ test('extractBackupPayloadFromArchive rejects archives missing required structur
   try {
     const backup = repository.exportBackupData();
     const archive = createBackupArchive(backup);
-    const entries = readZipArchiveEntries(archive);
+    const entries = await readZipArchiveEntries(archive);
     entries.delete('meta/state.core.json');
 
-    assert.throws(
+    await assert.rejects(
       () => extractBackupPayloadFromArchive(rebuildArchive(entries)),
       /Backup archive entry is missing: meta\/state\.core\.json/
     );
@@ -256,9 +256,9 @@ test('extractBackupPayloadFromArchive supports rooted structured archives from o
 
     const backup = repository.exportBackupData();
     const archive = createBackupArchive(backup);
-    const legacyArchive = createNestedRootArchive(readZipArchiveEntries(archive));
+    const legacyArchive = createNestedRootArchive(await readZipArchiveEntries(archive));
 
-    assert.deepEqual(extractBackupPayloadFromArchive(legacyArchive), JSON.parse(JSON.stringify(backup)));
+    assert.deepEqual(await extractBackupPayloadFromArchive(legacyArchive), JSON.parse(JSON.stringify(backup)));
   } finally {
     await cleanup();
   }
@@ -276,7 +276,7 @@ test('readZipArchiveEntries rejects archives with duplicate entry paths', async 
     }
   ]);
 
-  assert.throws(
+  await assert.rejects(
     () => readZipArchiveEntries(archive),
     /ZIP archive contains duplicate entry: backup\.manifest\.json/
   );
@@ -295,7 +295,7 @@ test('extractBackupPayloadFromArchive rejects archives with session index mismat
     });
 
     const archive = createBackupArchive(repository.exportBackupData());
-    const entries = readZipArchiveEntries(archive);
+    const entries = await readZipArchiveEntries(archive);
     const indexPayload = readArchiveJson<{ sessions: Array<Record<string, unknown>> }>(
       entries,
       'sessions/index.compass.json'
@@ -303,7 +303,7 @@ test('extractBackupPayloadFromArchive rejects archives with session index mismat
     indexPayload.sessions[0].messageCount = 99;
     entries.set('sessions/index.compass.json', toJsonBytes(indexPayload));
 
-    assert.throws(
+    await assert.rejects(
       () => extractBackupPayloadFromArchive(rebuildArchive(entries)),
       /Backup session index does not match session file/
     );
@@ -325,7 +325,7 @@ test('extractBackupPayloadFromArchive rejects archives with duplicate session id
     });
 
     const archive = createBackupArchive(repository.exportBackupData());
-    const entries = readZipArchiveEntries(archive);
+    const entries = await readZipArchiveEntries(archive);
     const indexPayload = readArchiveJson<{ sessions: Array<Record<string, unknown>> }>(
       entries,
       'sessions/index.compass.json'
@@ -336,7 +336,7 @@ test('extractBackupPayloadFromArchive rejects archives with duplicate session id
     });
     entries.set('sessions/index.compass.json', toJsonBytes(indexPayload));
 
-    assert.throws(
+    await assert.rejects(
       () => extractBackupPayloadFromArchive(rebuildArchive(entries)),
       /Backup session index contains duplicate session id/
     );
@@ -358,7 +358,7 @@ test('extractBackupPayloadFromArchive rejects archives with duplicate session fi
     });
 
     const archive = createBackupArchive(repository.exportBackupData());
-    const entries = readZipArchiveEntries(archive);
+    const entries = await readZipArchiveEntries(archive);
     const indexPayload = readArchiveJson<{ sessions: Array<Record<string, unknown>> }>(
       entries,
       'sessions/index.compass.json'
@@ -369,7 +369,7 @@ test('extractBackupPayloadFromArchive rejects archives with duplicate session fi
     });
     entries.set('sessions/index.compass.json', toJsonBytes(indexPayload));
 
-    assert.throws(
+    await assert.rejects(
       () => extractBackupPayloadFromArchive(rebuildArchive(entries)),
       /Backup session index contains duplicate session file reference/
     );
@@ -391,13 +391,13 @@ test('extractBackupPayloadFromArchive rejects archives with malformed session js
     });
 
     const archive = createBackupArchive(repository.exportBackupData());
-    const entries = readZipArchiveEntries(archive);
+    const entries = await readZipArchiveEntries(archive);
     entries.set(
       `sessions/${assistant.id}/${session.id}.jsonl`,
       Buffer.from('{"id":"msg-jsonl","role":"user","content":"ok","timestamp":1}\nnot-json\n', 'utf8')
     );
 
-    assert.throws(
+    await assert.rejects(
       () => extractBackupPayloadFromArchive(rebuildArchive(entries)),
       new RegExp(`Backup session file contains invalid JSONL: sessions/${assistant.id}/${session.id}\\.jsonl`)
     );
@@ -410,12 +410,12 @@ test('extractBackupPayloadFromArchive rejects archives with newer backup version
   const { repository, cleanup } = await createRepository();
   try {
     const archive = createBackupArchive(repository.exportBackupData());
-    const entries = readZipArchiveEntries(archive);
+    const entries = await readZipArchiveEntries(archive);
     const manifest = readArchiveJson<Record<string, unknown>>(entries, BACKUP_ARCHIVE_MANIFEST_PATH);
     manifest.version = 999;
     entries.set(BACKUP_ARCHIVE_MANIFEST_PATH, toJsonBytes(manifest));
 
-    assert.throws(
+    await assert.rejects(
       () => extractBackupPayloadFromArchive(rebuildArchive(entries)),
       /Backup archive version is newer than supported: 999/
     );
@@ -428,7 +428,7 @@ test('extractBackupPayloadFromArchive rejects archives with newer layout version
   const { repository, cleanup } = await createRepository();
   try {
     const archive = createBackupArchive(repository.exportBackupData());
-    const entries = readZipArchiveEntries(archive);
+    const entries = await readZipArchiveEntries(archive);
     const manifest = readArchiveJson<Record<string, unknown>>(entries, BACKUP_ARCHIVE_MANIFEST_PATH);
     manifest.storage = {
       ...(manifest.storage as Record<string, unknown>),
@@ -436,7 +436,7 @@ test('extractBackupPayloadFromArchive rejects archives with newer layout version
     };
     entries.set(BACKUP_ARCHIVE_MANIFEST_PATH, toJsonBytes(manifest));
 
-    assert.throws(
+    await assert.rejects(
       () => extractBackupPayloadFromArchive(rebuildArchive(entries)),
       /Backup archive layout version is newer than supported: 999/
     );

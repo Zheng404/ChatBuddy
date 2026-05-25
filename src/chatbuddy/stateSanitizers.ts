@@ -65,8 +65,7 @@ export const DEFAULT_SETTINGS: ChatBuddySettings = {
     directory: '',
     intervalHours: LOCAL_BACKUP.DEFAULT_INTERVAL_HOURS,
     maxCount: LOCAL_BACKUP.DEFAULT_MAX_COUNT,
-    maxAgeDays: LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS,
-    encryptionEnabled: false
+    maxAgeDays: LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS
   }
 };
 
@@ -338,8 +337,6 @@ export function sanitizeLocalBackupSettings(raw: unknown): import('./types').Loc
       3650,
       LOCAL_BACKUP.DEFAULT_MAX_AGE_DAYS
     ),
-    encryptionEnabled: source.encryptionEnabled === true,
-    password: typeof source.password === 'string' && source.password ? source.password : undefined
   };
 }
 
@@ -489,7 +486,16 @@ export function sanitizeAssistant(
           .map((item) => (typeof item === 'string' ? item.trim() : ''))
           .filter((item) => item.length > 0 && parseModelRef(item))
           .filter((item, index, array) => array.indexOf(item) === index)
-      : undefined
+      : undefined,
+    // 以下字段在 sanitizeAssistant 中必须保留，否则导入/迁移时数据丢失
+    topK: typeof source.topK === 'number' ? clamp(source.topK, 1, 100, 1) : undefined,
+    stopSequences: Array.isArray(source.stopSequences)
+      ? source.stopSequences.filter((s): s is string => typeof s === 'string' && s.length > 0)
+      : undefined,
+    seed: typeof source.seed === 'number' ? source.seed : undefined,
+    responseFormat: source.responseFormat ?? undefined,
+    toolChoice: source.toolChoice ?? undefined,
+    geminiSafetyLevel: source.geminiSafetyLevel ?? undefined
   };
 }
 

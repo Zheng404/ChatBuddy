@@ -112,16 +112,16 @@ describe('getEnabledServers with groups', () => {
     assert.strictEqual(result[0].id, 's1');
   });
 
-  it('includes server when group is not in groups list (permissive fallback)', () => {
+  it('excludes server when group was deleted (groupId references non-existent group)', () => {
     const settings = makeSettings(
       [makeServer('s1', { groupId: 'g1' }), makeServer('s2', { groupId: 'missing' })],
       [{ id: 'g1', name: 'Group 1', enabled: true }]
     );
     const assistant = makeAssistant(['s1', 's2']);
     const result = getEnabledServers(settings, assistant);
-    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result.length, 1);
     assert.ok(result.some((s) => s.id === 's1'));
-    assert.ok(result.some((s) => s.id === 's2'));
+    assert.ok(!result.some((s) => s.id === 's2'));
   });
 
   it('respects assistant enabledMcpServerIds filter', () => {

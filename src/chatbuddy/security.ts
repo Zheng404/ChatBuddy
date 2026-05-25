@@ -15,6 +15,9 @@ export function isValidUrl(url: string): boolean {
 
   try {
     const parsed = new URL(url);
+    if (parsed.username || parsed.password) {
+      return false;
+    }
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';
   } catch {
     return false;
@@ -52,6 +55,10 @@ function truncateString(input: string, maxLength: number, suffix: string = '...'
     return '';
   }
 
+  if (maxLength <= suffix.length) {
+    return input.slice(0, maxLength);
+  }
+
   if (input.length <= maxLength) {
     return input;
   }
@@ -73,8 +80,22 @@ export function sanitizeAssistantName(name: string): string {
   sanitized = truncateString(sanitized, 100, '');
   sanitized = Array.from(sanitized)
     .filter((char) => {
-      const code = char.charCodeAt(0);
-      return code >= 32 && code !== 127;
+      const code = char.codePointAt(0)!;
+      // ASCII 控制字符
+      if (code < 32 || code === 127) { return false; }
+      // 零宽字符 U+200B..U+200F (含 ZWNJ/ZWJ)
+      if (code >= 0x200B && code <= 0x200F) { return false; }
+      // 双向控制 U+202A..U+202E
+      if (code >= 0x202A && code <= 0x202E) { return false; }
+      // BOM
+      if (code === 0xFEFF) { return false; }
+      // 格式字符 U+2060..U+206F (Word Joiner 等)
+      if (code >= 0x2060 && code <= 0x206F) { return false; }
+      // 软连字符、阿拉伯格式字符
+      if (code === 0x00AD) { return false; }
+      // Tag characters U+E0000..U+E007F
+      if (code >= 0xE0000 && code <= 0xE007F) { return false; }
+      return true;
     })
     .join('');
 

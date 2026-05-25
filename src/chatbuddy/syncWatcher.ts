@@ -24,8 +24,10 @@ export interface SyncWatcherCallbacks {
   getIsGenerating: () => boolean;
 }
 
-const DEBOUNCE_MS = 800;
+const DEBOUNCE_MS = 200;
 const LAST_WRITE_FILE = 'meta/.last-write.json';
+const COOLDOWN_MS = 3000;
+const SELF_WRITE_READ_RETRY_MS = 50;
 
 // 文件名到类别的映射
 function categorizeFile(filePath: string, storageRoot: string): SyncChangeCategory | undefined {
@@ -52,6 +54,7 @@ export class SyncWatcher implements vscode.Disposable {
   private pendingNotifyOnIdle = false;
   private flushInProgress = false;
   private readonly ideId = crypto.randomUUID();
+  private lastSelfWriteError = 0; // 冷却期：isSelfWrite 读取失败后的保护时间
 
   constructor(
     private readonly storageRoot: string,
@@ -91,15 +94,8 @@ export class SyncWatcher implements vscode.Disposable {
     indexWatcher.onDidChange((uri) => this.handleChange(uri.fsPath));
     this.watchers.push(indexWatcher);
 
-    // 监听 images/ 目录
-    const imagesPattern = new vscode.RelativePattern(
-      vscode.Uri.file(this.storageRoot),
-      'images/*'
-    );
-    const imagesWatcher = vscode.workspace.createFileSystemWatcher(imagesPattern);
-    imagesWatcher.onDidCreate((uri) => this.handleChange(uri.fsPath));
-    imagesWatcher.onDidDelete((uri) => this.handleChange(uri.fsPath));
-    this.watchers.push(imagesWatcher);
+    // 注意：不再监听 images/ 目录，因为 images 变更不需要触发数据 reload
+    // images 只是 base64 图片文件，不影响 UI 状态
   }
 
   private handleChange(filePath: string): void {
@@ -184,27 +180,51 @@ export class SyncWatcher implements vscode.Disposable {
   /**
    * 检查最近的写入是否来自本 IDE 实例。
    * 读取 .last-write.json 并比较 ideId。
+   * 如果标记文件暂时不可用（原子 rename 中），短暂重试后再进入冷却期。
    */
   private async isSelfWrite(): Promise<boolean> {
     const markerPath = path.join(this.storageRoot, LAST_WRITE_FILE);
-    try {
-      const content = await fs.promises.readFile(markerPath, 'utf-8');
-      const marker = JSON.parse(content) as { ideId?: string; timestamp?: number };
-      if (marker.ideId === this.ideId) {
-        return true;
+    // 最多尝试读取 2 次，间隔 50ms，应对原子 rename 造成的短暂不可用
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const content = await fs.promises.readFile(markerPath, 'utf-8');
+        const marker = JSON.parse(content) as { ideId?: string; timestamp?: number };
+        if (marker.ideId === this.ideId) {
+          return true;
+        }
+        return false;
+      } catch {
+        if (attempt === 0) {
+          // 第一次失败，等待短暂时间后重试（可能是原子 rename 中）
+          await new Promise((r) => setTimeout(r, SELF_WRITE_READ_RETRY_MS));
+          continue;
+        }
+        // 重试后仍失败，进入冷却期避免无限 reload 循环
+        const now = Date.now();
+        if (this.lastSelfWriteError > 0 && (now - this.lastSelfWriteError) < COOLDOWN_MS) {
+          return true;
+        }
+        this.lastSelfWriteError = now;
       }
-    } catch {
-      // 标记文件不存在或读取失败，视为非自写
     }
     return false;
   }
 
   /** 生成结束时调用，检查是否有待处理的变更通知 */
   notifyGeneratingEnded(): void {
-    if (this.pendingNotifyOnIdle) {
-      this.pendingNotifyOnIdle = false;
-      this.flushPending();
+    if (!this.pendingNotifyOnIdle) {
+      return;
     }
+    if (this.flushInProgress) {
+      // flush 正在进行中，不清除标志，等 flush 的 finally 块重新安排
+      return;
+    }
+    // 仅在确实有 pending categories 时才消费标志并触发
+    if (this.pendingCategories.size === 0) {
+      return;
+    }
+    this.pendingNotifyOnIdle = false;
+    this.flushPending();
   }
 
   /**

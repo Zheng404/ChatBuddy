@@ -87,8 +87,16 @@ function isRetryableError(error: unknown): boolean {
   }
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
-    // Network/fetch errors, timeouts, SSE read timeouts
-    if (msg.includes('fetch') || msg.includes('network') || msg.includes('timeout')) {
+    // 精确匹配网络/超时错误，避免误判包含 "fetch" 的业务错误
+    if (
+      msg === 'fetch failed' ||
+      msg.includes('network error') ||
+      msg.includes('sse read timeout') ||
+      msg.includes('request timeout') ||
+      msg.includes('etimedout') ||
+      msg.includes('econnrefused') ||
+      msg.includes('econnreset')
+    ) {
       return true;
     }
     // Abort errors from user cancellation should NOT failover
@@ -182,12 +190,17 @@ export class ChatGenerationService {
     // Detect if current model supports vision; if not and images are present,
     // perform OCR or downgrade to text prompt.
     if (messageImages && messageImages.length > 0 && !visionSupported) {
+      // 从故障转移链中查找支持 vision 的模型用于 OCR，避免使用不支持视觉的端点
+      const ocrConfig = failoverChain.find((entry) => {
+        const mid = entry.config.modelId || '';
+        return !!resolveCapabilities(mid)?.vision;
+      })?.config ?? primaryResolved.config;
       const ocrResults: Array<{ index: number; text: string }> = [];
       for (let i = 0; i < messageImages.length; i++) {
         const img = messageImages[i];
         if (!img.base64) { continue; }
         try {
-          const ocrText = await this.performOcr(img.base64, img.mimeType, primaryResolved.config, locale);
+          const ocrText = await this.performOcr(img.base64, img.mimeType, ocrConfig, locale);
           if (ocrText) {
             ocrResults.push({ index: i, text: ocrText });
           }
@@ -312,17 +325,6 @@ export class ChatGenerationService {
         }, context);
       }
 
-      const providerTools = await this.deps.toolOrchestrator.buildProviderTools(settings, assistant, currentResolved.config);
-      const useToolCalling =
-        providerTools.tools.length > 0 &&
-        this.deps.toolOrchestrator.providerSupportsToolCalling(currentResolved.config.modelRef, currentResolved.config);
-      const useStreaming = assistant.streaming && !useToolCalling;
-
-      const timeoutHandle = setTimeout(() => {
-        this.deps.setAbortReason('timeout');
-        this.deps.getAbortController()?.abort();
-      }, currentResolved.config.timeoutMs);
-
       // Create fresh accumulator for each provider attempt (clear previous partial content on failover)
       const acc = createStreamAccumulator();
       const streamParams: StreamFlushParams = {
@@ -341,26 +343,39 @@ export class ChatGenerationService {
       });
       const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
 
-      let responseTimeoutCleared = false;
-      const wrappedCallbacks = useStreaming ? {
-        onDelta: (delta: string) => {
-          if (!responseTimeoutCleared) {
-            clearTimeout(timeoutHandle);
-            responseTimeoutCleared = true;
-          }
-          streamCallbacks.onDelta(delta);
-        },
-        onReasoningDelta: (delta: string) => {
-          if (!responseTimeoutCleared) {
-            clearTimeout(timeoutHandle);
-            responseTimeoutCleared = true;
-          }
-          streamCallbacks.onReasoningDelta(delta);
-        },
-        onDone: streamCallbacks.onDone
-      } : streamCallbacks;
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
       try {
+        const providerTools = await this.deps.toolOrchestrator.buildProviderTools(settings, assistant, currentResolved.config);
+        const useToolCalling =
+          providerTools.tools.length > 0 &&
+          this.deps.toolOrchestrator.providerSupportsToolCalling(currentResolved.config.modelRef, currentResolved.config);
+        const useStreaming = assistant.streaming && !useToolCalling;
+
+        timeoutHandle = setTimeout(() => {
+          this.deps.setAbortReason('timeout');
+          this.deps.getAbortController()?.abort();
+        }, currentResolved.config.timeoutMs);
+
+        let responseTimeoutCleared = false;
+        const wrappedCallbacks = useStreaming ? {
+          onDelta: (delta: string) => {
+            if (!responseTimeoutCleared) {
+              clearTimeout(timeoutHandle);
+              responseTimeoutCleared = true;
+            }
+            streamCallbacks.onDelta(delta);
+          },
+          onReasoningDelta: (delta: string) => {
+            if (!responseTimeoutCleared) {
+              clearTimeout(timeoutHandle);
+              responseTimeoutCleared = true;
+            }
+            streamCallbacks.onReasoningDelta(delta);
+          },
+          onDone: streamCallbacks.onDone
+        } : streamCallbacks;
+
         if (useStreaming) {
           await this.deps.providerClient.chatStream(
             providerMessages,
@@ -380,6 +395,13 @@ export class ChatGenerationService {
               : {}
           );
           if (useToolCalling) {
+            // 工具调用阶段使用独立的更长超时，避免合法长时间 MCP 操作被中断
+            clearTimeout(timeoutHandle);
+            const TOOL_CALLING_TIMEOUT_MS = Math.max(currentResolved.config.timeoutMs, 300_000);
+            timeoutHandle = setTimeout(() => {
+              this.deps.setAbortReason('timeout');
+              this.deps.getAbortController()?.abort();
+            }, TOOL_CALLING_TIMEOUT_MS);
             const runState: PendingToolContinuation = {
               assistant,
               sessionId: selectedSession.id,
@@ -474,7 +496,8 @@ export class ChatGenerationService {
         }
 
         // If not retryable or this is the last provider, show error
-        if (!isRetryableError(error) || chainIndex === failoverChain.length - 1) {
+        // Timeout abort should trigger failover (abort reason is 'timeout' but error message is "aborted")
+        if ((!isRetryableError(error) && abortReason !== 'timeout') || chainIndex === failoverChain.length - 1) {
           const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
           // Build comprehensive error message if all providers failed
           const finalError = chainIndex === failoverChain.length - 1 && failoverChain.length > 1
@@ -505,6 +528,14 @@ export class ChatGenerationService {
         this.deps.setAbortReason(undefined);
         // Continue to next provider in chain
       }
+    }
+
+    // Safety net: all providers were invalid/skipped, ensure cleanup
+    if (this.deps.isGenerating()) {
+      this.deps.setIsGenerating(false);
+      this.deps.setAbortController(undefined);
+      this.deps.setAbortReason(undefined);
+      this.deps.postState(undefined, context);
     }
   }
 
@@ -537,7 +568,7 @@ export class ChatGenerationService {
       return;
     }
 
-    const removedCount = Math.max(0, session.messages.length - userIndex);
+    const removedCount = Math.max(0, session.messages.length - userIndex - 1);
     const confirmed = await this.deps.confirmDangerousAction(
       formatString(strings.confirmRegenerateReply, { count: String(removedCount) }),
       strings.regenerateReplyAction
@@ -591,7 +622,7 @@ export class ChatGenerationService {
       return;
     }
 
-    const removedCount = Math.max(0, session.messages.length - userIndex);
+    const removedCount = Math.max(0, session.messages.length - userIndex - 1);
     const confirmed = await this.deps.confirmDangerousAction(
       formatString(strings.confirmRegenerateFromMessage, { count: String(removedCount) }),
       strings.regenerateFromMessageAction

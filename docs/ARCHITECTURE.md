@@ -1,6 +1,6 @@
 # ChatBuddy 架构文档
 
-> 最后更新：2026-04-30
+> 最后更新：2026-05-25
 
 本文档描述 ChatBuddy VS Code 扩展的整体架构、模块分层和数据流。
 
@@ -234,6 +234,66 @@ MCP 模块是 ESM-only，通过动态 `import()` 在运行时加载。
             ┌─────────────┐
             │ refreshAll() │ → TreeView 刷新 + WebView state 推送
             └─────────────┘
+```
+
+### 跨 IDE 共享存储同步流
+
+共享存储模式（`~/.ChatBuddy`）下，`SyncWatcher` 监听文件变更并触发 `reloadFromSharedStorage()`：
+
+```
+IDE-B 写入数据
+    │
+    ▼
+SyncWatcher（IDE-A）检测到文件变更
+    │
+    ├── 防抖 200ms
+    ├── isSelfWrite() 检查 → 非自写 → 继续
+    └── 生成中？sessions 延迟，其他立即
+         │
+         ▼
+reloadFromSharedStorage()
+    │
+    ├── 1. drain() + flush() — 排空持久化队列
+    ├── 2. readProviderApiKeysFromDisk() — flush 前保存磁盘 API keys
+    ├── 3. 保存内存快照（assistants, sessions, settings, API keys）
+    ├── 4. storage.reload() — 从磁盘重新加载
+    ├── 5. 三向合并 API keys：hydrate 结果 + 磁盘 keys + 内存快照
+    ├── 6. 三向合并状态数据（mergeById + mergeSettingsForReload）
+    ├── 7. applyProviderApiKeysToSettings() — 应用合并后的 keys
+    └── 8. bump() + refreshAll() — 刷新 UI
+```
+
+**API Key 特殊处理**：API Key 存储在独立的 `providers.api-keys.json` 文件中，
+不在结构化状态文件里（`stripProviderSecret` 会将 `apiKey` 置为 `''`）。
+跨 IDE 合并时必须在 flush 前从磁盘读取 keys，否则会被本地内存数据覆盖。
+
+### 持久化可靠性机制
+
+`StatePersistenceService` 内置多项可靠性保障：
+
+| 机制 | 说明 |
+|------|------|
+| **persistDirty 标志** | `persistScheduled` 去重期间累积变更，完成后自动重触发，防止更新丢失 |
+| **API keys 独立写入** | 结构化文件与 API keys 文件分别 try-catch，互不影响 |
+| **合并结果保留** | `mergeWithDisk()` 重试耗尽时返回最后一次合并结果，不丢弃磁盘数据 |
+| **删除 ID 追踪与清理** | `deletedEntityIds` 在 persist 合并时过滤已删除实体，成功后自动清理 |
+| **已删除 provider key 过滤** | `persistSecrets()` 合并磁盘 keys 时排除本会话已删除的 provider |
+| **竞态保护** | `recentlyDeletedProviderIds` / `recentlyDeletedMcpServerIds` 防止 WebView 竞态重建 |
+
+### 删除实体追踪生命周期
+
+```
+用户删除 provider/server/assistant
+    │
+    ▼
+deletedEntityIds.add(id)          ← 追踪删除
+    │
+    ├── persist() 合并时过滤      ← 防止从磁盘复活
+    ├── persistSecrets() 过滤     ← 防止已删除 provider 的 API key 复活
+    └── reloadFromSharedStorage() ← 合并时过滤
+         │
+         ▼
+persist 成功 → clearDeletedEntityIds()  ← 清理追踪集合
 ```
 
 ### WebView 状态同步流

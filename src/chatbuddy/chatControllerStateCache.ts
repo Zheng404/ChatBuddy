@@ -11,11 +11,15 @@ type PayloadBaseCache = {
   state: ReturnType<ChatStateRepository['getState']>;
   version: number;
   expiresAt: number;
+  cachedAt: number;
   assistantId: string;
   selectedAssistant: AssistantProfile | undefined;
   sessions: ChatSessionSummary[];
   selectedSession: ChatSessionDetail | undefined;
 };
+
+/** Maximum absolute age for cache entries (30s), guards against NTP clock rollback. */
+const MAX_CACHE_AGE_MS = 30_000;
 
 export class ChatStateCache {
   private cache: PayloadBaseCache | undefined;
@@ -28,7 +32,8 @@ export class ChatStateCache {
   getBaseState(isGenerating: boolean): ReturnType<ChatStateRepository['getState']> {
     const currentVersion = this.repository.getVersion();
     const cached = this.cache;
-    if (cached && cached.version === currentVersion && cached.expiresAt > Date.now()) {
+    const now = Date.now();
+    if (cached && cached.version === currentVersion && cached.expiresAt > now && now - cached.cachedAt < MAX_CACHE_AGE_MS) {
       return cached.state;
     }
     if (!isGenerating) {
@@ -43,7 +48,8 @@ export class ChatStateCache {
     this.cache = {
       state,
       version: currentVersion,
-      expiresAt: Date.now() + this.ttlMs,
+      expiresAt: now + this.ttlMs,
+      cachedAt: now,
       assistantId,
       selectedAssistant: assistant,
       sessions,
@@ -58,7 +64,8 @@ export class ChatStateCache {
     selectedSession: ChatSessionDetail | undefined;
   } {
     const cached = this.cache;
-    if (cached && cached.assistantId === assistantId && cached.expiresAt > Date.now()) {
+    const now = Date.now();
+    if (cached && cached.version === this.repository.getVersion() && cached.assistantId === assistantId && cached.expiresAt > now && now - cached.cachedAt < MAX_CACHE_AGE_MS) {
       return {
         assistant: cached.selectedAssistant,
         sessions: cached.sessions,

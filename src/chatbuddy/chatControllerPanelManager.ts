@@ -11,6 +11,7 @@ import { getStrings } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository } from './stateRepository';
 import { RuntimeLocale, WebviewInboundMessage } from './types';
+import { warn } from './utils';
 import { ToolOrchestratorPanelContext } from './chatControllerToolOrchestrator';
 
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
@@ -193,7 +194,7 @@ export class ChatPanelManager {
       this.deps.handleWebviewMessage(message, {
         panel,
         assistantId: context.assistantId
-      }).catch(() => {});
+      }).catch((err) => { warn('[Chat] WebView message handling failed:', err); });
     });
 
     const viewStateListener = panel.onDidChangeViewState((event) => {

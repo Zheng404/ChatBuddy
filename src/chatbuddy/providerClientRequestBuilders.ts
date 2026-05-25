@@ -20,7 +20,8 @@ export function isGeminiProvider(provider: Pick<ProviderConnectionInput, 'kind' 
   if (baseUrl.includes('generativelanguage.googleapis.com')) {
     return true;
   }
-  if (baseUrl.includes('/v1beta/openai')) {
+  // 仅当同时包含 Google API 域名时才匹配 /v1beta/openai，避免误判其他 Provider
+  if (baseUrl.includes('googleapis.com') && baseUrl.includes('/v1beta/openai')) {
     return true;
   }
   return provider.kind === 'gemini' && baseUrl.length === 0;
@@ -227,6 +228,10 @@ function toGeminiParts(message: ProviderMessage): Array<Record<string, unknown>>
 }
 
 function toGeminiToolResultParts(toolRound: ProviderToolRound): Array<Record<string, unknown>> {
+  const nameById = new Map<string, string>();
+  for (const call of toolRound.toolCalls) {
+    nameById.set(call.id, call.name);
+  }
   const parts: Array<Record<string, unknown>> = [];
   for (const result of toolRound.results) {
     let parsed: unknown;
@@ -237,7 +242,7 @@ function toGeminiToolResultParts(toolRound: ProviderToolRound): Array<Record<str
     }
     parts.push({
       functionResponse: {
-        name: result.toolCallId,
+        name: nameById.get(result.toolCallId) ?? result.toolCallId,
         response: { result: parsed }
       }
     });
@@ -318,16 +323,14 @@ function toGeminiGenerationConfig(providerConfig: ProviderConfig): Record<string
 }
 
 function toGeminiToolDeclarations(tools: ProviderToolDefinition[]): Array<Record<string, unknown>> {
-  return tools
+  const declarations = tools
     .filter((t) => t.type === 'function')
     .map((t) => ({
-      type: 'function',
-      function: {
-        name: t.function.name,
-        description: t.function.description || '',
-        parameters: t.function.parameters || {}
-      }
+      name: t.function.name,
+      description: t.function.description || '',
+      parameters: t.function.parameters || {}
     }));
+  return [{ functionDeclarations: declarations }];
 }
 
 function toGeminiSafetySettings(level: ProviderConfig['geminiSafetyLevel']): Array<Record<string, unknown>> | undefined {
