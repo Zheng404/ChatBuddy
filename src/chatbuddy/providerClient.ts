@@ -133,7 +133,7 @@ export function resolveProviderConfig(
       2,
       settings.frequencyPenalty
     ),
-    timeoutMs: clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS),
+    timeoutMs: settings.timeoutMs === 0 ? 0 : clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS),
     topK: assistant.topK,
     stopSequences: assistant.stopSequences?.length ? assistant.stopSequences : undefined,
     seed: assistant.seed,
@@ -192,7 +192,7 @@ export function resolveModelBindingConfig(
       2,
       settings.frequencyPenalty
     ),
-    timeoutMs: clamp(overrides?.timeoutMs ?? settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS)
+    timeoutMs: (overrides?.timeoutMs ?? settings.timeoutMs) === 0 ? 0 : clamp(overrides?.timeoutMs ?? settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS)
   };
   return {
     config,
@@ -662,7 +662,7 @@ export function resolveFailoverChain(
         2,
         settings.frequencyPenalty
       ),
-      timeoutMs: clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS),
+      timeoutMs: settings.timeoutMs === 0 ? 0 : clamp(settings.timeoutMs, TIMEOUT.MIN_MS, TIMEOUT.MAX_MS, TIMEOUT.DEFAULT_MS),
       topK: assistant.topK,
       stopSequences: assistant.stopSequences?.length ? assistant.stopSequences : undefined,
       seed: assistant.seed,

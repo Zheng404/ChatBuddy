@@ -12,11 +12,11 @@ export const TITLE_GENERATION = {
   ABORT_TIMEOUT_MS: 15000,
 } as const;
 
-/** Timeout boundaries and defaults for provider requests. */
+/** Timeout boundaries and defaults for provider requests. timeoutMs=0 means no timeout (unlimited). */
 export const TIMEOUT = {
   MIN_MS: 5000,
   MAX_MS: 300000,
-  DEFAULT_MS: 300000,
+  DEFAULT_MS: 0,
   CONNECTION_TEST_MS: 30000,
 } as const;
 

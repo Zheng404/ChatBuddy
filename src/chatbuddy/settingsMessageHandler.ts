@@ -121,7 +121,7 @@ export async function handleSettingsMessage(
   }
 
   if (message.type === 'saveTimeout') {
-    const timeoutMs = Math.max(5000, Math.min(300000, message.payload.timeoutMs || 300000));
+    const timeoutMs = message.payload.timeoutMs === 0 ? 0 : Math.max(5000, Math.min(300000, message.payload.timeoutMs || 300000));
     const next: ChatBuddySettings = { ...deps.repository.getSettings(), timeoutMs };
     deps.onSave(next);
     deps.postState(deps.getStrings().timeoutSaved, 'success');

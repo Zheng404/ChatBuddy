@@ -519,13 +519,30 @@ chatbuddy-backup-2026-04-21-10-00-00.zip
 
 如果 `index.compass.json` 丢失但会话文件存在：
 - 验证失败，报告 "Session index is missing while session files still exist"
-- 触发 SQLite 回退（如果存在）
+- **自愈机制**：`CompassMigrator` 检测到会话相关验证失败时，自动执行 load → persist → re-validate 流程，重建干净的索引文件
+- 如果自愈成功，扩展正常启动；自愈失败时回退到 SQLite 恢复（如果存在）
 
 ### 场景 3：孤儿会话文件
 
 如果存在未被索引引用的 `.jsonl` 文件：
 - 验证失败，报告 "Found orphan session file not referenced by the index"
+- **自愈机制**：同场景 2，自动触发 load → persist → re-validate 修复
 - `persist()` 时会自动清理孤儿文件
+
+### 自愈机制详情
+
+`CompassMigrator.trySelfHealCompassSnapshot()` 在检测到以下可恢复的验证错误时自动触发：
+
+- `"Session file is missing"` — 索引引用了不存在的会话文件
+- `"Found orphan session file"` — 存在未被索引引用的会话文件
+
+自愈流程：
+1. 重新加载所有 store（`sessionStore.load()`、`kvStore.load()`、`settingsStore.load()`）
+2. 调用 `persistStores()` 重建干净的索引和状态文件
+3. 再次执行 `validateCompassSnapshot()` 验证修复结果
+4. 修复成功则正常启动，失败则按原有逻辑回退到 SQLite 或报错
+
+**设计原则**：自愈仅针对会话文件类问题，不对设置文件损坏等更严重的问题尝试自愈，避免掩盖真实数据损坏。
 
 ### 场景 4：写入过程中断电/崩溃
 

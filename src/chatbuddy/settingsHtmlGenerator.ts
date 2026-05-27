@@ -207,41 +207,6 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
             </div>
           </section>
 
-          <section class="settings-pane" id="paneGeneral" data-section="general">
-            <div class="section-grid">
-              <section class="section-card">
-                <h2 class="section-title" id="languageSectionTitle"></h2>
-                <div class="field">
-                  <select id="locale"></select>
-                </div>
-                <div class="help" id="languageHelp"></div>
-              </section>
-
-              <section class="section-card">
-                <h2 class="section-title" id="sendShortcutSectionTitle"></h2>
-                <div class="field">
-                  <select id="sendShortcut"></select>
-                </div>
-                <div class="help" id="sendShortcutHelp"></div>
-              </section>
-
-              <section class="section-card">
-                <h2 class="section-title" id="chatTabModeSectionTitle"></h2>
-                <div class="field">
-                  <select id="chatTabMode"></select>
-                </div>
-                <div class="help" id="chatTabModeHelp"></div>
-              </section>
-
-              <section class="section-card">
-                <h2 class="section-title" id="timeoutSectionTitle"></h2>
-                <div class="field">
-                  <select id="timeout"></select>
-                </div>
-              </section>
-            </div>
-          </section>
-
           <section class="settings-pane" id="paneDataManagement" data-section="dataManagement">
             <div class="section-grid">
               <div class="data-tab-container">
@@ -370,6 +335,41 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                 <p class="help" id="templatesSectionDescription"></p>
                 <div id="templatesListContainer"></div>
               </div>
+            </div>
+          </section>
+
+          <section class="settings-pane" id="paneGeneral" data-section="general">
+            <div class="section-grid">
+              <section class="section-card">
+                <h2 class="section-title" id="languageSectionTitle"></h2>
+                <div class="field">
+                  <select id="locale"></select>
+                </div>
+                <div class="help" id="languageHelp"></div>
+              </section>
+
+              <section class="section-card">
+                <h2 class="section-title" id="sendShortcutSectionTitle"></h2>
+                <div class="field">
+                  <select id="sendShortcut"></select>
+                </div>
+                <div class="help" id="sendShortcutHelp"></div>
+              </section>
+
+              <section class="section-card">
+                <h2 class="section-title" id="chatTabModeSectionTitle"></h2>
+                <div class="field">
+                  <select id="chatTabMode"></select>
+                </div>
+                <div class="help" id="chatTabModeHelp"></div>
+              </section>
+
+              <section class="section-card">
+                <h2 class="section-title" id="timeoutSectionTitle"></h2>
+                <div class="field">
+                  <select id="timeout"></select>
+                </div>
+              </section>
             </div>
           </section>
 

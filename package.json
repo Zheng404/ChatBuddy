@@ -78,6 +78,11 @@
         "icon": "$(database)"
       },
       {
+        "command": "chatbuddy.openTemplates",
+        "title": "%chatbuddy.command.openTemplates%",
+        "icon": "$(layout)"
+      },
+      {
         "command": "chatbuddy.openAbout",
         "title": "%chatbuddy.command.openAbout%",
         "icon": "$(info)"

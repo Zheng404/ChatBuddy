@@ -24,6 +24,9 @@ export function registerSettingsCommands(ctx: ExtensionContext): vscode.Disposab
     vscode.commands.registerCommand('chatbuddy.openDataManagement', () => {
       settingsCenterPanelController.openPanel('dataManagement');
     }),
+    vscode.commands.registerCommand('chatbuddy.openTemplates', () => {
+      settingsCenterPanelController.openPanel('templates');
+    }),
     vscode.commands.registerCommand('chatbuddy.openAbout', () => {
       settingsCenterPanelController.openPanel('about');
     })

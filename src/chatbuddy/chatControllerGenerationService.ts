@@ -352,10 +352,12 @@ export class ChatGenerationService {
           this.deps.toolOrchestrator.providerSupportsToolCalling(currentResolved.config.modelRef, currentResolved.config);
         const useStreaming = assistant.streaming && !useToolCalling;
 
-        timeoutHandle = setTimeout(() => {
-          this.deps.setAbortReason('timeout');
-          this.deps.getAbortController()?.abort();
-        }, currentResolved.config.timeoutMs);
+        if (currentResolved.config.timeoutMs > 0) {
+          timeoutHandle = setTimeout(() => {
+            this.deps.setAbortReason('timeout');
+            this.deps.getAbortController()?.abort();
+          }, currentResolved.config.timeoutMs);
+        }
 
         let responseTimeoutCleared = false;
         const wrappedCallbacks = useStreaming ? {
@@ -397,11 +399,13 @@ export class ChatGenerationService {
           if (useToolCalling) {
             // 工具调用阶段使用独立的更长超时，避免合法长时间 MCP 操作被中断
             clearTimeout(timeoutHandle);
-            const TOOL_CALLING_TIMEOUT_MS = Math.max(currentResolved.config.timeoutMs, 300_000);
-            timeoutHandle = setTimeout(() => {
-              this.deps.setAbortReason('timeout');
-              this.deps.getAbortController()?.abort();
-            }, TOOL_CALLING_TIMEOUT_MS);
+            if (currentResolved.config.timeoutMs > 0) {
+              const TOOL_CALLING_TIMEOUT_MS = Math.max(currentResolved.config.timeoutMs, 300_000);
+              timeoutHandle = setTimeout(() => {
+                this.deps.setAbortReason('timeout');
+                this.deps.getAbortController()?.abort();
+              }, TOOL_CALLING_TIMEOUT_MS);
+            }
             const runState: PendingToolContinuation = {
               assistant,
               sessionId: selectedSession.id,

@@ -115,6 +115,13 @@ export function createSettingsTreeDataSource(getRuntimeStrings: () => Record<str
           'chatbuddy.openDataManagement',
           strings.dataManagementDescription
         ),
+        createItem(
+          'chatbuddy.templates.open',
+          strings.openTemplates || strings.navTemplatesTitle || 'Templates',
+          'layout',
+          'chatbuddy.openTemplates',
+          strings.templatesSectionDescription
+        ),
         createItem('chatbuddy.settings.open', strings.openSettings, 'settings-gear', 'chatbuddy.openSettings', strings.settingsDescription),
         createItem(
           'chatbuddy.about.open',

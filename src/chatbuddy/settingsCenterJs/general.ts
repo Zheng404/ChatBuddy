@@ -32,7 +32,7 @@ export function getGeneralJs(): string {
         dom.locale.value = settings.locale || 'auto';
         dom.sendShortcut.value = settings.sendShortcut || 'enter';
         dom.chatTabMode.value = settings.chatTabMode || 'single';
-        dom.timeout.value = String(settings.timeoutMs || 300000);
+        dom.timeout.value = String(settings.timeoutMs ?? 0);
       }
 `;
 }

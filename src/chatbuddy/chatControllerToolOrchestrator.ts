@@ -315,9 +315,11 @@ export class ToolCallOrchestrator {
     this.deps.setIsGenerating(true);
     this.deps.setAbortController(new AbortController());
     this.deps.setAbortReason(undefined);
-    const timeoutHandle = setTimeout(() => {
-      this.deps.stopGeneration('timeout');
-    }, pending.providerConfig.timeoutMs);
+    const timeoutHandle = pending.providerConfig.timeoutMs > 0
+      ? setTimeout(() => {
+          this.deps.stopGeneration('timeout');
+        }, pending.providerConfig.timeoutMs)
+      : undefined;
 
     this.deps.postState(undefined, targetContext);
 

@@ -55,7 +55,7 @@ export const DEFAULT_SETTINGS: ChatBuddySettings = {
   maxTokens: 0,
   presencePenalty: 0,
   frequencyPenalty: 0,
-  timeoutMs: 300000,
+  timeoutMs: 0,
   streamingDefault: true,
   locale: 'auto',
   sendShortcut: 'enter',
@@ -301,7 +301,7 @@ export function sanitizeSettings(raw: unknown): ChatBuddySettings {
       2,
       DEFAULT_SETTINGS.frequencyPenalty
     ),
-    timeoutMs: clamp(saved.timeoutMs ?? DEFAULT_SETTINGS.timeoutMs, 5000, 300000, DEFAULT_SETTINGS.timeoutMs),
+    timeoutMs: saved.timeoutMs === 0 ? 0 : clamp(saved.timeoutMs ?? DEFAULT_SETTINGS.timeoutMs, 5000, 300000, DEFAULT_SETTINGS.timeoutMs),
     streamingDefault:
       typeof saved.streamingDefault === 'boolean' ? saved.streamingDefault : DEFAULT_SETTINGS.streamingDefault,
     locale:

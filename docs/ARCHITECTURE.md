@@ -144,7 +144,7 @@ ChatController 本身不处理业务细节，只负责：
 - 状态载荷构建（`chatControllerPayload.ts`）
 - 面板状态同步（`setActivePanelChangeCallback`）
 
-**超时机制**：`ChatGenerationService` 和 `ToolCallOrchestrator` 在发起 AI 请求时设置全局超时（默认 300s，用户可在设置中心配置）。超时仅在**首次响应等待**阶段生效——首个流式 token 到达后清除全局超时计时器，后续由 `consumeSseResponse` 的 `readWithTimeout` 检测连接中断。超时触发时先 `setAbortReason('timeout')` 再 `abort()`，确保错误处理读到正确的中止原因。
+**超时机制**：`ChatGenerationService` 和 `ToolCallOrchestrator` 在发起 AI 请求时设置全局超时（默认无限制，`timeoutMs=0`，用户可在设置中心配置）。超时仅在**首次响应等待**阶段生效——首个流式 token 到达后清除全局超时计时器，后续由 `consumeSseResponse` 的 `readWithTimeout` 检测连接中断。超时触发时先 `setAbortReason('timeout')` 再 `abort()`，确保错误处理读到正确的中止原因。当 `timeoutMs` 为 0 时，跳过超时计时器创建，请求不会因超时中断。
 
 #### 3.3 提供商客户端
 

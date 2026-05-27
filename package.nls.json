@@ -11,6 +11,7 @@
   "chatbuddy.command.openDefaultModels": "Default Models",
   "chatbuddy.command.openMcp": "MCP Settings",
   "chatbuddy.command.openDataManagement": "Data Management",
+  "chatbuddy.command.openTemplates": "Templates",
   "chatbuddy.command.openAbout": "About",
   "chatbuddy.command.openAssistantChat": "Open Chat",
   "chatbuddy.command.createAssistant": "New Assistant",

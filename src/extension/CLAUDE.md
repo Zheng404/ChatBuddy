@@ -72,7 +72,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 | 模块 | 文件 | 职责 | 命令数量 |
 |------|------|------|----------|
-| **设置命令** | `settingsCommands.ts` | 打开设置、模型配置、默认模型、MCP、关于 | 6 |
+| **设置命令** | `settingsCommands.ts` | 打开设置、模型配置、默认模型、MCP、数据管理、模板、关于 | 7 |
 | **导航命令** | `navigationCommands.ts` | 打开助手聊天、树视图操作 | 2 |
 | **助手树命令** | `assistantTreeCommands.ts` | 助手树的搜索、折叠、展开 | 4 |
 | **助手管理命令** | `assistantManagementCommands.ts` | 助手的创建、编辑、删除、置顶、分组管理 | 12 |

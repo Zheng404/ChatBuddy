@@ -50,6 +50,7 @@ export function getChatTabModeOptions(strings: RuntimeStrings): ReadonlyArray<{ 
  */
 export function getTimeoutOptions(strings: RuntimeStrings): ReadonlyArray<{ value: string; label: string }> {
   return [
+    { value: '0', label: strings.timeoutNoLimit },
     { value: '30000', label: strings.timeout30s },
     { value: '60000', label: strings.timeout60s },
     { value: '120000', label: strings.timeout120s },

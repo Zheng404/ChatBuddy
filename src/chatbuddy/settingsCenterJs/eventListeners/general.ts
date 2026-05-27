@@ -14,7 +14,8 @@ export function getGeneralJs(): string {
         vscode.postMessage({ type: 'saveChatTabMode', payload: { chatTabMode: dom.chatTabMode.value === 'multi' ? 'multi' : 'single' } });
       });
       dom.timeout.addEventListener('change', () => {
-        vscode.postMessage({ type: 'saveTimeout', payload: { timeoutMs: parseInt(dom.timeout.value, 10) || 300000 } });
+        const parsed = parseInt(dom.timeout.value, 10);
+        vscode.postMessage({ type: 'saveTimeout', payload: { timeoutMs: Number.isNaN(parsed) ? 0 : parsed } });
       });
 `;
 }

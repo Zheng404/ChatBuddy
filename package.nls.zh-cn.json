@@ -11,6 +11,7 @@
   "chatbuddy.command.openDefaultModels": "默认模型",
   "chatbuddy.command.openMcp": "MCP 设置",
   "chatbuddy.command.openDataManagement": "数据管理",
+  "chatbuddy.command.openTemplates": "模板",
   "chatbuddy.command.openAbout": "关于",
   "chatbuddy.command.openAssistantChat": "打开聊天",
   "chatbuddy.command.createAssistant": "新建助手",

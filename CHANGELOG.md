@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, but kept intentionally simple for this project.
 
+## [Unreleased]
+
+### English
+
+#### Changed
+
+- Request timeout default changed from 300s to unlimited (no timeout). Added "No Limit" option to the timeout settings dropdown.
+
+#### Fixed
+
+- Compass storage self-heal: automatically rebuilds session index when session files are missing or orphaned, without falling back to SQLite recovery.
+- Settings center pane order now matches navigation tab order.
+- Added missing Templates entry to the settings sidebar tree view.
+
+### 中文
+
+#### 变更
+
+- 请求超时默认值从 300 秒改为无限制。超时设置下拉列表新增"无限制"选项。
+
+#### 修复
+
+- Compass 存储自愈：会话文件缺失或孤立时自动重建索引，无需回退到 SQLite 恢复。
+- 设置中心面板顺序与导航标签页顺序对齐。
+- 补全设置侧边栏树视图中缺失的模板入口。
+
 ## [0.3.5] - 2026-05-11
 
 ### English

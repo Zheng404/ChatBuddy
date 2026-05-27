@@ -58,9 +58,13 @@ export class CompassMigrator {
     if (hasCurrentMarker) {
       const trustedSnapshot = await this.validateCompassSnapshot(true);
       if (!trustedSnapshot.valid) {
-        await this.recoverFromLegacySqliteOrThrow(
-          `Compass snapshot failed validation with a current migration marker: ${trustedSnapshot.reason ?? 'unknown reason'}`
-        );
+        const reason = `Compass snapshot failed validation with a current migration marker: ${trustedSnapshot.reason ?? 'unknown reason'}`;
+        // 先尝试自修复（容忍缺失文件，重建索引），再回退 SQLite
+        if (await this.trySelfHealCompassSnapshot(reason)) {
+          await this.cleanupLegacySqliteIfPresent();
+          return;
+        }
+        await this.recoverFromLegacySqliteOrThrow(reason);
         return;
       }
       await this.cleanupLegacySqliteIfPresent();
@@ -145,6 +149,40 @@ export class CompassMigrator {
       return;
     }
     await removeFileIfExists(this.context.paths.legacyDbPath);
+  }
+
+  private static readonly SESSION_HEALABLE_PATTERNS = [
+    'Session file is missing',
+    'Found orphan session file'
+  ];
+
+  /**
+   * 当已有 Compass 迁移标记但快照验证失败时，尝试自修复。
+   * 仅限会话文件缺失/孤儿等非致命不一致场景。
+   * Settings/KV 损坏等严重问题不在此处理，仍走 SQLite 恢复或抛出异常。
+   */
+  private async trySelfHealCompassSnapshot(reason: string): Promise<boolean> {
+    const healable = CompassMigrator.SESSION_HEALABLE_PATTERNS.some(p => reason.includes(p));
+    if (!healable) {
+      return false;
+    }
+    error(`Compass snapshot validation failed (${reason}). Attempting session self-heal...`);
+    try {
+      await this.context.sessionStore.load(this.context.paths);
+      await this.context.kvStore.load(this.context.paths);
+      await this.context.settingsStore.load(this.context.paths);
+      await this.persistStores();
+      const snapshot = await this.validateCompassSnapshot(true);
+      if (snapshot.valid) {
+        error('Compass session self-heal succeeded.');
+        return true;
+      }
+      error(`Compass self-heal failed: snapshot still invalid after repair (${snapshot.reason ?? 'unknown reason'}).`);
+      return false;
+    } catch (e) {
+      error(`Compass self-heal failed with exception: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
   }
 
   private async recoverFromLegacySqliteOrThrow(reason: string): Promise<void> {
