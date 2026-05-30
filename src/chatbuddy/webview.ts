@@ -28,13 +28,11 @@ export function getChatWebviewHtml(webview: vscode.Webview, extensionUri: vscode
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ChatBuddy</title>
-    <link rel="stylesheet" href="${katexCssUri}" />
     <style>${codiconStyleText}</style>
     <style>${getChatPanelCss()}</style>
   </head>
   <body>
     ${getChatBodyHtml()}
-    <script nonce="${nonce}" src="${katexJsUri}"></script>
     <script nonce="${nonce}">
       // Polyfill for DOMMatrix / WebKitCSSMatrix (required by Mermaid in some VS Code/Electron versions)
       if (typeof DOMMatrix === 'undefined' && typeof WebKitCSSMatrix === 'undefined') {
@@ -47,12 +45,7 @@ export function getChatWebviewHtml(webview: vscode.Webview, extensionUri: vscode
         };
       }
     </script>
-    <script type="module" nonce="${nonce}">
-      import mermaid from '${mermaidEsmUri}';
-      mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
-      window.mermaid = mermaid;
-    </script>
-    ${getChatScript({ nonce })}
+    ${getChatScript({ nonce, katexCssUri: String(katexCssUri), katexJsUri: String(katexJsUri), mermaidEsmUri: String(mermaidEsmUri) })}
   </body>
 </html>`;
 }

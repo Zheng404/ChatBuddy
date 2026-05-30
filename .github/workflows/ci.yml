@@ -39,6 +39,9 @@ jobs:
       - name: Test
         run: npm run test:unit
 
+      - name: Check coverage
+        run: npm run test:coverage:ci
+
       - name: Security audit
         run: npm audit --audit-level=high --omit=dev
 

@@ -14,8 +14,13 @@ const LATEX_DISPLAY_BLOCK_PATTERN = String.raw`/\\\[([\s\S]+?)\\\]/g`;
 const LATEX_INLINE_BLOCK_PATTERN = String.raw`/\\\(([\s\S]+?)\\\)/g`;
 const LATEX_ENV_BLOCK_PATTERN = String.raw`/\\begin\{(equation\*?|align\*?|gather\*?|aligned|cases|split|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array|cd|CD|darray)\}([\s\S]+?)\\end\{\1\}/g`;
 
-export function getChatScript(args: { nonce: string }): string {
-  const { nonce } = args;
+export function getChatScript(args: {
+  nonce: string;
+  katexCssUri: string;
+  katexJsUri: string;
+  mermaidEsmUri: string;
+}): string {
+  const { nonce, katexCssUri, katexJsUri, mermaidEsmUri } = args;
   return `
     <script nonce="${nonce}">
       const vscode = acquireVsCodeApi();
@@ -388,6 +393,10 @@ export function getChatScript(args: { nonce: string }): string {
 ${getToastScript()}
 ${getHtmlEscaperScript()}
 ${getChatMarkdownRendererScript({
+  nonce,
+  katexCssUri,
+  katexJsUri,
+  mermaidEsmUri,
   latexDisplayPattern: LATEX_DISPLAY_BLOCK_PATTERN,
   latexInlinePattern: LATEX_INLINE_BLOCK_PATTERN,
   latexEnvPattern: LATEX_ENV_BLOCK_PATTERN

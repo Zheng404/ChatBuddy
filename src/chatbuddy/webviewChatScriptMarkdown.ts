@@ -5,11 +5,15 @@
  * KaTeX 数学公式、Mermaid 图表和 Markdown 基础语法。
  */
 export function getChatMarkdownRendererScript(args: {
+  nonce: string;
+  katexCssUri: string;
+  katexJsUri: string;
+  mermaidEsmUri: string;
   latexDisplayPattern: string;
   latexInlinePattern: string;
   latexEnvPattern: string;
 }): string {
-  const { latexDisplayPattern, latexInlinePattern, latexEnvPattern } = args;
+  const { nonce, katexCssUri, katexJsUri, mermaidEsmUri, latexDisplayPattern, latexInlinePattern, latexEnvPattern } = args;
   return `
       function decodeHtmlEntities(input) {
         return String(input || '')
@@ -403,6 +407,45 @@ export function getChatMarkdownRendererScript(args: {
         });
       }
 
+      var katexLoaded = false;
+      var katexLoading = false;
+      var mermaidLoaded = false;
+      var mermaidLoading = false;
+
+      function loadKatex() {
+        if (katexLoading || katexLoaded) { return; }
+        katexLoading = true;
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '${katexCssUri}';
+        document.head.appendChild(link);
+        var script = document.createElement('script');
+        script.src = '${katexJsUri}';
+        script.onload = function() {
+          katexLoaded = true;
+          renderEnhancedContent();
+        };
+        script.onerror = function() {
+          katexLoading = false;
+          console.error('[KaTeX] failed to load');
+        };
+        document.head.appendChild(script);
+      }
+
+      function loadMermaid() {
+        if (mermaidLoading || mermaidLoaded) { return; }
+        mermaidLoading = true;
+        var script = document.createElement('script');
+        script.type = 'module';
+        script.setAttribute('nonce', '${nonce}');
+        script.textContent = [
+          "import mermaid from '${mermaidEsmUri}';",
+          "mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });",
+          "window.mermaid = mermaid;"
+        ].join('\\n');
+        document.head.appendChild(script);
+      }
+
       var mermaidRenderQueue = [];
       var mermaidRendering = false;
       var mermaidInitialized = false;
@@ -466,10 +509,13 @@ export function getChatMarkdownRendererScript(args: {
         if (mermaidLoadPromise) {
           return mermaidLoadPromise;
         }
-        // ESM module loaded via <script type="module">; poll until ready
+        // Trigger lazy load if mermaid is not yet available
+        if (!getMermaidInstance() && !mermaidLoading) {
+          loadMermaid();
+        }
         mermaidLoadPromise = new Promise(function(resolve) {
           var attempts = 0;
-          var maxAttempts = 100; // 10 seconds
+          var maxAttempts = 300; // 30 seconds (generous for lazy loading)
           var interval = setInterval(function() {
             attempts++;
             var m = getMermaidInstance();
@@ -483,7 +529,7 @@ export function getChatMarkdownRendererScript(args: {
             } else if (attempts >= maxAttempts) {
               clearInterval(interval);
               mermaidLoadPromise = null; // 允许下次重试
-              console.error('[Mermaid] timeout waiting for ESM module after 10s');
+              console.error('[Mermaid] timeout waiting for ESM module after 30s');
               resolve(false);
             }
           }, 100);
@@ -556,6 +602,13 @@ export function getChatMarkdownRendererScript(args: {
         var el = mermaidRenderQueue.shift();
         ensureMermaidReady().then(function(ready) {
           if (!ready) {
+            if (mermaidLoading) {
+              // Mermaid is still loading; put back in queue and retry later
+              mermaidRenderQueue.unshift(el);
+              mermaidRendering = false;
+              setTimeout(processMermaidQueue, 500);
+              return;
+            }
             console.error('[Mermaid] not ready, skipping render');
             replaceMermaidWithCode(el, 'Load failed');
             mermaidRendering = false;
@@ -618,6 +671,18 @@ export function getChatMarkdownRendererScript(args: {
       }
 
       function renderEnhancedContentImpl() {
+        // Trigger lazy loading for KaTeX when unrendered latex elements exist
+        var needsKatex = dom.messagesInner.querySelector('[data-latex-inline]:not([data-rendered]), [data-latex-display]:not([data-rendered])');
+        if (needsKatex && typeof katex === 'undefined' && !katexLoading) {
+          loadKatex();
+        }
+
+        // Trigger lazy loading for Mermaid when unrendered mermaid elements exist
+        var needsMermaid = dom.messagesInner.querySelector('[data-mermaid]:not([data-rendered])');
+        if (needsMermaid && !getMermaidInstance() && !mermaidLoading) {
+          loadMermaid();
+        }
+
         dom.messagesInner.querySelectorAll('pre code.lang-latex, pre code.lang-tex, pre code.lang-math').forEach(function(codeEl) {
           var preEl = codeEl.parentNode;
           if (preEl && preEl.tagName === 'PRE') {
