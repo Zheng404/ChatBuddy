@@ -382,3 +382,4 @@ extension.ts (顶层组装)
 - [STORAGE.md](./STORAGE.md) — Compass 存储格式与迁移机制
 - [WEBVIEW_PROTOCOL.md](./WEBVIEW_PROTOCOL.md) — WebView 通信协议
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — 开发环境搭建与贡献指南
+- [adr/](./adr/) — 架构决策记录 (Architecture Decision Records)
