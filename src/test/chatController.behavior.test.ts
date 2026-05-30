@@ -143,7 +143,8 @@ test('openAssistantChat reuses single-tab panel', () => {
         selectedAssistantId = id;
       },
       getSettings: () => createSettings('single'),
-      getModelOptions: () => []
+      getModelOptions: () => [],
+      getVersion: () => 0
     };
 
     const controller = new ChatController(
@@ -199,7 +200,8 @@ test('openAssistantChat creates separate panels in multi-tab mode', () => {
         selectedAssistantId = id;
       },
       getSettings: () => createSettings('multi'),
-      getModelOptions: () => []
+      getModelOptions: () => [],
+      getVersion: () => 0
     };
 
     const controller = new ChatController(
@@ -242,7 +244,8 @@ test('stream state post scheduling is throttled and flush posts immediately', as
     getSelectedAssistant: () => assistant,
     setSelectedAssistant: (_id: string) => undefined,
     getSettings: () => createSettings('single'),
-    getModelOptions: () => []
+    getModelOptions: () => [],
+    getVersion: () => 0
   };
 
   const controller = new ChatController(

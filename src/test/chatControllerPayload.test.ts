@@ -12,41 +12,14 @@ import {
   withGenerationState
 } from '../chatbuddy/chatControllerPayload';
 import type {
-  AssistantProfile,
   ChatBuddySettings,
   ChatStatePayload,
   PersistedStateLite,
   ProviderModelOption
 } from '../chatbuddy/types';
+import { makeAssistant } from './fixtures';
 
 // ─── Helpers ────────────────────────────────────────────────────────
-
-function makeAssistant(overrides: Partial<AssistantProfile> = {}): AssistantProfile {
-  return {
-    id: 'a1',
-    name: 'Test Assistant',
-    note: '',
-    groupId: 'default',
-    systemPrompt: '',
-    greeting: '',
-    questionPrefix: '',
-    modelRef: 'p1:m1',
-    temperature: 0.7,
-    topP: 1,
-    maxTokens: 2048,
-    contextCount: 10,
-    presencePenalty: 0,
-    frequencyPenalty: 0,
-    streaming: true,
-    enabledMcpServerIds: [],
-    pinned: false,
-    isDeleted: false,
-    lastInteractedAt: 0,
-    createdAt: 0,
-    updatedAt: 0,
-    ...overrides
-  };
-}
 
 function makeSettings(overrides: Partial<ChatBuddySettings> = {}): ChatBuddySettings {
   return {

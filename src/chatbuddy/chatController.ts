@@ -72,7 +72,11 @@ export class ChatController {
   private sessionTempModelRefBySession: Record<string, string> = {};
   private sessionTempParamsBySession: Record<string, SessionTempParams> = {};
   private lastSelectedSessionIdByAssistant: Record<string, string | undefined> = {};
-  private modelOptions: ProviderModelOption[];
+  private modelOptionsCache: {
+    options: ProviderModelOption[];
+    version: number;
+    map: Map<string, ProviderModelOption>;
+  } | undefined;
   private readonly toolOrchestrator: ToolCallOrchestrator;
   private readonly generationService: ChatGenerationService;
   private readonly panelManager: ChatPanelManager;
@@ -92,7 +96,7 @@ export class ChatController {
   ) {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? this.repository.getSettings().streamingDefault;
-    this.modelOptions = this.repository.getModelOptions(false, this.getRuntimeStrings());
+    this.getModelOptions();
     this.panelManager = new ChatPanelManager({
       repository: this.repository,
       extensionUri: this.extensionUri,
@@ -194,6 +198,23 @@ export class ChatController {
 
   private getRuntimeStrings(): Record<string, string> {
     return getStrings(this.getLocale());
+  }
+
+  private getModelOptions(): ProviderModelOption[] {
+    const currentVersion = this.repository.getVersion();
+    if (this.modelOptionsCache && this.modelOptionsCache.version === currentVersion) {
+      return this.modelOptionsCache.options;
+    }
+    const options = this.repository.getModelOptions(false, this.getRuntimeStrings());
+    const map = new Map(options.map(o => [o.ref, o]));
+    this.modelOptionsCache = { options, version: currentVersion, map };
+    return options;
+  }
+
+  private resolveModelOption(modelRef: string | undefined): ProviderModelOption | undefined {
+    if (!modelRef) { return undefined; }
+    const options = this.getModelOptions();
+    return this.modelOptionsCache?.map.get(modelRef) ?? options.find(o => o.ref === modelRef);
   }
 
   private getStateTargetPanel(context?: PanelMessageContext): vscode.WebviewPanel | undefined {
@@ -405,7 +426,7 @@ export class ChatController {
   public applySettings(settings: ChatBuddySettings): void {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? settings.streamingDefault;
-    this.modelOptions = this.repository.getModelOptions(false, this.getRuntimeStrings());
+    this.modelOptionsCache = undefined;
     this.postState();
   }
 
@@ -620,7 +641,7 @@ export class ChatController {
         sessions,
         selectedSession,
         pendingToolContinuation: this.pendingToolContinuation,
-        getModelOption: (modelRef) => this.repository.resolveModelOption(modelRef),
+        getModelOption: (modelRef) => this.resolveModelOption(modelRef),
         getServerSummaries: (settings, currentAssistant) => {
           const summaries = this.mcpRuntime.getServerSummaries(settings, currentAssistant);
           const probeCache = this.repository.getMcpProbeCache();
@@ -645,7 +666,7 @@ export class ChatController {
         },
         resolveProviderConfigForAssistant: (settings, currentAssistant, sessionId) =>
           this.resolveEffectiveProviderConfig(settings, currentAssistant, sessionId),
-        modelOptions: this.modelOptions,
+        modelOptions: this.getModelOptions(),
         sessionTempModelRefBySession: this.sessionTempModelRefBySession,
         sessionTempParamsBySession: this.sessionTempParamsBySession,
         streamingEnabled: this.streamingEnabled,
@@ -719,6 +740,7 @@ export class ChatController {
   };
 
   private static readonly DOCUMENT_EXTENSIONS = new Set(['pdf', 'docx', 'pptx']);
+  private static readonly MAX_PPTX_SLIDES = 100;
 
   /** Check if file content appears to be binary by scanning for NULL bytes. */
   private static isBinaryContent(bytes: Uint8Array): boolean {
@@ -796,7 +818,8 @@ export class ChatController {
           const numA = parseInt(a.match(/slide(\d+)\.xml$/)?.[1] || '0', 10);
           const numB = parseInt(b.match(/slide(\d+)\.xml$/)?.[1] || '0', 10);
           return numA - numB;
-        });
+        })
+        .slice(0, ChatController.MAX_PPTX_SLIDES);
       for (const slidePath of slideFiles) {
         const content = await zip.files[slidePath].async('string');
         // Extract text between <a:t> tags (PPTX text nodes)
