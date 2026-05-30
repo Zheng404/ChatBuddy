@@ -14,7 +14,6 @@ export function log(message: string, ...args: unknown[]): void {
   // 在开发模式下输出日志
   const isDev = process.env.NODE_ENV === 'development';
   if (isDev) {
-    // eslint-disable-next-line no-console
     console.log(PREFIX, message, ...args);
   }
 }
