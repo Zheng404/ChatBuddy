@@ -301,7 +301,11 @@ export function sanitizeSettings(raw: unknown): ChatBuddySettings {
       2,
       DEFAULT_SETTINGS.frequencyPenalty
     ),
-    timeoutMs: saved.timeoutMs === 0 ? 0 : clamp(saved.timeoutMs ?? DEFAULT_SETTINGS.timeoutMs, 5000, 300000, DEFAULT_SETTINGS.timeoutMs),
+    timeoutMs: saved.timeoutMs === 0
+      ? 0
+      : typeof saved.timeoutMs === 'number' && saved.timeoutMs > 0
+        ? clamp(saved.timeoutMs, 5000, 300000, DEFAULT_SETTINGS.timeoutMs)
+        : DEFAULT_SETTINGS.timeoutMs,
     streamingDefault:
       typeof saved.streamingDefault === 'boolean' ? saved.streamingDefault : DEFAULT_SETTINGS.streamingDefault,
     locale:

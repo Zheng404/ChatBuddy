@@ -15,7 +15,6 @@ import { createPanelControllers } from './extension/panelControllers';
 import { createTreeProviders, createTreeViews, createSettingsTreeDataSource } from './extension/treeViews';
 import { registerCommands } from './extension/commands';
 import { getBackupIntervalMs, runScheduledBackup } from './chatbuddy/localBackup';
-import { SyncWatcher } from './chatbuddy/syncWatcher';
 
 // Module-level references for async cleanup in deactivate()
 let _mcpRuntime: McpRuntime | undefined;
@@ -210,46 +209,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   };
   restartBackupTimer();
-
-  // Cross-IDE sync watcher (only when shared storage is enabled)
-  if (repository.isUsingSharedStorage()) {
-    const syncStoragePath = repository.getStorageRootPath();
-    if (syncStoragePath) {
-      const syncWatcher = new SyncWatcher(syncStoragePath, {
-        onExternalChange: (categories) => {
-          const isGenerating = chatController.isGenerating();
-          const hasSessions = categories.has('sessions');
-          const hasNonSession = categories.has('core') || categories.has('settings') || categories.has('images');
-
-          if (isGenerating && hasSessions && !hasNonSession) {
-            // 只有 session 变更且正在生成：只刷新树视图，不 reload 数据
-            // 避免打断用户的生成体验
-            sessionsTreeProvider.refresh();
-            return;
-          }
-
-          void repository.reloadFromSharedStorage(categories).then(async () => {
-            // 备份设置可能已变更（间隔、目录、启停），重启定时器
-            restartBackupTimer();
-            refreshAll();
-            updateTreeMessage();
-            // 刷新聊天面板，使 WebView 加载最新的会话数据
-            chatController.postStateToActivePanel();
-          }).catch(e => warn('Reload from shared storage error:', e));
-        },
-        getIsGenerating: () => chatController.isGenerating()
-      });
-
-      syncWatcher.start();
-      repository.setSyncWatcher(syncWatcher);
-      context.subscriptions.push(syncWatcher);
-
-      // Notify watcher when generation ends so pending changes can be surfaced
-      chatController.setOnGenerationEnd(() => {
-        syncWatcher.notifyGeneratingEnded();
-      });
-    }
-  }
 
   context.subscriptions.push(
     assistantsTreeView,

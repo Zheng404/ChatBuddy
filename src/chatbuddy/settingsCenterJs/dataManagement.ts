@@ -7,7 +7,6 @@ export function getDataManagementJs(): string {
   return `
       function switchDataTab(tab) {
         if (tab === 'local') { activeDataTab = 'local'; }
-        else if (tab === 'sync') { activeDataTab = 'sync'; }
         else if (tab === 'reset') { activeDataTab = 'reset'; }
         else { activeDataTab = 'transfer'; }
         renderDataTabs();
@@ -18,17 +17,11 @@ export function getDataManagementJs(): string {
         var strings = runtimeState.strings || {};
         dom.dataTabTransfer.textContent = strings.dataTabTransfer || 'Import / Export';
         dom.dataTabLocal.textContent = strings.dataTabLocal || 'Local Backup';
-        if (dom.dataTabSync) {
-          dom.dataTabSync.textContent = strings.dataTabSync || 'Data Sync';
-        }
         if (dom.dataTabReset) {
           dom.dataTabReset.textContent = strings.dataTabReset || 'Reset';
         }
         dom.dataTabTransfer.classList.toggle('active', activeDataTab === 'transfer');
         dom.dataTabLocal.classList.toggle('active', activeDataTab === 'local');
-        if (dom.dataTabSync) {
-          dom.dataTabSync.classList.toggle('active', activeDataTab === 'sync');
-        }
         if (dom.dataTabReset) {
           dom.dataTabReset.classList.toggle('active', activeDataTab === 'reset');
         }

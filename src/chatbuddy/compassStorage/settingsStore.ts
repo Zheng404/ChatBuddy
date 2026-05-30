@@ -10,7 +10,7 @@
 import { ChatBuddySettings, PersistedStateLite, ProviderModelProfile, ProviderProfile } from '../types';
 import { createInitialState } from '../stateSanitizers';
 import { warn } from '../utils';
-import { readJsonFile, readTextFile, removeFileIfExists, writeJsonAtomic, writeTextAtomic } from './io';
+import { readJsonFile, readTextFile, removeFileIfExists, writeJsonAtomic, writeTextAtomic, createPrePersistSnapshot, restoreFromSnapshot } from './io';
 import { COMPASS_LAYOUT_VERSION, CompassPaths } from './paths';
 import {
   StructuredSettingsDefaultModelsFile,
@@ -374,6 +374,8 @@ export class CompassSettingsStore {
   private legacyStatePayload: string | undefined;
   private legacyProviderApiKeysPayload: string | undefined;
 
+  private dirty = false;
+
   public async load(paths: CompassPaths): Promise<void> {
     const [core, ui, settingsGeneral, settingsModelConfig, settingsDefaultModels, settingsMcp, structuredCommit] =
       await Promise.all([
@@ -398,18 +400,25 @@ export class CompassSettingsStore {
       ? cloneStructuredStateCommit(structuredCommit)
       : undefined;
 
-    const providerApiKeysPayload = await readJsonFile<Record<string, unknown>>(paths.providerApiKeysPath);
+    // 并行执行：一致性校验 + 非结构化文件读取（互不依赖）
+    const nonStructuredPromise = Promise.all([
+      readJsonFile<Record<string, unknown>>(paths.providerApiKeysPath),
+      readTextFile(paths.legacyStatePath),
+      readTextFile(paths.legacyProviderApiKeysPath)
+    ]);
+
+    // 启动一致性校验：检测并修复崩溃导致的结构化文件不完整
+    await this.validateAndRepairConsistency(paths);
+
+    const [providerApiKeysPayload, legacyStatePayload, legacyProviderApiKeysPayload] = await nonStructuredPromise;
     this.providerApiKeys = normalizeProviderApiKeys(providerApiKeysPayload);
-
-    const legacyStatePayload = await readTextFile(paths.legacyStatePath);
     this.legacyStatePayload = legacyStatePayload?.trim() ? legacyStatePayload : undefined;
-
-    const legacyProviderApiKeysPayload = await readTextFile(paths.legacyProviderApiKeysPath);
     this.legacyProviderApiKeysPayload = legacyProviderApiKeysPayload?.trim() ? legacyProviderApiKeysPayload : undefined;
 
     if (!Object.keys(this.providerApiKeys).length && this.legacyProviderApiKeysPayload) {
       this.providerApiKeys = normalizeProviderApiKeys(parseJsonObject(this.legacyProviderApiKeysPayload));
     }
+    this.dirty = false;
   }
 
   public async persist(paths: CompassPaths): Promise<void> {
@@ -421,16 +430,33 @@ export class CompassSettingsStore {
         generation: (this.structuredCommit?.generation ?? 0) + 1,
         writtenAt: new Date().toISOString()
       };
+
+      // 结构化文件写入列表（按顺序写入，崩溃时可恢复）
+      const structuredWrites: Array<{ filePath: string; data: unknown }> = [
+        { filePath: paths.stateCorePath, data: document.core },
+        { filePath: paths.uiSelectionPath, data: document.ui },
+        { filePath: paths.settingsGeneralPath, data: document.settingsGeneral },
+        { filePath: paths.settingsModelConfigPath, data: document.settingsModelConfig },
+        { filePath: paths.settingsDefaultModelsPath, data: document.settingsDefaultModels },
+        { filePath: paths.settingsMcpPath, data: document.settingsMcp }
+      ];
+
       let structuredWriteOk = false;
       try {
-        await Promise.all([
-          writeJsonAtomic(paths.stateCorePath, document.core),
-          writeJsonAtomic(paths.uiSelectionPath, document.ui),
-          writeJsonAtomic(paths.settingsGeneralPath, document.settingsGeneral),
-          writeJsonAtomic(paths.settingsModelConfigPath, document.settingsModelConfig),
-          writeJsonAtomic(paths.settingsDefaultModelsPath, document.settingsDefaultModels),
-          writeJsonAtomic(paths.settingsMcpPath, document.settingsMcp)
-        ]);
+        // 写入前快照：备份当前 state.core.json，用于崩溃恢复
+        await createPrePersistSnapshot(paths.metaPath, paths.stateCorePath, commit.generation);
+
+        // 写入前标记：标识正在写入中（崩溃恢复信号）
+        await writeJsonAtomic(paths.structuredStateWritingMarkerPath, {
+          generation: commit.generation,
+          startedAt: commit.writtenAt
+        });
+
+        // 顺序写入所有结构化文件（而非 Promise.all 并行）
+        // 崩溃时至少保证前面的文件已完整写入，配合启动一致性校验可恢复
+        for (const { filePath, data } of structuredWrites) {
+          await writeJsonAtomic(filePath, data);
+        }
         structuredWriteOk = true;
       } catch (writeError) {
         console.warn('[Compass] One or more structured state files failed to write, skipping commit file:', writeError);
@@ -441,8 +467,11 @@ export class CompassSettingsStore {
         await writeJsonAtomic(paths.structuredStateCommitPath, commit);
         this.structuredCommit = cloneStructuredStateCommit(commit);
       }
+      // 无论成功失败，都尝试清除写入标记（成功时不影响，失败时允许下次重试）
+      await removeFileIfExists(paths.structuredStateWritingMarkerPath).catch(() => {});
       await removeFileIfExists(paths.legacyStatePath);
       this.legacyStatePayload = undefined;
+      this.dirty = false;
     } else {
       await Promise.all([
         removeFileIfExists(paths.stateCorePath),
@@ -459,6 +488,7 @@ export class CompassSettingsStore {
       } else {
         await removeFileIfExists(paths.legacyStatePath);
       }
+      this.dirty = false;
     }
 
     // API keys 独立写入，不受结构化文件写入结果影响
@@ -478,6 +508,73 @@ export class CompassSettingsStore {
     } catch (apiKeyError) {
       console.warn('[Compass] Failed to write API keys file:', apiKeyError);
     }
+  }
+
+  public isDirty(): boolean {
+    return this.dirty;
+  }
+
+  /**
+   * 启动时一致性校验：检测并修复崩溃导致的结构化文件不完整。
+   *
+   * 仅在检测到 .writing.json 标记时修复（证明是崩溃导致的写入中断）。
+   * 无标记时不自动修复，让现有的迁移/校验流程（如 SQLite 回退）处理。
+   */
+  private async validateAndRepairConsistency(paths: CompassPaths): Promise<void> {
+    // 全部完整，无需修复
+    if (this.hasStructuredState()) {
+      return;
+    }
+
+    // 检查写入标记 — 崩溃导致 persist 中断的确凿证据
+    const writingMarker = await readJsonFile<{ generation?: number; startedAt?: string }>(paths.structuredStateWritingMarkerPath);
+    if (!writingMarker) {
+      // 无写入标记：不修复，可能是首次迁移中断或外部损坏，
+      // 让 CompassMigrator 的现有校验流程（如 SQLite 回退）处理
+      return;
+    }
+
+    // 有写入标记：崩溃发生在 persist() 执行期间
+    // 先尝试从快照恢复 state.core.json（包含助手、分组、模板等重要数据）
+    if (this.core === undefined) {
+      const snapshotCore = await restoreFromSnapshot<StructuredStateCoreFile>(paths.metaPath);
+      if (snapshotCore && snapshotCore.groups && snapshotCore.assistants) {
+        this.core = snapshotCore;
+        console.warn('[Compass] Recovered state.core from pre-persist snapshot.');
+      }
+    }
+
+    // 统计有多少个结构化文件存在
+    const fields: Array<{ value: unknown; defaultFactory: () => unknown; setter: (v: unknown) => void; path: string }> = [
+      { value: this.core, defaultFactory: () => ({ groups: [], assistants: [], templates: [] }), setter: (v) => { this.core = v as StructuredStateCoreFile; }, path: paths.stateCorePath },
+      { value: this.ui, defaultFactory: () => ({ selectedAssistantId: '', selectedSessionIdByAssistant: {}, sessionPanelCollapsed: false, collapsedGroupIds: [] }), setter: (v) => { this.ui = v as StructuredUiSelectionFile; }, path: paths.uiSelectionPath },
+      { value: this.settingsGeneral, defaultFactory: () => ({}), setter: (v) => { this.settingsGeneral = v as StructuredSettingsGeneralFile; }, path: paths.settingsGeneralPath },
+      { value: this.settingsModelConfig, defaultFactory: () => ({ providers: [] }), setter: (v) => { this.settingsModelConfig = v as StructuredSettingsModelConfigFile; }, path: paths.settingsModelConfigPath },
+      { value: this.settingsDefaultModels, defaultFactory: () => ({ defaultModels: {} }), setter: (v) => { this.settingsDefaultModels = v as StructuredSettingsDefaultModelsFile; }, path: paths.settingsDefaultModelsPath },
+      { value: this.settingsMcp, defaultFactory: () => ({ mcp: { servers: [], groups: [] } }), setter: (v) => { this.settingsMcp = v as StructuredSettingsMcpFile; }, path: paths.settingsMcpPath }
+    ];
+
+    const existingCount = fields.filter((f) => f.value !== undefined).length;
+
+    console.warn(
+      `[Compass] Crash recovery: .writing.json marker found (generation ${writingMarker.generation}).` +
+      ` Incomplete structured state (${existingCount}/6 files). Filling missing files with defaults.`
+    );
+
+    for (const field of fields) {
+      if (field.value === undefined) {
+        const defaultValue = field.defaultFactory();
+        field.setter(defaultValue);
+        try {
+          await writeJsonAtomic(field.path, defaultValue);
+        } catch (repairError) {
+          console.warn(`[Compass] Failed to repair missing file ${field.path}:`, repairError);
+        }
+      }
+    }
+
+    // 清理写入标记
+    await removeFileIfExists(paths.structuredStateWritingMarkerPath).catch(() => {});
   }
 
   public hasStructuredState(): boolean {
@@ -524,6 +621,7 @@ export class CompassSettingsStore {
     this.settingsDefaultModels = cloneSettingsDefaultModels(document.settingsDefaultModels);
     this.settingsMcp = cloneSettingsMcp(document.settingsMcp);
     this.legacyStatePayload = undefined;
+    this.dirty = true;
   }
 
   public readStateLite(): PersistedStateLite | Record<string, unknown> | undefined {
@@ -546,8 +644,13 @@ export class CompassSettingsStore {
   }
 
   public setProviderApiKeys(providerApiKeys: Record<string, string>): void {
-    this.providerApiKeys = normalizeProviderApiKeys(providerApiKeys);
-    this.legacyProviderApiKeysPayload = undefined;
+    const normalized = normalizeProviderApiKeys(providerApiKeys);
+    // 仅在 keys 实际变更时标记脏，避免 session-only persist 不必要地写入 settings
+    if (JSON.stringify(this.providerApiKeys) !== JSON.stringify(normalized)) {
+      this.providerApiKeys = normalized;
+      this.legacyProviderApiKeysPayload = undefined;
+      this.dirty = true;
+    }
   }
 
   public clearAllData(): void {
@@ -561,6 +664,7 @@ export class CompassSettingsStore {
     this.providerApiKeys = {};
     this.legacyStatePayload = undefined;
     this.legacyProviderApiKeysPayload = undefined;
+    this.dirty = true;
   }
 
   public setLegacyStatePayload(payload: string | undefined): void {
@@ -814,7 +918,11 @@ export class CompassSettingsStore {
       this.legacyProviderApiKeysPayload = value.trim() ? value : undefined;
       const parsed = parseJsonObject(value);
       if (parsed) {
-        this.providerApiKeys = normalizeProviderApiKeys(parsed);
+        const normalized = normalizeProviderApiKeys(parsed);
+        if (JSON.stringify(this.providerApiKeys) !== JSON.stringify(normalized)) {
+          this.providerApiKeys = normalized;
+          this.dirty = true;
+        }
       } else if (value.trim()) {
         warn('Ignoring invalid provider API keys compat payload; keeping the existing structured secrets intact.');
       }

@@ -42,7 +42,6 @@ export function getSharedJs(): string {
         resetBtn: document.getElementById('resetBtn'),
         dataTabTransfer: document.getElementById('dataTabTransfer'),
         dataTabLocal: document.getElementById('dataTabLocal'),
-        dataTabSync: document.getElementById('dataTabSync'),
         dataTabReset: document.getElementById('dataTabReset'),
         templatesSectionTitle: document.getElementById('templatesSectionTitle'),
         templatesSectionDescription: document.getElementById('templatesSectionDescription'),

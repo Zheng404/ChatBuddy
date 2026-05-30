@@ -33,7 +33,9 @@ export const STRUCTURED_SETTINGS_MODEL_CONFIG_FILE_NAME = 'settings.model-config
 export const STRUCTURED_SETTINGS_DEFAULT_MODELS_FILE_NAME = 'settings.default-models.json';
 export const STRUCTURED_SETTINGS_MCP_FILE_NAME = 'settings.mcp.json';
 export const STRUCTURED_PROVIDER_API_KEYS_FILE_NAME = 'providers.api-keys.json';
-export const STRUCTURED_TEMPLATES_FILE_NAME = 'templates.json';
+
+/** 写入前标记文件：标识结构化文件正在写入中（崩溃恢复信号） */
+export const STRUCTURED_STATE_WRITING_MARKER_FILE_NAME = '.writing.json';
 
 export type CompassPaths = {
   globalStoragePath: string;
@@ -55,7 +57,7 @@ export type CompassPaths = {
   settingsDefaultModelsPath: string;
   settingsMcpPath: string;
   providerApiKeysPath: string;
-  templatesPath: string;
+  structuredStateWritingMarkerPath: string;
 };
 
 export function createCompassPaths(globalStoragePath: string): CompassPaths {
@@ -83,7 +85,7 @@ export function createCompassPaths(globalStoragePath: string): CompassPaths {
     settingsDefaultModelsPath: path.join(metaPath, STRUCTURED_SETTINGS_DEFAULT_MODELS_FILE_NAME),
     settingsMcpPath: path.join(metaPath, STRUCTURED_SETTINGS_MCP_FILE_NAME),
     providerApiKeysPath: path.join(metaPath, STRUCTURED_PROVIDER_API_KEYS_FILE_NAME),
-    templatesPath: path.join(metaPath, STRUCTURED_TEMPLATES_FILE_NAME)
+    structuredStateWritingMarkerPath: path.join(metaPath, STRUCTURED_STATE_WRITING_MARKER_FILE_NAME)
   };
 }
 

@@ -2,7 +2,6 @@ import { getSharedJs, getSharedUtilsJs } from './shared';
 import { getGeneralJs } from './general';
 import { getDataManagementJs } from './dataManagement';
 import { getTemplatesJs } from './templates';
-import { getDataSyncJs } from './dataSync';
 import { getDefaultModelsJs } from './defaultModels';
 import { getModelConfigJs } from './modelConfig';
 import { getModelConfigStateJs } from './modelConfigState';
@@ -32,7 +31,6 @@ export function getSettingsCenterJs(toastScript: string, defaultTitleSummaryProm
     getGeneralJs(),
     getDataManagementJs(),
     getTemplatesJs(),
-    getDataSyncJs(),
     getDefaultModelsJs(defaultTitleSummaryPrompt),
     getModelConfigJs(),
     getModelConfigRenderersJs(),

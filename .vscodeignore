@@ -101,7 +101,7 @@ node_modules/@mermaid-js/**
 # pdf-parse only needs it for rendering PDF pages to images; we only extract text.
 node_modules/@napi-rs/**
 
-# pdfjs-dist: keep only build/ core files; exclude legacy, cmaps, wasm, fonts, etc.
+# pdfjs-dist: keep only minified build files; exclude legacy, cmaps, wasm, fonts, etc.
 node_modules/pdfjs-dist/legacy/**
 node_modules/pdfjs-dist/cmaps/**
 node_modules/pdfjs-dist/wasm/**
@@ -109,6 +109,15 @@ node_modules/pdfjs-dist/standard_fonts/**
 node_modules/pdfjs-dist/image_decoders/**
 node_modules/pdfjs-dist/web/**
 node_modules/pdfjs-dist/iccs/**
+node_modules/pdfjs-dist/build/pdf.mjs
+node_modules/pdfjs-dist/build/pdf.worker.mjs
+node_modules/pdfjs-dist/build/pdf.sandbox.mjs
+node_modules/pdfjs-dist/build/pdf.sandbox.min.mjs
+
+# pdf-parse: only need cjs build for Node.js runtime
+node_modules/pdf-parse/dist/pdf-parse/web/**
+node_modules/pdf-parse/dist/pdf-parse/esm/**
+node_modules/pdf-parse/dist/worker/**
 
 # SQL.js: exclude debug and browser-specific builds
 node_modules/sql.js/dist/*-debug.*
@@ -157,11 +166,14 @@ node_modules/mammoth/mammoth.browser.min.js
 # Langium: exclude source files
 node_modules/langium/src/**
 
-# Cytoscape: exclude source, demo and duplicate builds
+# Cytoscape: exclude source, demo and non-minified builds
 node_modules/cytoscape/src/**
 node_modules/cytoscape-fcose/demo/**
 node_modules/cytoscape/dist/cytoscape.umd.js
 node_modules/cytoscape/dist/cytoscape.cjs.js
+node_modules/cytoscape/dist/cytoscape.esm.mjs
+
+# Zod: index.cjs statically requires all locale .cjs files — cannot partially exclude
 
 # -----------------------------------------------------------------------------
 # Prune Unnecessary Files from All Dependencies

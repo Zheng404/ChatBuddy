@@ -86,22 +86,6 @@ export function getMessageHandlerJs(): string {
             doDeleteMcpGroup(message.payload.groupId);
           }
         }
-        if (message && message.type === 'storageMigrationPrompt') {
-          showStorageMigrationPrompt(message.payload.targetMode);
-        }
-        if (message && message.type === 'storageSwitchResult') {
-          if (message.payload.success && message.payload.restartNeeded) {
-            var strings = runtimeState.strings || {};
-            showToast(strings.dataStorageStatusRestart || 'Configuration saved. Restart IDE to apply.', 'success');
-            currentStorageMode = (document.querySelector('input[name="storageMode"]:checked') || {}).value || currentStorageMode;
-          } else if (!message.payload.success) {
-            showToast(message.payload.reason || runtimeState.strings.dataStorageMigrateFailed || 'Operation failed.', 'error');
-            renderDataSyncValues();
-          }
-          pendingStorageMode = null;
-          var section = document.getElementById('dataStorageMigrationSection');
-          if (section) { section.style.display = 'none'; }
-        }
       });
 `;
 }

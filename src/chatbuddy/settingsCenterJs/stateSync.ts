@@ -26,14 +26,6 @@ export function getStateSyncJs(): string {
           syncMcpServersFromState(nextState);
         }
         activeSection = normalizeSectionValue(nextState.activeSection || activeSection);
-        if (nextState.syncConfig) {
-          currentStorageMode = nextState.syncConfig.storageMode || 'default';
-          if (nextState.syncConfig.usingShared) {
-            dataStorageStatus = nextState.strings && nextState.strings.dataStorageStatusShared ? nextState.strings.dataStorageStatusShared : 'Using shared storage';
-          } else {
-            dataStorageStatus = nextState.strings && nextState.strings.dataStorageStatusDefault ? nextState.strings.dataStorageStatusDefault : 'Using default storage';
-          }
-        }
         renderAll();
       }
 
@@ -43,8 +35,6 @@ export function getStateSyncJs(): string {
         renderGeneralText();
         renderDataManagementText();
         renderTemplatesText();
-        renderDataSyncText();
-        renderDataSyncValues();
         renderGeneralValues();
         renderDefaultModels();
         renderModelConfigText();

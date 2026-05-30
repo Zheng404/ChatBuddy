@@ -10,9 +10,11 @@ import { CompassValidationResult } from './types';
 
 export class CompassKvStore {
   private readonly kv = new Map<string, string>();
+  private dirty = false;
 
   public async load(paths: CompassPaths): Promise<void> {
     this.kv.clear();
+    this.dirty = false;
     const payload = await readJsonFile<Record<string, unknown>>(paths.kvPath);
     if (!payload || typeof payload !== 'object') {
       return;
@@ -25,12 +27,16 @@ export class CompassKvStore {
   }
 
   public async persist(paths: CompassPaths): Promise<void> {
-    if (!this.kv.size) {
-      await removeFileIfExists(paths.kvPath);
-      return;
+    try {
+      if (!this.kv.size) {
+        await removeFileIfExists(paths.kvPath);
+        return;
+      }
+      const payload = Object.fromEntries([...this.kv.entries()].sort(([a], [b]) => a.localeCompare(b)));
+      await writeJsonAtomic(paths.kvPath, payload);
+    } finally {
+      this.dirty = false;
     }
-    const payload = Object.fromEntries([...this.kv.entries()].sort(([a], [b]) => a.localeCompare(b)));
-    await writeJsonAtomic(paths.kvPath, payload);
   }
 
   public hasData(): boolean {
@@ -77,6 +83,7 @@ export class CompassKvStore {
 
   public replaceAll(entries: Record<string, string>): void {
     this.kv.clear();
+    this.dirty = true;
     for (const [key, value] of Object.entries(entries)) {
       const normalizedKey = key.trim();
       if (!normalizedKey) {
@@ -92,5 +99,10 @@ export class CompassKvStore {
 
   public set(key: string, value: string): void {
     this.kv.set(key, value);
+    this.dirty = true;
+  }
+
+  public isDirty(): boolean {
+    return this.dirty;
   }
 }

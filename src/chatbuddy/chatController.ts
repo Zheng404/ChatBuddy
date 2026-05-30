@@ -118,9 +118,6 @@ export class ChatController {
         // so both paths need to clear the flag.
         this._isGenerating = generating;
         void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
-        if (!generating && this.onGenerationEndCallback) {
-          Promise.resolve().then(() => this.onGenerationEndCallback!()).catch(() => {});
-        }
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -146,9 +143,6 @@ export class ChatController {
       setIsGenerating: (generating) => {
         this._isGenerating = generating;
         void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
-        if (!generating && this.onGenerationEndCallback) {
-          Promise.resolve().then(() => this.onGenerationEndCallback!()).catch(() => {});
-        }
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -318,7 +312,7 @@ export class ChatController {
     this.panelManager.setActivePanelChangeCallback(callback);
   }
 
-  /** 将最新状态推送到当前活动的聊天面板（用于跨 IDE 同步刷新） */
+  /** 将最新状态推送到当前活动的聊天面板 */
   public postStateToActivePanel(): void {
     this.postState();
   }
@@ -326,13 +320,6 @@ export class ChatController {
   /** 查询当前是否正在生成消息 */
   public isGenerating(): boolean {
     return this._isGenerating;
-  }
-
-  private onGenerationEndCallback: (() => void) | undefined;
-
-  /** 设置生成结束时的回调（用于同步监听器在生成结束后推送待处理通知） */
-  public setOnGenerationEnd(callback: (() => void) | undefined): void {
-    this.onGenerationEndCallback = callback;
   }
 
   public dispose(): void {

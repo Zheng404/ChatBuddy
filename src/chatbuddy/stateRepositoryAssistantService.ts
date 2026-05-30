@@ -329,6 +329,9 @@ export class AssistantStateService {
       const next = state.assistants.find((assistant) => !assistant.isDeleted) ?? state.assistants[0];
       this.context.setSelectedAssistantId(next?.id);
     }
+    for (const assistantId of deletedAssistantIds) {
+      this.context.trackDeletedAssistant?.(assistantId);
+    }
     this.context.persistLater();
     return deletedAssistantIds.length;
   }

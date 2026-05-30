@@ -37,13 +37,7 @@ test('persist can recover after a failed persist attempt', async () => {
     },
     getProviderApiKeys: () => ({}),
     setProviderApiKeys: () => undefined,
-    bumpVersion: () => undefined,
-    getDeletedProviderIds: () => new Set(),
-    getDeletedMcpServerIds: () => new Set(),
-    getDeletedAssistantIds: () => new Set(),
-    getDeletedGroupIds: () => new Set(),
-    getDeletedTemplateIds: () => new Set(),
-    clearDeletedEntityIds: () => undefined
+    bumpVersion: () => undefined
   });
 
   (persistence as unknown as { persistMaxRetries: number }).persistMaxRetries = 0;

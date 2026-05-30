@@ -213,7 +213,6 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                 <div class="editor-tabs" id="dataTabs">
                   <button class="editor-tab active" id="dataTabTransfer" data-tab="transfer"></button>
                   <button class="editor-tab" id="dataTabLocal" data-tab="local"></button>
-                  <button class="editor-tab" id="dataTabSync" data-tab="sync"></button>
                   <button class="editor-tab" id="dataTabReset" data-tab="reset"></button>
                 </div>
 
@@ -278,40 +277,6 @@ export function getSettingsCenterHtml(webview: vscode.Webview): string {
                   <section class="section-card">
                     <h2 class="section-title" id="backupHistoryTitle"></h2>
                     <div id="backupListContainer"></div>
-                  </section>
-                </div>
-
-                <div class="editor-pane" data-tab="sync">
-                  <section class="section-card">
-                    <h2 class="section-title" id="dataStorageTitle">Data Storage</h2>
-                    <p class="help" id="dataStorageHelp"></p>
-                    <div class="field-radio-group" style="margin-top:8px">
-                      <label class="radio-option">
-                        <input type="radio" name="storageMode" value="default" id="storageModeDefault" />
-                        <div class="radio-option-content">
-                          <span class="radio-option-title" id="storageModeDefaultLabel">Default</span>
-                          <span class="radio-option-desc" id="storageModeDefaultDesc">VS Code globalStorage</span>
-                        </div>
-                      </label>
-                      <label class="radio-option">
-                        <input type="radio" name="storageMode" value="shared" id="storageModeShared" />
-                        <div class="radio-option-content">
-                          <span class="radio-option-title" id="storageModeSharedLabel">Shared</span>
-                          <span class="radio-option-desc" id="storageModeSharedDesc">~/.ChatBuddy</span>
-                        </div>
-                      </label>
-                    </div>
-                  </section>
-                  <section class="section-card" id="dataStorageStatusSection">
-                    <p class="form-status" id="dataStorageStatus"></p>
-                  </section>
-                  <section class="section-card" id="dataStorageMigrationSection" style="display:none">
-                    <p id="dataStorageMigrationPrompt"></p>
-                    <div class="panel-actions" style="margin-top:12px">
-                      <button class="btn-primary" id="dataStorageMigrateYesBtn" type="button">Migrate</button>
-                      <button class="btn-secondary" id="dataStorageMigrateNoBtn" type="button">Init Empty</button>
-                      <button class="btn-secondary" id="dataStorageMigrateCancelBtn" type="button">Cancel</button>
-                    </div>
                   </section>
                 </div>
 

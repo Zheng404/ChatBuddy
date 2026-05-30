@@ -50,11 +50,6 @@ export function getDataManagementJs(): string {
       dom.dataTabLocal.addEventListener('click', () => {
         switchDataTab('local');
       });
-      if (dom.dataTabSync) {
-        dom.dataTabSync.addEventListener('click', () => {
-          switchDataTab('sync');
-        });
-      }
       if (dom.dataTabReset) {
         dom.dataTabReset.addEventListener('click', () => {
           switchDataTab('reset');

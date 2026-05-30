@@ -283,14 +283,7 @@ export class SettingsCenterPanelController {
         notice,
         noticeTone: notice ? noticeTone : undefined,
         backupFiles: [],
-        templates: this.repository.getTemplates(),
-        syncConfig: (() => {
-          const syncCfg = this.repository.getSyncConfig();
-          return {
-            storageMode: syncCfg.storageMode,
-            usingShared: this.repository.isUsingSharedStorage()
-          };
-        })()
+        templates: this.repository.getTemplates()
       }
     });
   }

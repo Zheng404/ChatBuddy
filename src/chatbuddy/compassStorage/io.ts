@@ -8,7 +8,6 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -78,50 +77,39 @@ export async function appendTextFile(filePath: string, content: string): Promise
   }
 }
 
-/**
- * 获取文件的修改时间（mtime），单位毫秒。
- * 文件不存在返回 -1，出错抛出异常。
- */
-export async function getFileMtime(filePath: string): Promise<number> {
+
+/** 检查目录中是否已有 Compass 数据（检查 meta/ 和 sessions/ 目录） */
+export async function hasCompassData(dirPath: string): Promise<boolean> {
   try {
-    const stats = await fs.promises.stat(filePath);
-    return stats.mtimeMs;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      return -1;
-    }
-    throw err;
+    await fs.promises.access(path.join(dirPath, 'meta'), fs.constants.R_OK);
+    return true;
+  } catch {
+    // meta/ 不存在，继续检查 sessions/
+  }
+  try {
+    await fs.promises.access(path.join(dirPath, 'sessions'), fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
 /**
- * 计算文件内容的 SHA-256 哈希值。
- * 文件不存在返回空字符串，用于乐观锁比较（比 mtime 更可靠）。
+ * 检查目录中是否有可用的 Compass 状态数据。
+ * 比 hasCompassData 更严格：要求 state.core.json 存在且可解析。
+ * 用于 initialize() 中判断是否应跳过初始 persist。
  */
-export async function getFileHash(filePath: string): Promise<string> {
+export async function hasValidCompassState(dirPath: string): Promise<boolean> {
   try {
-    const content = await fs.promises.readFile(filePath);
-    return crypto.createHash('sha256').update(content).digest('hex');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      return '';
-    }
-    throw err;
+    const corePath = path.join(dirPath, 'meta', 'state.core.json');
+    const content = await fs.promises.readFile(corePath, 'utf-8');
+    const parsed = JSON.parse(content);
+    return !!parsed && typeof parsed === 'object' && Array.isArray(parsed.groups) && Array.isArray(parsed.assistants);
+  } catch {
+    return false;
   }
 }
 
-/**
- * 读取 JSON 文件并返回数据及其修改时间。
- * 文件不存在或解析失败返回 data: undefined, mtime: -1。
- */
-export async function readJsonFileWithMtime<T>(filePath: string): Promise<{ data: T | undefined; mtime: number }> {
-  const mtime = await getFileMtime(filePath);
-  if (mtime < 0) {
-    return { data: undefined, mtime: -1 };
-  }
-  const data = await readJsonFile<T>(filePath);
-  return { data, mtime };
-}
 
 export async function removeFileIfExists(filePath: string): Promise<void> {
   try {
@@ -217,6 +205,57 @@ export async function moveDirectoryContents(sourceDirPath: string, targetDirPath
   await removeEmptyDirectoriesRecursively(sourceDirPath);
 }
 
+/**
+ * 清理孤立的 .tmp 临时文件。
+ *
+ * 原子写入使用「先写 .tmp 再 rename」模式。若进程在 rename 之前崩溃，
+ * 磁盘上会残留 .tmp 文件。此函数递归扫描 rootDir，删除满足以下条件的 .tmp 文件：
+ * - 对应的目标文件（去掉 .tmp 后缀）已存在（说明写入已完成或目标已被新写入覆盖）
+ * - 文件年龄超过 ageThresholdMs（毫秒，默认 60 秒），避免删除正在写入的文件
+ *
+ * 返回清理的文件数量。
+ */
+export async function cleanOrphanTempFiles(rootDir: string, ageThresholdMs = 60_000): Promise<number> {
+  let cleaned = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(rootDir, { withFileTypes: true });
+  } catch (readError) {
+    if ((readError as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return 0;
+    }
+    throw readError;
+  }
+
+  const now = Date.now();
+  for (const entry of entries) {
+    const entryPath = path.join(rootDir, entry.name);
+
+    if (entry.isDirectory()) {
+      cleaned += await cleanOrphanTempFiles(entryPath, ageThresholdMs);
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith('.tmp')) {
+      try {
+        const stat = await fs.promises.stat(entryPath);
+        const age = now - stat.mtimeMs;
+        // 仅删除：目标文件已存在 且 文件足够旧（不在活跃写入中）
+        if (age >= ageThresholdMs) {
+          const targetPath = entryPath.slice(0, -'.tmp'.length);
+          if (await fileExists(targetPath)) {
+            await fs.promises.unlink(entryPath);
+            cleaned++;
+          }
+        }
+      } catch {
+        // 忽略单个文件的清理错误
+      }
+    }
+  }
+  return cleaned;
+}
+
 export async function removeEmptyDirectoriesRecursively(rootDirPath: string): Promise<void> {
   let entries: fs.Dirent[];
   try {
@@ -246,4 +285,92 @@ export async function removeEmptyDirectoriesRecursively(rootDirPath: string): Pr
       throw removeError;
     }
   });
+}
+
+/** 快照目录名（相对于 meta/） */
+const SNAPSHOT_DIR_NAME = '.snapshot';
+/** 最大保留快照数 */
+const MAX_SNAPSHOTS = 3;
+
+/**
+ * 在 persist 前创建 state.core.json 的快照备份。
+ * 快照保存到 `meta/.snapshot/state.core.{generation}.json`，保留最近 N 代。
+ * 用于崩溃恢复时从已知良好状态还原。
+ */
+export async function createPrePersistSnapshot(
+  metaPath: string,
+  stateCorePath: string,
+  generation: number
+): Promise<void> {
+  // 仅在当前 state.core.json 存在时创建快照
+  if (!(await fileExists(stateCorePath))) {
+    return;
+  }
+
+  const snapshotDir = path.join(metaPath, SNAPSHOT_DIR_NAME);
+  await ensureDir(snapshotDir);
+
+  const snapshotPath = path.join(snapshotDir, `state.core.${generation}.json`);
+  try {
+    await fs.promises.copyFile(stateCorePath, snapshotPath);
+  } catch {
+    // 快照失败不阻塞主流程
+  }
+
+  // 清理旧快照，保留最近 MAX_SNAPSHOTS 个
+  await pruneOldSnapshots(snapshotDir);
+}
+
+/**
+ * 从快照恢复 state.core.json。
+ * 按 generation 降序尝试，返回第一个成功读取的内容。
+ */
+export async function restoreFromSnapshot<T>(metaPath: string): Promise<T | undefined> {
+  const snapshotDir = path.join(metaPath, SNAPSHOT_DIR_NAME);
+  if (!(await fileExists(snapshotDir))) {
+    return undefined;
+  }
+
+  // 列出所有快照文件，按文件名降序排列（generation 越大越新）
+  let entries: string[];
+  try {
+    entries = (await fs.promises.readdir(snapshotDir))
+      .filter((name) => name.startsWith('state.core.') && name.endsWith('.json'))
+      .sort((a, b) => extractSnapshotGeneration(b) - extractSnapshotGeneration(a));
+  } catch {
+    return undefined;
+  }
+
+  for (const entry of entries) {
+    const data = await readJsonFile<T>(path.join(snapshotDir, entry));
+    if (data) {
+      console.warn(`[Compass] Restored state.core from snapshot: ${entry}`);
+      return data;
+    }
+  }
+
+  return undefined;
+}
+
+/** 从快照文件名提取 generation 数值 */
+function extractSnapshotGeneration(name: string): number {
+  const match = name.match(/^state\.core\.(\d+)\.json$/);
+  return match ? parseInt(match[1], 10) : -1;
+}
+
+/** 清理旧快照，保留最近 MAX_SNAPSHOTS 个 */
+async function pruneOldSnapshots(snapshotDir: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = (await fs.promises.readdir(snapshotDir))
+      .filter((name) => name.startsWith('state.core.') && name.endsWith('.json'))
+      .sort((a, b) => extractSnapshotGeneration(a) - extractSnapshotGeneration(b));
+  } catch {
+    return;
+  }
+
+  while (entries.length > MAX_SNAPSHOTS) {
+    const oldest = entries.shift()!;
+    await fs.promises.unlink(path.join(snapshotDir, oldest)).catch(() => {});
+  }
 }

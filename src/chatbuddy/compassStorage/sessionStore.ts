@@ -90,6 +90,8 @@ export class CompassSessionStore {
   private readonly pendingAppends = new Map<string, ChatMessage[]>();
   /** 追踪需要完整重写的会话（编辑、删除、清空等操作） */
   private readonly pendingRewrites = new Set<string>();
+  /** 索引级别脏标记（insert/rename/delete 等不触发 pendingAppends/Rewrites 但需要重写索引） */
+  private indexDirty = false;
 
   public async load(paths: CompassPaths): Promise<void> {
     // 保存完整的内存状态快照（包括 summaries 和 messages）
@@ -103,6 +105,7 @@ export class CompassSessionStore {
     this.sessionMessages.clear();
     this.pendingAppends.clear();
     this.pendingRewrites.clear();
+    this.indexDirty = false;
 
     const indexPayload = await readJsonFile<CompassIndexFile>(paths.indexPath);
     const sessions = Array.isArray(indexPayload?.sessions) ? indexPayload.sessions : [];
@@ -264,7 +267,19 @@ export class CompassSessionStore {
             sessionId
           );
           const content = messagesForPersist.map((message) => JSON.stringify(message)).join('\n');
-          await appendTextFile(sessionFilePath, content ? `${content}\n` : '');
+          // 共享存储模式下，追加超过 PIPE_BUF（4096 字节）的内容不保证原子性。
+          // 降级为全量重写，避免多 IDE 并发追加导致 JSONL 行交错。
+          if (Buffer.byteLength(content, 'utf-8') > 4096) {
+            // 降级：将所有消息（现有 + 新追加）全量重写
+            const messages = (this.sessionMessages.get(sessionId) ?? []).map((message) =>
+              normalizeMessageInput(message, nowTs())
+            );
+            const allMessagesForPersist = await this.extractImagesToFiles(messages, paths, sessionId);
+            const fullContent = allMessagesForPersist.map((message) => JSON.stringify(message)).join('\n');
+            await writeTextAtomic(sessionFilePath, fullContent ? `${fullContent}\n` : '');
+          } else {
+            await appendTextFile(sessionFilePath, content ? `${content}\n` : '');
+          }
         }
       } else {
         // 完整重写（新会话、编辑、删除、清空等）
@@ -283,6 +298,7 @@ export class CompassSessionStore {
     // 清理已处理的 pending 状态
     this.pendingAppends.clear();
     this.pendingRewrites.clear();
+    this.indexDirty = false;
 
     // 读取磁盘 index，发现其他 IDE 创建但本 IDE 未知的会话
     // 这些会话的文件必须保留，否则会造成数据丢失
@@ -314,6 +330,10 @@ export class CompassSessionStore {
 
   public hasAnySession(): boolean {
     return this.countSessions() > 0;
+  }
+
+  public isDirty(): boolean {
+    return this.pendingAppends.size > 0 || this.pendingRewrites.size > 0 || this.indexDirty;
   }
 
   public countSessions(): number {
@@ -598,6 +618,7 @@ export class CompassSessionStore {
     this.sessionMessages.delete(sessionId);
     this.pendingAppends.delete(sessionId);
     this.pendingRewrites.delete(sessionId);
+    this.indexDirty = true;
     return true;
   }
 
@@ -711,6 +732,7 @@ export class CompassSessionStore {
       this.pendingRewrites.delete(sessionId);
     }
 
+    this.indexDirty = true;
     return targetSessionIds.length;
   }
 
@@ -732,6 +754,7 @@ export class CompassSessionStore {
       this.pendingAppends.delete(sessionId);
       this.pendingRewrites.delete(sessionId);
     }
+    this.indexDirty = true;
   }
 
   public replaceAllSessions(sessions: ChatSessionDetail[]): void {
@@ -739,6 +762,7 @@ export class CompassSessionStore {
     this.sessionMessages.clear();
     this.pendingAppends.clear();
     this.pendingRewrites.clear();
+    this.indexDirty = true;
     for (const session of sessions) {
       this.insertSession(session);
     }
@@ -832,7 +856,11 @@ export class CompassSessionStore {
       const messages = this.sessionMessages.get(sessionId) ?? [];
       summary.messageCount = messages.length;
       summary.preview = buildPreview(messages);
+      // 标记所有迁移的会话为需要完整重写
+      this.pendingRewrites.add(sessionId);
     }
+
+    this.indexDirty = true;
   }
 
   private buildDetail(summary: SessionSummaryInternal): ChatSessionDetail {
