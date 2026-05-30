@@ -18,7 +18,7 @@ export function createTreeProviders(repository: ChatStateRepository): Activation
     getGroups: () => repository.getGroups(),
     getAssistants: () => repository.getAssistants(),
     getLocaleSetting: () => repository.getLocaleSetting(),
-    isGroupCollapsed: (groupId: string) => repository.getState().collapsedGroupIds.includes(groupId)
+    isGroupCollapsed: (groupId: string) => repository.getStateShallow().collapsedGroupIds.includes(groupId)
   };
 
   return {

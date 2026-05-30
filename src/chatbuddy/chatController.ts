@@ -352,7 +352,7 @@ export class ChatController {
    * 切换会话面板的折叠/展开状态。
    */
   public toggleSessionPanel(): void {
-    const state = this.repository.getState();
+    const state = this.repository.getStateShallow();
     this.repository.setSessionPanelCollapsed(!state.sessionPanelCollapsed);
     this.postState();
   }

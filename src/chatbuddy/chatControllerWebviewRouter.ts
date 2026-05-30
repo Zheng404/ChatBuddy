@@ -22,6 +22,7 @@ type RouterRepository = {
   renameSession: (assistantId: string, sessionId: string, title: string) => void;
   deleteSession: (assistantId: string, sessionId: string) => void;
   getState: () => { sessionPanelCollapsed: boolean };
+  getStateShallow: () => { sessionPanelCollapsed: boolean };
   setSessionPanelCollapsed: (collapsed: boolean) => void;
   resolveModelOption: (modelRef: string) => { ref: string } | undefined;
   setAssistantStreaming: (assistantId: string, enabled: boolean) => void;
@@ -242,7 +243,7 @@ export async function routeChatControllerWebviewMessage(args: ChatControllerWebv
       return;
     }
     case 'toggleSessionPanel': {
-      const state = repository.getState();
+      const state = repository.getStateShallow();
       repository.setSessionPanelCollapsed(!state.sessionPanelCollapsed);
       postState();
       return;

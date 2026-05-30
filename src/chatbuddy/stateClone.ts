@@ -36,10 +36,7 @@ export function cloneTemplate(template: AssistantTemplate): AssistantTemplate {
 }
 
 export function cloneMcpKeyValueEntries(entries: McpKeyValueEntry[]): McpKeyValueEntry[] {
-  return entries.map((entry) => ({
-    key: entry.key,
-    value: entry.value
-  }));
+  return entries.map((entry) => ({ ...entry }));
 }
 
 export function cloneMcpServer(server: McpServerProfile): McpServerProfile {
@@ -53,7 +50,7 @@ export function cloneMcpServer(server: McpServerProfile): McpServerProfile {
 
 export function cloneMcpSettings(settings: McpSettings): McpSettings {
   return {
-    maxToolRounds: settings.maxToolRounds,
+    ...settings,
     servers: settings.servers.map(cloneMcpServer),
     groups: (settings.groups || []).map((group) => ({ ...group }))
   };

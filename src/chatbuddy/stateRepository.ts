@@ -265,27 +265,39 @@ export class ChatStateRepository {
 
   /**
    * 获取当前完整状态的深拷贝（带版本缓存）。
+   * @param deep - 是否进行深拷贝，默认为 true
    * @returns 当前状态的深拷贝对象
    */
-  public getState(): import('./types').PersistedStateLite {
+  public getState(deep = true): import('./types').PersistedStateLite {
+    if (!deep) {
+      return this.getStateShallow();
+    }
     if (this.cachedStateVersion === this.version && this.cachedState) {
       return this.cachedState;
     }
-    const { settings: _settings, ...stateRest } = this.state;
     const cloned = {
-      ...stateRest,
+      ...this.state,
       groups: this.state.groups.map(cloneGroup),
       assistants: this.state.assistants.map(cloneAssistant),
-      selectedAssistantId: this.state.selectedAssistantId,
       selectedSessionIdByAssistant: { ...this.state.selectedSessionIdByAssistant },
       collapsedGroupIds: [...this.state.collapsedGroupIds],
-      sessionPanelCollapsed: this.state.sessionPanelCollapsed,
       templates: this.state.templates.map(cloneTemplate),
       settings: this.getSettings()
     };
     this.cachedState = cloned;
     this.cachedStateVersion = this.version;
     return cloned;
+  }
+
+  /**
+   * 获取当前状态的浅拷贝（仅顶层对象新，嵌套对象共享引用）。
+   * 适用于只读场景，避免不必要的深拷贝开销。
+   * @returns 当前状态的浅拷贝对象
+   */
+  public getStateShallow(): import('./types').PersistedStateLite {
+    return {
+      ...this.state
+    };
   }
 
   /**
