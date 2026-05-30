@@ -2,6 +2,7 @@
  * Codicon 工具函数模块
  * 提供 JSON 解析、CSS 处理等辅助功能
  */
+import { warn } from './utils/logger';
 
 /**
  * 将字符串转换为 CSS 字符串字面量（转义特殊字符）
@@ -171,14 +172,15 @@ export function parseJsonLike<T>(raw: string): T | undefined {
 
   try {
     return JSON.parse(content) as T;
-  } catch {
-    // fallthrough
+  } catch (err) {
+    warn('Error parsing JSON:', err);
   }
 
   try {
     const cleaned = stripTrailingCommas(stripJsonComments(content));
     return JSON.parse(cleaned) as T;
-  } catch {
+  } catch (err) {
+    warn('Error parsing cleaned JSON:', err);
     return undefined;
   }
 }

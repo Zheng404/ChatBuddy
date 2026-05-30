@@ -6,6 +6,7 @@
  */
 import { ProviderConfig, ProviderMessage, ProviderToolDefinition } from './types';
 import { ProviderConnectionInput, ProviderToolRound } from './providerClientTypes';
+import { warn } from './utils';
 
 export function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
@@ -237,7 +238,8 @@ function toGeminiToolResultParts(toolRound: ProviderToolRound): Array<Record<str
     let parsed: unknown;
     try {
       parsed = JSON.parse(result.output);
-    } catch {
+    } catch (err) {
+      warn('Error parsing tool result output:', err);
       parsed = result.output;
     }
     parts.push({
@@ -264,7 +266,7 @@ function toGeminiContents(messages: ProviderMessage[], toolRounds: ProviderToolR
       const callParts = round.toolCalls.map((call) => ({
         functionCall: {
           name: call.name,
-          args: (() => { try { return JSON.parse(call.argumentsText); } catch { return {}; } })()
+          args: (() => { try { return JSON.parse(call.argumentsText); } catch (err) { warn('Error parsing tool call arguments:', err); return {}; } })()
         }
       }));
       contents.push({ role: 'model', parts: callParts });

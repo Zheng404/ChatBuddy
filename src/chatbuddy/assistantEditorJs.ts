@@ -379,32 +379,57 @@ ${getHtmlEscaperScript()}
       }
 
       function renderOptions() {
-        dom.groupId.innerHTML = (state.groups || []).map((group) => {
-          return '<option value="' + escapeHtml(group.id) + '">' + escapeHtml(group.name) + '</option>';
-        }).join('');
-        dom.modelRef.innerHTML = (state.models || []).map((model) => {
-          return '<option value="' + escapeHtml(model.ref) + '">' + escapeHtml(model.label + (model.metaLabel || '')) + '</option>';
-        }).join('');
+        dom.groupId.textContent = '';
+        (state.groups || []).forEach((group) => {
+          var option = document.createElement('option');
+          option.value = group.id || '';
+          option.textContent = group.name || '';
+          dom.groupId.appendChild(option);
+        });
+        dom.modelRef.textContent = '';
+        (state.models || []).forEach((model) => {
+          var option = document.createElement('option');
+          option.value = model.ref || '';
+          option.textContent = model.label + (model.metaLabel || '');
+          dom.modelRef.appendChild(option);
+        });
         // Render failover model checkboxes (exclude currently selected primary model)
         const primaryRef = dom.modelRef.value || state.assistant?.modelRef;
-        dom.failoverModelCheckList.innerHTML = (state.models || []).filter((model) => model.ref !== primaryRef).map((model) => {
-          return '<label class="failover-check-item">' +
-            '<input type="checkbox" value="' + escapeHtml(model.ref) + '" />' +
-            '<span>' + escapeHtml(model.label + (model.metaLabel || '')) + '</span>' +
-          '</label>';
-        }).join('');
-        dom.mcpServerCheckList.innerHTML = (state.mcpServers || []).map((server) => {
+        dom.failoverModelCheckList.textContent = '';
+        (state.models || []).filter((model) => model.ref !== primaryRef).forEach((model) => {
+          var label = document.createElement('label');
+          label.className = 'failover-check-item';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = model.ref || '';
+          var span = document.createElement('span');
+          span.textContent = model.label + (model.metaLabel || '');
+          label.appendChild(checkbox);
+          label.appendChild(span);
+          dom.failoverModelCheckList.appendChild(label);
+        });
+        dom.mcpServerCheckList.textContent = '';
+        (state.mcpServers || []).forEach((server) => {
           const transportLabel = server.transport === 'streamableHttp'
             ? 'HTTP'
             : server.transport === 'sse'
               ? 'SSE'
               : 'stdio';
-          return '<label class="mcp-server-check-item">' +
-            '<input type="checkbox" value="' + escapeHtml(server.id) + '" />' +
-            '<span>' + escapeHtml(server.name) + '</span>' +
-            '<span class="mcp-server-transport">' + escapeHtml(transportLabel) + '</span>' +
-          '</label>';
-        }).join('');
+          var label = document.createElement('label');
+          label.className = 'mcp-server-check-item';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = server.id || '';
+          var nameSpan = document.createElement('span');
+          nameSpan.textContent = server.name || '';
+          var transportSpan = document.createElement('span');
+          transportSpan.className = 'mcp-server-transport';
+          transportSpan.textContent = transportLabel;
+          label.appendChild(checkbox);
+          label.appendChild(nameSpan);
+          label.appendChild(transportSpan);
+          dom.mcpServerCheckList.appendChild(label);
+        });
       }
 
       function ensureModelOption(modelRef) {

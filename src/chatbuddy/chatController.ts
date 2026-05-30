@@ -41,10 +41,8 @@ import {
   WebviewOutboundMessage
 } from './types';
 import { getLocaleFromSettings, warn } from './utils';
-import { STREAM_STATE_POST_INTERVAL_MS } from './streamAccumulator';
+import { STREAM_STATE_POST_INTERVAL_MS, STREAM_FULL_STATE_POST_INTERVAL_MS } from './streamAccumulator';
 import { ChatStateCache } from './chatControllerStateCache';
-import * as mammoth from 'mammoth';
-import * as JSZip from 'jszip';
 import {
   listMcpResources,
   listMcpPrompts,
@@ -55,6 +53,13 @@ import {
 
 export type PanelMessageContext = ToolOrchestratorPanelContext;
 
+/**
+ * ChatBuddy 聊天控制器核心协调器。
+ *
+ * 聚合 `ChatGenerationService`、`ChatPanelManager` 和 `ToolCallOrchestrator`
+ * 三个子服务，负责 WebView 消息路由、状态载荷构建、面板生命周期管理，
+ * 并负责 Extension Host ↔ WebView 的状态同步。
+ */
 export class ChatController {
   private streamStatePostTimers = new WeakMap<vscode.WebviewPanel, ReturnType<typeof setTimeout>>();
   private readonly stateCache: ChatStateCache;
@@ -72,6 +77,13 @@ export class ChatController {
   private readonly generationService: ChatGenerationService;
   private readonly panelManager: ChatPanelManager;
 
+  /**
+   * 创建聊天控制器实例。
+   * @param repository - 状态仓库
+   * @param providerClient - OpenAI 兼容客户端
+   * @param mcpRuntime - MCP 运行时
+   * @param extensionUri - 扩展根目录 URI
+   */
   constructor(
     private readonly repository: ChatStateRepository,
     private readonly providerClient: OpenAICompatibleClient,
@@ -161,11 +173,12 @@ export class ChatController {
       postMessage: (message, context) => this.postMessage(message, context),
       postError: (message, context) => this.postError(message, context),
       postState: (error, context) => this.postState(error, context),
+      postStreamDelta: (content, reasoning, context) => this.postStreamDelta(content, reasoning, context),
       scheduleStreamStatePost: (context) => this.scheduleStreamStatePost(context),
       flushScheduledStreamStatePost: (context) => this.flushScheduledStreamStatePost(context),
       confirmDangerousAction: (message, actionLabel) => this.confirmDangerousAction(message, actionLabel)
     });
-    this.stateCache = new ChatStateCache(this.repository, STREAM_STATE_POST_INTERVAL_MS);
+    this.stateCache = new ChatStateCache(this.repository, STREAM_FULL_STATE_POST_INTERVAL_MS);
     this.mcpDeps = {
       repository: this.repository,
       mcpRuntime: this.mcpRuntime,
@@ -192,10 +205,11 @@ export class ChatController {
     if (!targetPanel || this.streamStatePostTimers.has(targetPanel)) {
       return;
     }
+    const interval = this._isGenerating ? STREAM_FULL_STATE_POST_INTERVAL_MS : STREAM_STATE_POST_INTERVAL_MS;
     const timeoutHandle = setTimeout(() => {
       this.streamStatePostTimers.delete(targetPanel);
       this.postState(undefined, context);
-    }, STREAM_STATE_POST_INTERVAL_MS);
+    }, interval);
     this.streamStatePostTimers.set(targetPanel, timeoutHandle);
   }
 
@@ -212,6 +226,10 @@ export class ChatController {
     this.postState(undefined, context);
   }
 
+  /**
+   * 打开指定助手的聊天面板（若未创建则新建）。
+   * @param assistantId - 可选的助手 ID，不传入则使用当前选中助手
+   */
   public openAssistantChat(assistantId?: string): void {
     const { panel, panelReady } = this.panelManager.openAssistantChat(assistantId);
     const selectedAssistantId = this.repository.getSelectedAssistant()?.id;
@@ -227,6 +245,11 @@ export class ChatController {
     });
   }
 
+  /**
+   * 预填充聊天输入框内容并打开对应面板。
+   * @param content - 要预填充的内容
+   * @param assistantId - 可选的助手 ID
+   */
   public prefillComposer(content: string, assistantId?: string): void {
     if (!content.trim()) {
       return;
@@ -253,11 +276,18 @@ export class ChatController {
     );
   }
 
+  /**
+   * 停止当前正在进行的生成过程。
+   * @param reason - 停止原因，默认为 'manual'
+   */
   public stopGeneration(reason: GenerationAbortReason = 'manual'): void {
     this.abortReason = reason;
     this.abortController?.abort();
   }
 
+  /**
+   * 为当前选中的助手创建新会话。
+   */
   public createSessionForSelectedAssistant(): void {
     const assistant = this.repository.getSelectedAssistant();
     if (!assistant || assistant.isDeleted) {
@@ -267,6 +297,11 @@ export class ChatController {
     this.postState();
   }
 
+  /**
+   * 重命名当前选中助手的指定会话。
+   * @param sessionId - 会话 ID
+   * @param title - 新标题
+   */
   public renameSessionForSelectedAssistant(sessionId: string, title: string): void {
     const assistant = this.repository.getSelectedAssistant();
     if (!assistant) {
@@ -276,6 +311,10 @@ export class ChatController {
     this.postState();
   }
 
+  /**
+   * 删除当前选中助手的指定会话。
+   * @param sessionId - 会话 ID
+   */
   public deleteSessionForSelectedAssistant(sessionId: string): void {
     const assistant = this.repository.getSelectedAssistant();
     if (!assistant) {
@@ -288,6 +327,9 @@ export class ChatController {
     this.postState();
   }
 
+  /**
+   * 切换会话面板的折叠/展开状态。
+   */
   public toggleSessionPanel(): void {
     const state = this.repository.getState();
     this.repository.setSessionPanelCollapsed(!state.sessionPanelCollapsed);
@@ -295,8 +337,9 @@ export class ChatController {
   }
 
   /**
-   * Dispose the multi-tab panel for a given assistant (if any).
-   * Called when an assistant is permanently deleted to prevent stale references.
+   * 释放指定助手的多标签面板（如存在）。
+   * 在助手被永久删除时调用以防止悬空引用。
+   * @param assistantId - 助手 ID
    */
   public disposePanelForAssistant(assistantId: string): void {
     const sessions = this.repository.getSessionsForAssistant(assistantId);
@@ -308,20 +351,32 @@ export class ChatController {
     this.panelManager.disposePanelForAssistant(assistantId);
   }
 
+  /**
+   * 设置活动面板变更时的回调函数。
+   * @param callback - 回调函数
+   */
   public setActivePanelChangeCallback(callback: () => void): void {
     this.panelManager.setActivePanelChangeCallback(callback);
   }
 
-  /** 将最新状态推送到当前活动的聊天面板 */
+  /**
+   * 将最新状态推送到当前活动的聊天面板。
+   */
   public postStateToActivePanel(): void {
     this.postState();
   }
 
-  /** 查询当前是否正在生成消息 */
+  /**
+   * 查询当前是否正在生成消息。
+   * @returns 若正在生成返回 true，否则返回 false
+   */
   public isGenerating(): boolean {
     return this._isGenerating;
   }
 
+  /**
+   * 释放控制器资源，停止生成并清理所有定时器。
+   */
   public dispose(): void {
     this.stopGeneration('manual');
     this.stateCache.clear();
@@ -343,6 +398,10 @@ export class ChatController {
     this.panelManager.dispose();
   }
 
+  /**
+   * 应用新设置到控制器，更新流式开关和模型选项。
+   * @param settings - 新设置对象
+   */
   public applySettings(settings: ChatBuddySettings): void {
     const assistant = this.repository.getSelectedAssistant();
     this.streamingEnabled = assistant?.streaming ?? settings.streamingDefault;
@@ -479,6 +538,25 @@ export class ChatController {
     this.postMessage({ type: 'error', message }, context);
   }
 
+  private postStreamDelta(content: string, reasoning: string | undefined, context?: PanelMessageContext): void {
+    const targetPanel = this.getStateTargetPanel(context);
+    if (!targetPanel) { return; }
+    const assistant = this.repository.getSelectedAssistant();
+    const session = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
+    const lastMessage = session?.messages?.[session.messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'assistant') { return; }
+
+    targetPanel.webview.postMessage({
+      type: 'streamDelta',
+      payload: {
+        messageId: lastMessage.id,
+        content,
+        reasoning,
+        modelLabel: lastMessage.model || ''
+      }
+    });
+  }
+
   private resolveEffectiveProviderConfig(settings: ChatBuddySettings, assistant: AssistantProfile, sessionId?: string) {
     return resolveChatPayloadProviderConfig({
       settings,
@@ -600,6 +678,11 @@ export class ChatController {
     await this.generationService.sendMessage(content, images, files, context);
   }
 
+  /**
+   * 重新生成当前会话的最后一条助手回复。
+   * @param context - 可选的面板消息上下文
+   * @returns Promise，生成完成后 resolve
+   */
   public async regenerateReply(context?: PanelMessageContext): Promise<void> {
     await this.generationService.regenerateReply(context);
   }
@@ -665,6 +748,7 @@ export class ChatController {
         return result.text;
       }
       if (ext === 'docx') {
+        const mammoth = await import('mammoth');
         const result = await mammoth.extractRawText({ buffer });
         return result.value;
       }
@@ -674,8 +758,8 @@ export class ChatController {
         // 这里使用简单的 ZIP + XML 文本提取
         return ChatController.extractPptxText(buffer);
       }
-    } catch {
-      // Parsing failed, return undefined to trigger fallback
+    } catch (err) {
+      warn('Error in parseDocumentContent:', err);
     }
     return undefined;
   }
@@ -689,11 +773,11 @@ export class ChatController {
    */
   private static decodeXmlEntities(text: string): string {
     return text
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&')
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'");
+      .replace(/\u0026lt;/g, '<')
+      .replace(/\u0026gt;/g, '>')
+      .replace(/\u0026amp;/g, '&')
+      .replace(/\u0026quot;/g, '"')
+      .replace(/\u0026apos;/g, "'");
   }
 
   /**
@@ -702,6 +786,7 @@ export class ChatController {
    */
   private static async extractPptxText(buffer: Buffer): Promise<string | undefined> {
     try {
+      const JSZip = await import('jszip');
       const zip = await JSZip.loadAsync(buffer);
       const texts: string[] = [];
       // Read all slide XML files (ppt/slides/slide*.xml)
@@ -726,8 +811,8 @@ export class ChatController {
       if (texts.length > 0) {
         return texts.join('\n');
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      warn('Error in extractPptxText:', err);
     }
     return undefined;
   }
@@ -818,8 +903,8 @@ export class ChatController {
             }
           }
           files.push({ name, content: finalContent });
-        } catch {
-          // Skip files that cannot be read
+        } catch (err) {
+          warn('Error reading selected file:', err);
         }
       }
       if (files.length > 0) {
@@ -828,8 +913,8 @@ export class ChatController {
       if (images.length > 0) {
         this.postMessage({ type: 'imagesSelected', images }, context);
       }
-    } catch {
-      // Dialog cancelled or error
+    } catch (err) {
+      warn('Error in selectFiles dialog:', err);
     }
   }
 
@@ -859,15 +944,15 @@ export class ChatController {
           const mimeType = ChatController.IMAGE_MIME_MAP[ext] || 'image/png';
           const base64 = Buffer.from(raw).toString('base64');
           images.push({ base64, mimeType });
-        } catch {
-          // Skip images that cannot be read
+        } catch (err) {
+          warn('Error reading selected image:', err);
         }
       }
       if (images.length > 0) {
         this.postMessage({ type: 'imagesSelected', images }, context);
       }
-    } catch {
-      // Dialog cancelled or error
+    } catch (err) {
+      warn('Error in selectImages dialog:', err);
     }
   }
 }

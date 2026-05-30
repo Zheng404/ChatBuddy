@@ -5,6 +5,7 @@ import type { ChatToolRound, RuntimeStrings } from './types';
 
 export const STREAM_FLUSH_INTERVAL_MS = 100;
 export const STREAM_STATE_POST_INTERVAL_MS = 150;
+export const STREAM_FULL_STATE_POST_INTERVAL_MS = 500;
 
 /** Shared state for incremental stream accumulation and throttled flush. */
 export type StreamAccumulator = {
@@ -45,7 +46,8 @@ export function buildStreamFlush(
   params: StreamFlushParams,
   repository: ChatStateRepository,
   strings: RuntimeStrings,
-  notifyState?: (persist: boolean) => void
+  notifyState?: (persist: boolean) => void,
+  notifyDelta?: (content: string, reasoning?: string) => void
 ): (persist: boolean) => void {
   return (persist: boolean) => {
     const thinkSplit = splitThinkTaggedContent(acc.rawMerged);
@@ -67,6 +69,7 @@ export function buildStreamFlush(
     );
     acc.rawPersisted = acc.rawMerged;
     acc.reasoningPersisted = acc.reasoningMerged;
+    notifyDelta?.(contentValue, reasoningValue);
     notifyState?.(persist);
   };
 }

@@ -42,7 +42,8 @@ function parseJsonObject(raw: string | undefined): Record<string, unknown> | und
   try {
     const parsed = JSON.parse(raw) as unknown;
     return isRecord(parsed) ? parsed : undefined;
-  } catch {
+  } catch (err) {
+    warn('Error parsing settings JSON:', err);
     return undefined;
   }
 }
@@ -937,7 +938,8 @@ export class CompassSettingsStore {
     }
     try {
       return { valid: true, value: JSON.parse(raw) };
-    } catch {
+    } catch (err) {
+      warn('Error parsing snapshot file:', err);
       return { valid: false, reason: `Snapshot file is not valid JSON: ${filePath}` };
     }
   }

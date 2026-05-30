@@ -848,7 +848,7 @@
     "lint": "eslint src --ext ts",
     "check:changelog": "node ./scripts/validateChangelogVersion.cjs",
     "extract:release-notes": "node ./scripts/extractReleaseNotes.cjs",
-    "test:unit": "node --require ./out/test/setup.js --test out/test/*.test.js",
+    "test:unit": "node --require ./out/test/setup.js --test out/test/*.test.js out/test/extension/*.test.js",
     "test:coverage": "c8 --reporter=text --reporter=html --include='out/chatbuddy/**/*.js' --exclude='out/test/**' npm run test:unit",
     "test:watch": "nodemon --watch src --ext ts --exec 'npm run compile && npm run test:unit'",
     "test": "npm run lint && npm run compile && npm run test:unit",

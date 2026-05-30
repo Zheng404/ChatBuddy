@@ -23,7 +23,11 @@ export function getTemplatesJs(): string {
         if (!dom.templatesListContainer) { return; }
         var templates = (runtimeState.templates) || [];
         if (!templates.length) {
-          dom.templatesListContainer.innerHTML = '<div class="help">' + escapeHtml(strings.templatesEmpty || 'No templates yet.') + '</div>';
+          dom.templatesListContainer.textContent = '';
+          var emptyDiv = document.createElement('div');
+          emptyDiv.className = 'help';
+          emptyDiv.textContent = strings.templatesEmpty || 'No templates yet.';
+          dom.templatesListContainer.appendChild(emptyDiv);
           return;
         }
         var html = '';
@@ -40,6 +44,7 @@ export function getTemplatesJs(): string {
             + '</div>'
             + '</div>';
         }
+        // Safe: all user content escaped via escapeHtml()
         dom.templatesListContainer.innerHTML = html;
       }
 `;

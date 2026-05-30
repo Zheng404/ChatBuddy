@@ -108,7 +108,8 @@ function formatMessageTime(timestamp: number, locale: string): string {
   const targetLocale = resolveLocaleString(locale, 'zh-CN', 'en-US');
   try {
     return new Date(timestamp).toLocaleString(targetLocale);
-  } catch {
+  } catch (err) {
+    warn('Error formatting message time:', err);
     return new Date(timestamp).toISOString();
   }
 }

@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 
+import { warn } from './logger';
+
 /**
  * 读取文件内容为字符串
  * @param filePath 文件路径
@@ -27,7 +29,8 @@ export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.promises.access(filePath, fs.constants.F_OK);
     return true;
-  } catch {
+  } catch (err) {
+    warn('Error checking file existence:', err);
     return false;
   }
 }

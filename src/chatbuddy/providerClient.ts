@@ -43,7 +43,7 @@ import {
   ProviderResolveMeta,
   StreamHandlers
 } from './providerClientTypes';
-import { clamp, resolveLocaleString, retryWithBackoff } from './utils';
+import { clamp, resolveLocaleString, retryWithBackoff, warn } from './utils';
 
 export type {
   ProviderChatResult,
@@ -93,6 +93,12 @@ async function ensureSuccess(response: Response, locale: RuntimeLocale): Promise
   throw new HttpError(response.status, toErrorMessage(response.status, fallback, locale));
 }
 
+/**
+ * 根据助手配置解析提供商配置（含参数 clamp 和 override 处理）。
+ * @param settings - 全局设置
+ * @param assistant - 助手配置
+ * @returns 解析后的 ProviderConfig 和元信息
+ */
 export function resolveProviderConfig(
   settings: ChatBuddySettings,
   assistant: AssistantProfile
@@ -151,6 +157,13 @@ export function resolveProviderConfig(
   };
 }
 
+/**
+ * 根据模型绑定解析提供商配置（用于故障转移链等场景）。
+ * @param settings - 全局设置
+ * @param binding - 模型绑定信息
+ * @param overrides - 可选的参数覆盖
+ * @returns 解析后的 ProviderConfig 和元信息
+ */
 export function resolveModelBindingConfig(
   settings: ChatBuddySettings,
   binding: ModelBinding | undefined,
@@ -204,7 +217,23 @@ export function resolveModelBindingConfig(
   };
 }
 
+/**
+ * OpenAI 兼容 AI Provider 客户端。
+ *
+ * 统一的 AI 服务调用入口，支持 chat_completions、responses 和 gemini 三种 API 类型，
+ * 提供非流式和流式两种调用模式，内置指数退避重试和 HTTP 错误处理。
+ */
 export class OpenAICompatibleClient {
+  /**
+   * 发送非流式聊天请求。
+   * @param messages - 消息列表
+   * @param providerConfig - 解析后的提供商配置
+   * @param locale - 运行时语言
+   * @param signal - 可选的 AbortSignal 用于取消请求
+   * @param options - 可选的请求选项（如工具配置）
+   * @returns 聊天结果
+   * @throws {HttpError} 当 HTTP 请求失败时抛出
+   */
   public async chat(
     messages: ProviderMessage[],
     providerConfig: ProviderConfig,
@@ -221,6 +250,17 @@ export class OpenAICompatibleClient {
     return this.chatCompletions(messages, providerConfig, locale, signal, options);
   }
 
+  /**
+   * 发送流式聊天请求。
+   * @param messages - 消息列表
+   * @param providerConfig - 解析后的提供商配置
+   * @param handlers - 流式处理回调（onDelta, onReasoningDelta, onDone）
+   * @param locale - 运行时语言
+   * @param signal - 可选的 AbortSignal 用于取消请求
+   * @param options - 可选的请求选项（如工具配置）
+   * @returns Promise，流结束后 resolve
+   * @throws {HttpError} 当 HTTP 请求失败时抛出
+   */
   public async chatStream(
     messages: ProviderMessage[],
     providerConfig: ProviderConfig,
@@ -240,6 +280,14 @@ export class OpenAICompatibleClient {
     await this.chatCompletionsStream(messages, providerConfig, handlers, locale, signal, options);
   }
 
+  /**
+   * 测试与提供商的连接是否可用。
+   * @param provider - 提供商连接输入信息
+   * @param locale - 运行时语言
+   * @param signal - 可选的 AbortSignal 用于取消请求
+   * @returns Promise，连接测试完成后 resolve
+   * @throws {HttpError} 当连接失败时抛出
+   */
   public async testConnection(
     provider: ProviderConnectionInput,
     locale: RuntimeLocale,
@@ -279,6 +327,14 @@ export class OpenAICompatibleClient {
     );
   }
 
+  /**
+   * 获取提供商支持的模型列表。
+   * @param provider - 提供商连接输入信息
+   * @param locale - 运行时语言
+   * @param signal - 可选的 AbortSignal 用于取消请求
+   * @returns 模型配置列表
+   * @throws {Error} 当获取失败时抛出
+   */
   public async fetchModels(
     provider: ProviderConnectionInput,
     locale: RuntimeLocale,
@@ -406,8 +462,8 @@ export class OpenAICompatibleClient {
     } finally {
       try {
         await reader.cancel();
-      } catch {
-        // Reader may already be cancelled or released.
+      } catch (err) {
+        warn('Error cancelling reader:', err);
       }
       reader.releaseLock();
     }
@@ -603,6 +659,12 @@ export class OpenAICompatibleClient {
   }
 }
 
+/**
+ * 解析助手的故障转移链配置。
+ * @param settings - 全局设置
+ * @param assistant - 助手配置
+ * @returns 按优先级排序的 ProviderConfig 和元信息数组
+ */
 export function resolveFailoverChain(
   settings: ChatBuddySettings,
   assistant: AssistantProfile
@@ -685,6 +747,13 @@ export function resolveFailoverChain(
   return chain;
 }
 
+/**
+ * 验证提供商配置是否完整可用。
+ * @param config - 提供商配置
+ * @param locale - 运行时语言
+ * @param meta - 解析元信息
+ * @returns 错误信息字符串，配置有效时返回 undefined
+ */
 export function validateProviderConfig(
   config: ProviderConfig,
   locale: RuntimeLocale,

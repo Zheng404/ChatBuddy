@@ -30,7 +30,7 @@ import { unwrapImportedState, unwrapImportedStorageBackup } from './stateHelpers
 import { sanitizeAssistantName } from './security';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
 import { AssistantStateService } from './stateRepositoryAssistantService';
-import { createId, nowTs } from './utils';
+import { createId, nowTs, warn } from './utils';
 import {
   applyProviderApiKeysToSettings,
   extractProviderApiKeys,
@@ -95,6 +95,16 @@ export interface UpdateAssistantInput {
   failoverModelRefs?: string[];
 }
 
+/**
+ * ChatBuddy 单一状态源（Single Source of Truth）。
+ *
+ * 管理整个扩展的运行时状态，包括助手、会话、设置、模板和 MCP 服务器配置。
+ * 通过内部服务拆分（AssistantStateService、SessionStateService、StatePersistenceService）
+ * 管理不同领域的数据操作。
+ *
+ * 状态读取带版本缓存，避免不必要的深拷贝。
+ * 所有变更通过 `bump()` 递增版本号触发刷新。
+ */
 export class ChatStateRepository {
   private state: import('./types').PersistedStateLite;
   private readonly storage = new ChatStorage();
@@ -206,6 +216,10 @@ export class ChatStateRepository {
     this.state.sessionPanelCollapsed = collapsed;
   }
 
+  /**
+   * 初始化状态仓库和底层存储。
+   * @returns Promise，初始化完成后 resolve
+   */
   public async initialize(): Promise<void> {
     await this.storage.initialize(this.context.globalStorageUri.fsPath);
     this.storageReady = true;
@@ -240,11 +254,19 @@ export class ChatStateRepository {
     }
   }
 
+  /**
+   * 关闭状态仓库，确保所有待写入数据持久化。
+   * @returns Promise，关闭完成后 resolve
+   */
   public async close(): Promise<void> {
     await this.persistenceService.drain();
     await this.storage.close();
   }
 
+  /**
+   * 获取当前完整状态的深拷贝（带版本缓存）。
+   * @returns 当前状态的深拷贝对象
+   */
   public getState(): import('./types').PersistedStateLite {
     if (this.cachedStateVersion === this.version && this.cachedState) {
       return this.cachedState;
@@ -266,10 +288,19 @@ export class ChatStateRepository {
     return cloned;
   }
 
+  /**
+   * 获取当前状态版本号，用于判断状态是否发生变化。
+   * @returns 当前版本号
+   */
   public getVersion(): number {
     return this.version;
   }
 
+  /**
+   * 当版本号比给定值新时返回完整状态，否则返回 undefined。
+   * @param lastVersion - 上次已知的版本号
+   * @returns 新版本状态，或 undefined（若版本未变化）
+   */
   public getStateIfNewer(lastVersion: number): import('./types').PersistedStateLite | undefined {
     if (this.version === lastVersion) {
       return undefined;
@@ -277,14 +308,26 @@ export class ChatStateRepository {
     return this.getState();
   }
 
+  /**
+   * 获取所有助手分组（按类型排序后的深拷贝）。
+   * @returns 助手分组数组
+   */
   public getGroups(): AssistantGroup[] {
     return this.sortGroups(this.state.groups).map(cloneGroup);
   }
 
+  /**
+   * 获取所有助手配置（深拷贝）。
+   * @returns 助手配置数组
+   */
   public getAssistants(): AssistantProfile[] {
     return this.state.assistants.map(cloneAssistant);
   }
 
+  /**
+   * 获取当前设置（深拷贝，包含 API key 抹除后的提供商列表）。
+   * @returns 当前设置对象
+   */
   public getSettings(): ChatBuddySettings {
     return {
       ...this.state.settings,
@@ -294,18 +337,37 @@ export class ChatStateRepository {
     };
   }
 
+  /**
+   * 获取当前界面语言设置。
+   * @returns 语言标识，如 'zh-CN' 或 'en'
+   */
   public getLocaleSetting(): ChatBuddyLocaleSetting {
     return this.state.settings.locale;
   }
 
+  /**
+   * 获取所有可用模型选项列表。
+   * @param includeDisabled - 是否包含已禁用的提供商的模型
+   * @param strings - 可选的本地化字符串映射
+   * @returns 模型选项数组
+   */
   public getModelOptions(includeDisabled = false, strings?: Record<string, string>): ProviderModelOption[] {
     return getProviderModelOptions(this.state.settings.providers, includeDisabled, strings);
   }
 
+  /**
+   * 根据 modelRef 解析对应的模型选项。
+   * @param modelRef - 模型引用字符串，如 "openai/gpt-4"
+   * @returns 模型选项，未找到时返回 undefined
+   */
   public resolveModelOption(modelRef: string | undefined): ProviderModelOption | undefined {
     return resolveModelOption(this.state.settings.providers, modelRef);
   }
 
+  /**
+   * 更新全局设置，并自动清理无效的 MCP 服务器引用。
+   * @param settings - 新的设置对象
+   */
   public updateSettings(settings: ChatBuddySettings): void {
     const normalized = sanitizeSettings(settings);
     this.providerApiKeys = extractProviderApiKeys(normalized.providers);
@@ -321,16 +383,31 @@ export class ChatStateRepository {
     this.schedulePersist();
   }
 
+  /**
+   * 获取所有 MCP 服务器配置（深拷贝）。
+   * @returns MCP 服务器配置数组
+   */
   public getMcpServers(): import('./types').McpServerProfile[] {
     return this.state.settings.mcp.servers.map(cloneMcpServer);
   }
 
   // ─── Template methods ─────────────────────────────────────────────────────
 
+  /**
+   * 获取所有助手模板（深拷贝）。
+   * @returns 模板数组
+   */
   public getTemplates(): AssistantTemplate[] {
     return this.state.templates.map(cloneTemplate);
   }
 
+  /**
+   * 将指定助手保存为模板。
+   * @param assistantId - 要保存的助手 ID
+   * @param name - 模板名称
+   * @param description - 可选的模板描述
+   * @returns 新创建的模板，若助手不存在则返回 undefined
+   */
   public saveAsTemplate(assistantId: string, name: string, description?: string): AssistantTemplate | undefined {
     const assistant = this.state.assistants.find((a) => a.id === assistantId);
     if (!assistant) {
@@ -362,6 +439,11 @@ export class ChatStateRepository {
     return cloneTemplate(template);
   }
 
+  /**
+   * 从模板创建新助手。
+   * @param templateId - 模板 ID
+   * @returns 新创建的助手配置，若模板不存在则返回 undefined
+   */
   public createAssistantFromTemplate(templateId: string): AssistantProfile | undefined {
     const template = this.state.templates.find((t) => t.id === templateId);
     if (!template) {
@@ -390,6 +472,11 @@ export class ChatStateRepository {
     return result ? cloneAssistant(result) : undefined;
   }
 
+  /**
+   * 删除指定模板。
+   * @param templateId - 要删除的模板 ID
+   * @returns 是否成功删除
+   */
   public deleteTemplate(templateId: string): boolean {
     const index = this.state.templates.findIndex((t) => t.id === templateId);
     if (index === -1) {
@@ -400,6 +487,12 @@ export class ChatStateRepository {
     return true;
   }
 
+  /**
+   * 重命名指定模板。
+   * @param templateId - 模板 ID
+   * @param name - 新名称
+   * @returns 是否成功重命名
+   */
   public renameTemplate(templateId: string, name: string): boolean {
     const template = this.state.templates.find((t) => t.id === templateId);
     if (!template || !name.trim()) {
@@ -411,6 +504,10 @@ export class ChatStateRepository {
     return true;
   }
 
+  /**
+   * 重置所有状态到初始值，并清空所有存储数据。
+   * @returns Promise，重置完成后 resolve
+   */
   public async resetState(): Promise<void> {
     this.state = createInitialState();
     this.providerApiKeys = {};
@@ -424,6 +521,10 @@ export class ChatStateRepository {
     await this.persistenceService.persist();
   }
 
+  /**
+   * 获取 MCP 探测缓存数据。
+   * @returns 缓存对象（包含 lastProbeAt 和 entries），无缓存时返回 undefined
+   */
   public getMcpProbeCache(): { lastProbeAt: number; entries: unknown[] } | undefined {
     if (!this.storageReady) { return undefined; }
     const raw = this.storage.getKv('mcp.probeCache');
@@ -433,17 +534,27 @@ export class ChatStateRepository {
       if (parsed && typeof parsed === 'object' && Array.isArray(parsed.entries) && typeof parsed.lastProbeAt === 'number') {
         return parsed;
       }
-    } catch {
+    } catch (err) {
+      warn('Error parsing MCP probe cache:', err);
       return undefined;
     }
     return undefined;
   }
 
+  /**
+   * 设置 MCP 探测缓存数据。
+   * @param cache - 缓存对象
+   */
   public setMcpProbeCache(cache: { lastProbeAt: number; entries: unknown[] }): void {
     if (!this.storageReady) { return; }
     this.storage.setKv('mcp.probeCache', JSON.stringify(cache));
   }
 
+  /**
+   * 按类别导出选择性数据（不含会话内容）。
+   * @param categories - 要导出的类别数组，如 ['providers', 'assistants', 'settings']
+   * @returns 包含所选数据的导出对象
+   */
   public exportSelectiveData(categories: string[]): Record<string, unknown> {
     const state = this.getState();
     const result: Record<string, unknown> = {
@@ -471,6 +582,10 @@ export class ChatStateRepository {
     return result;
   }
 
+  /**
+   * 导出完整备份数据（含所有状态、会话和 KV 存储）。
+   * @returns 完整备份数据对象
+   */
   public exportBackupData(): ChatBuddyBackupData {
     const state = this.getState();
     return {
@@ -488,6 +603,12 @@ export class ChatStateRepository {
     };
   }
 
+  /**
+   * 从备份数据导入状态并覆盖当前状态。
+   * @param input - 备份数据对象
+   * @returns Promise，导入完成后 resolve
+   * @throws {Error} 当输入格式无效时抛出
+   */
   public async importBackupData(input: unknown): Promise<void> {
     const storageBackup = unwrapImportedStorageBackup(input);
     const legacyState = storageBackup ? undefined : unwrapImportedState(input);
@@ -515,11 +636,20 @@ export class ChatStateRepository {
     await this.persistenceService.persist();
   }
 
+  /**
+   * 根据 ID 获取提供商配置。
+   * @param providerId - 提供商 ID
+   * @returns 提供商配置，未找到时返回 undefined
+   */
   public getProviderById(providerId: string): ProviderProfile | undefined {
     const provider = this.state.settings.providers.find((item) => item.id === providerId);
     return provider ? cloneProvider(provider) : undefined;
   }
 
+  /**
+   * 获取当前选中的助手（优先使用 UI 选择，否则回退到第一个可用助手）。
+   * @returns 当前选中的助手配置，无助手时返回 undefined
+   */
   public getSelectedAssistant(): AssistantProfile | undefined {
     if (!this.state.assistants.length) {
       return undefined;
@@ -535,6 +665,10 @@ export class ChatStateRepository {
     return fallback ? cloneAssistant(fallback) : undefined;
   }
 
+  /**
+   * 获取当前选中助手的 ID。
+   * @returns 选中助手的 ID，无助手时返回 undefined
+   */
   public getSelectedAssistantId(): string | undefined {
     if (!this.state.assistants.length) {
       return undefined;
@@ -546,67 +680,148 @@ export class ChatStateRepository {
     return (this.state.assistants.find((assistant) => !assistant.isDeleted) ?? this.state.assistants[0])?.id;
   }
 
+  /**
+   * 根据 ID 获取助手配置。
+   * @param assistantId - 助手 ID
+   * @returns 助手配置，未找到时返回 undefined
+   */
   public getAssistantById(assistantId: string): AssistantProfile | undefined {
     const assistant = this.state.assistants.find((item) => item.id === assistantId);
     return assistant ? cloneAssistant(assistant) : undefined;
   }
 
+  /**
+   * 设置当前选中的助手。
+   * @param assistantId - 要选择的助手 ID
+   */
   public setSelectedAssistant(assistantId: string): void {
     this.assistantStateService.setSelectedAssistant(assistantId);
   }
 
+  /**
+   * 创建新分组。
+   * @param name - 分组名称
+   * @returns 新创建的分组，失败时返回 undefined
+   */
   public createGroup(name: string): AssistantGroup | undefined {
     return this.assistantStateService.createGroup(name);
   }
 
+  /**
+   * 重命名分组。
+   * @param groupId - 分组 ID
+   * @param name - 新名称
+   * @returns 是否成功重命名
+   */
   public renameGroup(groupId: string, name: string): boolean {
     return this.assistantStateService.renameGroup(groupId, name);
   }
 
+  /**
+   * 删除分组。
+   * @param groupId - 分组 ID
+   * @returns 是否成功删除
+   */
   public deleteGroup(groupId: string): boolean {
     return this.assistantStateService.deleteGroup(groupId);
   }
 
+  /**
+   * 创建新助手。
+   * @param input - 创建助手所需参数
+   * @returns 新创建的助手配置
+   */
   public createAssistant(input: CreateAssistantInput): AssistantProfile {
     return this.assistantStateService.createAssistant(input);
   }
 
+  /**
+   * 更新助手配置。
+   * @param assistantId - 助手 ID
+   * @param patch - 要更新的字段
+   * @returns 更新后的助手配置，助手不存在时返回 undefined
+   */
   public updateAssistant(assistantId: string, patch: UpdateAssistantInput): AssistantProfile | undefined {
     return this.assistantStateService.updateAssistant(assistantId, patch);
   }
 
+  /**
+   * 切换助手的置顶状态。
+   * @param assistantId - 助手 ID
+   * @returns 更新后的助手配置，助手不存在时返回 undefined
+   */
   public toggleAssistantPinned(assistantId: string): AssistantProfile | undefined {
     return this.assistantStateService.toggleAssistantPinned(assistantId);
   }
 
+  /**
+   * 软删除助手（标记为已删除，可恢复）。
+   * @param assistantId - 助手 ID
+   * @returns 更新后的助手配置，助手不存在时返回 undefined
+   */
   public softDeleteAssistant(assistantId: string): AssistantProfile | undefined {
     return this.assistantStateService.softDeleteAssistant(assistantId);
   }
 
+  /**
+   * 恢复已软删除的助手。
+   * @param assistantId - 助手 ID
+   * @returns 更新后的助手配置，助手不存在时返回 undefined
+   */
   public restoreAssistant(assistantId: string): AssistantProfile | undefined {
     return this.assistantStateService.restoreAssistant(assistantId);
   }
 
+  /**
+   * 永久删除助手及其所有会话。
+   * @param assistantId - 助手 ID
+   * @returns 是否成功删除
+   */
   public async hardDeleteAssistant(assistantId: string): Promise<boolean> {
     return this.assistantStateService.hardDeleteAssistant(assistantId);
   }
 
+  /**
+   * 永久删除所有已软删除的助手。
+   * @returns 被删除的助手数量
+   */
   public async hardDeleteDeletedAssistants(): Promise<number> {
     return this.assistantStateService.hardDeleteDeletedAssistants();
   }
 
+  /**
+   * 设置助手的流式生成开关。
+   * @param assistantId - 助手 ID
+   * @param enabled - 是否启用流式生成
+   */
   public setAssistantStreaming(assistantId: string, enabled: boolean): void {
     this.assistantStateService.setAssistantStreaming(assistantId, enabled);
   }
 
+  /**
+   * 标记助手已发生过交互（更新 lastInteractedAt 时间戳）。
+   * @param assistantId - 助手 ID
+   * @param persist - 是否立即持久化
+   */
   public markAssistantInteracted(assistantId: string, persist = true): void {
     this.assistantStateService.markAssistantInteracted(assistantId, persist);
   }
 
+  /**
+   * 获取指定助手的所有会话摘要。
+   * @param assistantId - 助手 ID
+   * @returns 会话摘要数组
+   */
   public getSessionsForAssistant(assistantId: string): ChatSessionSummary[] {
     return this.sessionStateService.getSessionsForAssistant(assistantId);
   }
 
+  /**
+   * 搜索包含指定关键字的会话 ID。
+   * @param assistantId - 助手 ID
+   * @param keyword - 搜索关键字
+   * @returns 匹配的会话 ID 数组
+   */
   public searchSessionContent(assistantId: string, keyword: string): string[] {
     if (!this.storageReady) {
       return [];
@@ -614,46 +829,108 @@ export class ChatStateRepository {
     return this.storage.searchSessionIdsByContent(assistantId, keyword);
   }
 
+  /**
+   * 获取指定助手当前选中的会话详情。
+   * @param assistantId - 可选的助手 ID，不传入则使用当前选中助手
+   * @returns 会话详情，无选中会话时返回 undefined
+   */
   public getSelectedSession(assistantId?: string): ChatSessionDetail | undefined {
     return this.sessionStateService.getSelectedSession(assistantId);
   }
 
+  /**
+   * 获取指定助手当前选中的会话 ID。
+   * @param assistantId - 可选的助手 ID，不传入则使用当前选中助手
+   * @returns 会话 ID，无选中会话时返回 undefined
+   */
   public getSelectedSessionId(assistantId?: string): string | undefined {
     return this.sessionStateService.getSelectedSessionId(assistantId);
   }
 
+  /**
+   * 根据 ID 获取会话详情。
+   * @param sessionId - 会话 ID
+   * @returns 会话详情，未找到时返回 undefined
+   */
   public getSessionById(sessionId: string): ChatSessionDetail | undefined {
     return this.sessionStateService.getSessionById(sessionId);
+  }
+
+  public async loadMessageImages(sessionId: string, messageId: string): Promise<ChatMessage['images']> {
+    return this.storage.loadMessageImages(sessionId, messageId);
   }
 
   public createSession(assistantId: string, title: string): ChatSessionDetail {
     return this.sessionStateService.createSession(assistantId, title);
   }
 
+  /**
+   * 选中指定会话。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   */
   public selectSession(assistantId: string, sessionId: string): void {
     this.sessionStateService.selectSession(assistantId, sessionId);
   }
 
+  /**
+   * 重命名指定会话。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param title - 新标题
+   */
   public renameSession(assistantId: string, sessionId: string, title: string): void {
     this.sessionStateService.renameSession(assistantId, sessionId, title);
   }
 
+  /**
+   * 为指定会话生成 AI 标题（设置 generatedTitle 字段）。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param title - 生成的标题
+   */
   public generateSessionTitle(assistantId: string, sessionId: string, title: string): void {
     this.sessionStateService.generateSessionTitle(assistantId, sessionId, title);
   }
 
+  /**
+   * 删除指定会话。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @returns Promise，删除完成后 resolve
+   */
   public async deleteSession(assistantId: string, sessionId: string): Promise<void> {
     await this.sessionStateService.deleteSession(assistantId, sessionId);
   }
 
+  /**
+   * 清空指定助手的所有会话。
+   * @param assistantId - 助手 ID
+   * @returns 被删除的会话数量
+   */
   public async clearSessionsForAssistant(assistantId: string): Promise<number> {
     return await this.sessionStateService.clearSessionsForAssistant(assistantId);
   }
 
+  /**
+   * 向指定会话追加一条消息。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param message - 要追加的消息对象
+   * @returns 更新后的会话详情
+   */
   public appendMessage(assistantId: string, sessionId: string, message: ChatMessage): ChatSessionDetail {
     return this.sessionStateService.appendMessage(assistantId, sessionId, message);
   }
 
+  /**
+   * 更新指定会话中最后一条助手消息。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param updater - 更新函数，接收当前消息并返回更新后的消息
+   * @param persist - 是否立即持久化
+   * @returns 更新后的会话详情
+   */
   public updateLastAssistantMessage(
     assistantId: string,
     sessionId: string,
@@ -663,30 +940,75 @@ export class ChatStateRepository {
     return this.sessionStateService.updateLastAssistantMessage(assistantId, sessionId, updater, persist);
   }
 
+  /**
+   * 截断指定会话的消息历史，只保留最近 N 条。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param keepCount - 要保留的消息数量
+   * @returns 更新后的会话详情，会话不存在时返回 undefined
+   */
   public truncateSessionMessages(assistantId: string, sessionId: string, keepCount: number): ChatSessionDetail | undefined {
     return this.sessionStateService.truncateSessionMessages(assistantId, sessionId, keepCount);
   }
 
+  /**
+   * 删除指定会话中的单条消息。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param messageId - 消息 ID
+   * @returns 更新后的会话详情，消息不存在时返回 undefined
+   */
   public deleteMessage(assistantId: string, sessionId: string, messageId: string): ChatSessionDetail | undefined {
     return this.sessionStateService.deleteMessage(assistantId, sessionId, messageId);
   }
 
+  /**
+   * 编辑指定会话中的单条消息内容。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param messageId - 消息 ID
+   * @param newContent - 新内容
+   * @returns 更新后的会话详情，消息不存在时返回 undefined
+   */
   public editMessage(assistantId: string, sessionId: string, messageId: string, newContent: string): ChatSessionDetail | undefined {
     return this.sessionStateService.editMessage(assistantId, sessionId, messageId, newContent);
   }
 
+  /**
+   * 编辑指定消息并截断该消息之后的所有消息（用于重新生成分支）。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @param messageId - 消息 ID
+   * @param newContent - 新内容
+   * @returns 更新后的会话详情，消息不存在时返回 undefined
+   */
   public editMessageAndTruncateAfter(assistantId: string, sessionId: string, messageId: string, newContent: string): ChatSessionDetail | undefined {
     return this.sessionStateService.editMessageAndTruncateAfter(assistantId, sessionId, messageId, newContent);
   }
 
+  /**
+   * 清空指定会话的所有消息（保留会话本身）。
+   * @param assistantId - 助手 ID
+   * @param sessionId - 会话 ID
+   * @returns 更新后的会话详情，会话不存在时返回 undefined
+   */
   public clearSessionMessages(assistantId: string, sessionId: string): ChatSessionDetail | undefined {
     return this.sessionStateService.clearSessionMessages(assistantId, sessionId);
   }
 
+  /**
+   * 设置会话面板的折叠状态。
+   * @param collapsed - 是否折叠
+   */
   public setSessionPanelCollapsed(collapsed: boolean): void {
     this.sessionStateService.setSessionPanelCollapsed(collapsed);
   }
 
+  /**
+   * 设置分组的折叠状态。
+   * @param groupId - 分组 ID
+   * @param collapsed - 是否折叠
+   */
   public setGroupCollapsed(groupId: string, collapsed: boolean): void {
     const ids = this.getUiCollapsedGroupIds();
     const index = ids.indexOf(groupId);

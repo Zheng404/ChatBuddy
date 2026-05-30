@@ -35,6 +35,66 @@ export function getChatEventScript(): string {
             lastStateError = '';
           }
         }
+        if (message.type === 'streamDelta') {
+          const payload = message.payload;
+          if (!payload || !payload.messageId) {
+            return;
+          }
+          // Update state object directly so the next full state render is consistent
+          if (state.selectedSession && state.selectedSession.messages) {
+            const messages = state.selectedSession.messages;
+            const lastMsg = messages[messages.length - 1];
+            if (lastMsg && lastMsg.id === payload.messageId && lastMsg.role === 'assistant') {
+              lastMsg.content = payload.content;
+              if (payload.reasoning !== undefined) {
+                lastMsg.reasoning = payload.reasoning;
+              }
+              if (payload.modelLabel) {
+                lastMsg.model = payload.modelLabel;
+              }
+            }
+          }
+          // Update DOM directly without full re-render
+          const msgEl = document.querySelector('[data-id="' + payload.messageId + '"]');
+          if (!msgEl) {
+            return;
+          }
+          const textEl = msgEl.querySelector('.message-text');
+          if (textEl) {
+            textEl.innerHTML = markdownToHtml(payload.content || '');
+          }
+          if (payload.reasoning !== undefined) {
+            const reasoningText = String(payload.reasoning || '').trim();
+            let reasoningEl = msgEl.querySelector('.reasoning-block');
+            if (reasoningText) {
+              if (reasoningEl) {
+                const contentEl = reasoningEl.querySelector('.reasoning-content');
+                if (contentEl) {
+                  contentEl.innerHTML = markdownToHtml(reasoningText);
+                }
+              } else {
+                reasoningEl = document.createElement('details');
+                reasoningEl.className = 'reasoning-block';
+                reasoningEl.innerHTML = '<summary>' + escapeHtml(state.strings.reasoningSectionTitle || 'Reasoning') + '</summary>' +
+                  '<div class="reasoning-content">' + markdownToHtml(reasoningText) + '</div>';
+                const card = msgEl.querySelector('.message-card');
+                const textElRef = card && card.querySelector('.message-text');
+                if (card && textElRef) {
+                  card.insertBefore(reasoningEl, textElRef);
+                }
+              }
+            } else if (reasoningEl) {
+              reasoningEl.remove();
+            }
+          }
+          if (payload.modelLabel) {
+            const modelLabelEl = msgEl.querySelector('.message-model-label');
+            if (modelLabelEl) {
+              modelLabelEl.textContent = payload.modelLabel;
+            }
+          }
+          renderEnhancedContent();
+        }
         if (message.type === 'error') {
           const text = typeof message.message === 'string' ? message.message : state.strings.unknownError || '';
           scheduleOptimisticSendRestore();
@@ -382,13 +442,19 @@ export function getChatEventScript(): string {
           var msg = state.selectedSession?.messages?.find(function(m) { return m.id === messageId; });
           if (msg) {
             var container = dom.rawModalBody;
-            container.innerHTML = '';
+            container.textContent = '';
             var reasoningText = String(msg.reasoning || '').trim();
             if (msg.role === 'assistant' && reasoningText) {
               var details = document.createElement('details');
               details.className = 'raw-reasoning-block';
               var summary = document.createElement('summary');
-              summary.innerHTML = '<span class="chevron-icon"><span class="codicon codicon-chevron-right"></span></span> ' + escapeHtml(state.strings.reasoningSectionTitle || 'Reasoning');
+              var chevronIcon = document.createElement('span');
+              chevronIcon.className = 'chevron-icon';
+              var chevronCodicon = document.createElement('span');
+              chevronCodicon.className = 'codicon codicon-chevron-right';
+              chevronIcon.appendChild(chevronCodicon);
+              summary.appendChild(chevronIcon);
+              summary.appendChild(document.createTextNode(' ' + (state.strings.reasoningSectionTitle || 'Reasoning')));
               var reasoningPre = document.createElement('pre');
               reasoningPre.textContent = reasoningText;
               details.appendChild(summary);
@@ -399,7 +465,13 @@ export function getChatEventScript(): string {
               var toolDetails = document.createElement('details');
               toolDetails.className = 'raw-reasoning-block';
               var toolSummary = document.createElement('summary');
-              toolSummary.innerHTML = '<span class="chevron-icon"><span class="codicon codicon-chevron-right"></span></span> ' + escapeHtml(state.strings.toolCallSectionTitle || 'Tool Calls');
+              var toolChevronIcon = document.createElement('span');
+              toolChevronIcon.className = 'chevron-icon';
+              var toolChevronCodicon = document.createElement('span');
+              toolChevronCodicon.className = 'codicon codicon-chevron-right';
+              toolChevronIcon.appendChild(toolChevronCodicon);
+              toolSummary.appendChild(toolChevronIcon);
+              toolSummary.appendChild(document.createTextNode(' ' + (state.strings.toolCallSectionTitle || 'Tool Calls')));
               var toolPre = document.createElement('pre');
               toolPre.textContent = JSON.stringify(msg.toolRounds, null, 2);
               toolDetails.appendChild(toolSummary);

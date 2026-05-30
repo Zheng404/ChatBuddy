@@ -200,7 +200,7 @@ export function getChatScript(args: { nonce: string }): string {
       }
 
       function renderFilePreviews() {
-        dom.filePreviewBar.innerHTML = '';
+        dom.filePreviewBar.textContent = '';
         if (!pendingFiles.length) {
           dom.filePreviewBar.style.display = 'none';
           return;
@@ -216,7 +216,9 @@ export function getChatScript(args: { nonce: string }): string {
           var removeBtn = document.createElement('button');
           removeBtn.className = 'file-preview-remove';
           removeBtn.type = 'button';
-          removeBtn.innerHTML = '<span class="codicon codicon-close"></span>';
+          var removeIcon = document.createElement('span');
+          removeIcon.className = 'codicon codicon-close';
+          removeBtn.appendChild(removeIcon);
           removeBtn.title = state.strings.fileRemove || '';
           removeBtn.addEventListener('click', function() {
             pendingFiles.splice(idx, 1);
@@ -237,7 +239,7 @@ export function getChatScript(args: { nonce: string }): string {
       // Users should use the "Attach files" button or paste files instead.
 
       function renderImagePreviews() {
-        dom.imagePreviewBar.innerHTML = '';
+        dom.imagePreviewBar.textContent = '';
         if (!pendingImages.length) {
           dom.imagePreviewBar.style.display = 'none';
           return;
@@ -256,7 +258,9 @@ export function getChatScript(args: { nonce: string }): string {
           var removeBtn = document.createElement('button');
           removeBtn.className = 'image-preview-remove';
           removeBtn.type = 'button';
-          removeBtn.innerHTML = '<span class="codicon codicon-close"></span>';
+          var removeIcon = document.createElement('span');
+          removeIcon.className = 'codicon codicon-close';
+          removeBtn.appendChild(removeIcon);
           removeBtn.title = state.strings.imageRemove || '';
           removeBtn.addEventListener('click', function() {
             pendingImages.splice(idx, 1);

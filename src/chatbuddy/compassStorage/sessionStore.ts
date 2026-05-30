@@ -9,7 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from '../types';
-import { nowTs } from '../utils';
+import { LRUCache, nowTs, warn } from '../utils';
 import {
   appendTextFile,
   ensureDir,
@@ -40,6 +40,9 @@ import {
   toTitleSource
 } from './types';
 
+/** 内存中保留的最大会话数量（LRU 淘汰） */
+const MAX_SESSIONS_IN_MEMORY = 50;
+
 function parseToolRounds(raw: unknown): ChatToolRound[] | undefined {
   if (typeof raw !== 'string' || !raw.trim()) {
     return undefined;
@@ -49,8 +52,8 @@ function parseToolRounds(raw: unknown): ChatToolRound[] | undefined {
     if (Array.isArray(parsed) && parsed.length > 0) {
       return parsed as ChatToolRound[];
     }
-  } catch {
-    // Ignore malformed tool_rounds payload.
+  } catch (err) {
+    warn('Error parsing tool rounds:', err);
   }
   return undefined;
 }
@@ -64,8 +67,8 @@ function parseImages(raw: unknown): ChatMessage['images'] {
     if (Array.isArray(parsed) && parsed.length > 0) {
       return parsed as ChatMessage['images'];
     }
-  } catch {
-    // Ignore malformed images payload.
+  } catch (err) {
+    warn('Error parsing images:', err);
   }
   return undefined;
 }
@@ -85,19 +88,22 @@ function mapLegacyMessageRow(row: Record<string, unknown>): ChatMessage {
 
 export class CompassSessionStore {
   private readonly sessionSummaries = new Map<string, SessionSummaryInternal>();
-  private readonly sessionMessages = new Map<string, ChatMessage[]>();
+  /** 使用 LRU 缓存限制内存中的会话消息数量，超出限制时自动淘汰最少使用的会话 */
+  private readonly sessionMessages = new LRUCache<string, ChatMessage[]>(MAX_SESSIONS_IN_MEMORY);
   /** 追踪待追加的消息（仅追加模式，不涉及编辑/删除） */
   private readonly pendingAppends = new Map<string, ChatMessage[]>();
   /** 追踪需要完整重写的会话（编辑、删除、清空等操作） */
   private readonly pendingRewrites = new Set<string>();
   /** 索引级别脏标记（insert/rename/delete 等不触发 pendingAppends/Rewrites 但需要重写索引） */
   private indexDirty = false;
+  /** 倒排搜索索引：token -> session IDs */
+  private readonly searchIndex = new Map<string, Set<string>>();
 
   public async load(paths: CompassPaths): Promise<void> {
     // 保存完整的内存状态快照（包括 summaries 和 messages）
     // 防止其他 IDE 触发 reload 时丢失本地新生成但未 persist 的会话
     const savedSummaries = new Map(this.sessionSummaries);
-    const savedMessages = new Map(this.sessionMessages);
+    const savedMessages = new Map(this.sessionMessages.entries());
     const savedAppends = new Map(this.pendingAppends);
     const savedRewrites = new Set(this.pendingRewrites);
 
@@ -228,6 +234,8 @@ export class CompassSessionStore {
         this.pendingRewrites.add(sessionId);
       }
     }
+
+    this.rebuildSearchIndex();
   }
 
   public async persist(paths: CompassPaths): Promise<void> {
@@ -370,7 +378,8 @@ export class CompassSessionStore {
     let parsedIndex: unknown;
     try {
       parsedIndex = JSON.parse(rawIndex);
-    } catch {
+    } catch (err) {
+      warn('Error parsing session index:', err);
       return { valid: false, reason: 'Session index file is not valid JSON' };
     }
 
@@ -415,21 +424,109 @@ export class CompassSessionStore {
   }
 
   public searchSessionIdsByContent(assistantId: string, keyword: string): string[] {
-    const normalizedKeyword = toStringValue(keyword);
+    const normalizedKeyword = toStringValue(keyword).trim().toLowerCase();
     if (!normalizedKeyword) {
       return [];
     }
+
+    // For very short keywords, fall back to linear scan
+    if (normalizedKeyword.length < 2) {
+      return this.fallbackSearch(assistantId, normalizedKeyword);
+    }
+
+    const tokens = normalizedKeyword.split(/[\s\p{P}]+/u).filter((t) => t.length >= 2);
+
+    // If no valid tokens, fall back to linear scan
+    if (tokens.length === 0) {
+      return this.fallbackSearch(assistantId, normalizedKeyword);
+    }
+
+    let result: Set<string> | undefined;
+    for (const token of tokens) {
+      const sessions = this.searchIndex.get(token);
+      if (!sessions) {
+        return [];
+      }
+      if (!result) {
+        result = new Set(sessions);
+      } else {
+        for (const sid of result) {
+          if (!sessions.has(sid)) {
+            result.delete(sid);
+          }
+        }
+      }
+    }
+
+    if (!result) {
+      return [];
+    }
+
+    // Filter by assistantId
+    const filtered: string[] = [];
+    for (const sessionId of result) {
+      const summary = this.sessionSummaries.get(sessionId);
+      if (summary && summary.assistantId === assistantId) {
+        filtered.push(sessionId);
+      }
+    }
+    return filtered;
+  }
+
+  private fallbackSearch(assistantId: string, keyword: string): string[] {
     const sessionIds: string[] = [];
     for (const summary of this.sessionSummaries.values()) {
       if (summary.assistantId !== assistantId) {
         continue;
       }
       const messages = this.sessionMessages.get(summary.id) ?? [];
-      if (messages.some((message) => toStringValue(message.content).includes(normalizedKeyword))) {
+      if (messages.some((message) => toStringValue(message.content).toLowerCase().includes(keyword))) {
         sessionIds.push(summary.id);
       }
     }
     return sessionIds;
+  }
+
+  private indexMessage(sessionId: string, message: ChatMessage): void {
+    const text = toStringValue(message.content);
+    if (!text) {
+      return;
+    }
+
+    // Simple tokenization: split by whitespace and punctuation
+    const tokens = text.toLowerCase().split(/[\s\p{P}]+/u).filter((t) => t.length >= 2);
+
+    for (const token of tokens) {
+      const sessions = this.searchIndex.get(token);
+      if (sessions) {
+        sessions.add(sessionId);
+      } else {
+        this.searchIndex.set(token, new Set([sessionId]));
+      }
+    }
+  }
+
+  private removeSessionFromIndex(sessionId: string): void {
+    for (const sessions of this.searchIndex.values()) {
+      sessions.delete(sessionId);
+    }
+  }
+
+  private reindexSession(sessionId: string): void {
+    this.removeSessionFromIndex(sessionId);
+    const messages = this.sessionMessages.get(sessionId) ?? [];
+    for (const message of messages) {
+      this.indexMessage(sessionId, message);
+    }
+  }
+
+  private rebuildSearchIndex(): void {
+    this.searchIndex.clear();
+    for (const [sessionId, messages] of this.sessionMessages.entries()) {
+      for (const message of messages) {
+        this.indexMessage(sessionId, message);
+      }
+    }
   }
 
   public getSessionSummary(assistantId: string, sessionId: string): ChatSessionSummary | undefined {
@@ -482,6 +579,9 @@ export class CompassSessionStore {
     };
     this.sessionSummaries.set(summary.id, summary);
     this.sessionMessages.set(summary.id, normalizedMessages);
+    for (const message of normalizedMessages) {
+      this.indexMessage(summary.id, message);
+    }
     // 新会话首次 persist 需要完整重写（JSONL 文件可能不存在）
     this.pendingRewrites.add(summary.id);
     this.pendingAppends.delete(summary.id);
@@ -514,6 +614,7 @@ export class CompassSessionStore {
     const normalized = normalizeMessageInput(cloneMessage(message), nowTs());
     const messages = this.ensureSessionMessages(sessionId);
     messages.push(normalized);
+    this.indexMessage(sessionId, normalized);
     this.updateSummaryFromMessages(sessionId, updatedAt);
 
     // 追踪待追加的消息（仅追加模式）
@@ -556,6 +657,7 @@ export class CompassSessionStore {
 
     this.pendingRewrites.add(sessionId);
     this.pendingAppends.delete(sessionId);
+    this.reindexSession(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -574,6 +676,7 @@ export class CompassSessionStore {
     }
     this.pendingRewrites.add(sessionId);
     this.pendingAppends.delete(sessionId);
+    this.reindexSession(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -590,6 +693,7 @@ export class CompassSessionStore {
     messages.splice(targetIndex + 1);
     this.pendingRewrites.add(sessionId);
     this.pendingAppends.delete(sessionId);
+    this.reindexSession(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -606,6 +710,7 @@ export class CompassSessionStore {
     messages.splice(targetIndex, 1);
     this.pendingRewrites.add(sessionId);
     this.pendingAppends.delete(sessionId);
+    this.reindexSession(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -618,6 +723,7 @@ export class CompassSessionStore {
     this.sessionMessages.delete(sessionId);
     this.pendingAppends.delete(sessionId);
     this.pendingRewrites.delete(sessionId);
+    this.removeSessionFromIndex(sessionId);
     this.indexDirty = true;
     return true;
   }
@@ -639,8 +745,8 @@ export class CompassSessionStore {
           await removeFileIfExists(path.join(imagesDir, entry));
         }
       }
-    } catch {
-      // Ignore cleanup errors
+    } catch (err) {
+      warn('Error cleaning up session images:', err);
     }
   }
 
@@ -684,36 +790,53 @@ export class CompassSessionStore {
   }
 
   /**
-   * Hydrate images by reading base64 from files.
+   * Load images for a specific message on demand.
+   * Updates the in-memory message with loaded base64 data.
+   */
+  public async loadMessageImages(sessionId: string, messageId: string, paths: CompassPaths): Promise<ChatMessage['images']> {
+    const messages = this.sessionMessages.get(sessionId);
+    if (!messages) { return undefined; }
+    const message = messages.find(m => m.id === messageId);
+    if (!message?.images) { return undefined; }
+
+    const loaded = await Promise.all(
+      message.images.map(async (img) => {
+        if (img.base64) { return img; }
+        if (img.path) {
+          try {
+            const fullPath = getImageFilePath(paths, img.path);
+            const base64 = await readBase64File(fullPath);
+            if (base64) {
+              return { ...img, base64 };
+            }
+          } catch (err) {
+            warn('Error loading image:', err);
+          }
+        }
+        return img;
+      })
+    );
+
+    // Update in-memory message with loaded images
+    const msgIndex = messages.findIndex(m => m.id === messageId);
+    if (msgIndex >= 0) {
+      messages[msgIndex] = { ...message, images: loaded };
+    }
+
+    return loaded;
+  }
+
+  /**
+   * Hydrate images by preserving paths for lazy loading.
+   * Base64 data is no longer eagerly loaded to reduce startup I/O.
    */
   private async hydrateImages(
     messages: ChatMessage[],
-    paths: CompassPaths
+    _paths: CompassPaths
   ): Promise<ChatMessage[]> {
-    const result: ChatMessage[] = [];
-    for (const message of messages) {
-      if (!message.images || message.images.length === 0) {
-        result.push(message);
-        continue;
-      }
-      const newImages: ChatMessage['images'] = [];
-      for (const img of message.images) {
-        if (img.path && !img.base64) {
-          const fullPath = getImageFilePath(paths, img.path);
-          const base64 = await readBase64File(fullPath);
-          if (base64) {
-            newImages.push({ base64, mimeType: img.mimeType, path: img.path });
-          } else {
-            // File missing, keep path but no base64
-            newImages.push({ base64: '', mimeType: img.mimeType, path: img.path });
-          }
-        } else {
-          newImages.push(img);
-        }
-      }
-      result.push({ ...message, images: newImages });
-    }
-    return result;
+    // Lazy loading: image paths are already preserved in persisted messages.
+    // base64 data will be loaded on demand via loadMessageImages().
+    return messages;
   }
 
   public clearSessionsForAssistant(assistantId: string): number {
@@ -730,6 +853,7 @@ export class CompassSessionStore {
       this.sessionMessages.delete(sessionId);
       this.pendingAppends.delete(sessionId);
       this.pendingRewrites.delete(sessionId);
+      this.removeSessionFromIndex(sessionId);
     }
 
     this.indexDirty = true;
@@ -753,6 +877,7 @@ export class CompassSessionStore {
       this.sessionMessages.delete(sessionId);
       this.pendingAppends.delete(sessionId);
       this.pendingRewrites.delete(sessionId);
+      this.removeSessionFromIndex(sessionId);
     }
     this.indexDirty = true;
   }
@@ -762,6 +887,7 @@ export class CompassSessionStore {
     this.sessionMessages.clear();
     this.pendingAppends.clear();
     this.pendingRewrites.clear();
+    this.searchIndex.clear();
     this.indexDirty = true;
     for (const session of sessions) {
       this.insertSession(session);
@@ -789,6 +915,7 @@ export class CompassSessionStore {
     this.sessionMessages.set(sessionId, next);
     this.pendingRewrites.add(sessionId);
     this.pendingAppends.delete(sessionId);
+    this.reindexSession(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -811,6 +938,7 @@ export class CompassSessionStore {
     target.content = newContent;
     this.pendingRewrites.add(sessionId);
     this.pendingAppends.delete(sessionId);
+    this.reindexSession(sessionId);
     this.updateSummaryFromMessages(sessionId, updatedAt);
     return true;
   }
@@ -860,6 +988,7 @@ export class CompassSessionStore {
       this.pendingRewrites.add(sessionId);
     }
 
+    this.rebuildSearchIndex();
     this.indexDirty = true;
   }
 
@@ -938,7 +1067,8 @@ export class CompassSessionStore {
         if (!parsed || typeof parsed !== 'object') {
           return { valid: false, reason: `Session file contains a non-object message line: ${filePath}` };
         }
-      } catch {
+      } catch (err) {
+        warn('Error parsing session JSONL line:', err);
         return { valid: false, reason: `Session file contains malformed JSONL: ${filePath}` };
       }
     }

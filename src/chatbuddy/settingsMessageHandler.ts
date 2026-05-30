@@ -482,7 +482,8 @@ export async function handleSettingsMessage(
       if (result?.notice) {
         deps.postState(result.notice, result.tone ?? 'success');
       }
-    } catch {
+    } catch (err) {
+      warn('Error exporting data:', err);
       deps.postState(deps.getStrings().unknownError, 'error');
     }
     return;
@@ -494,7 +495,8 @@ export async function handleSettingsMessage(
       if (result?.notice) {
         deps.postState(result.notice, result.tone ?? 'success');
       }
-    } catch {
+    } catch (err) {
+      warn('Error importing data:', err);
       deps.postState(deps.getStrings().unknownError, 'error');
     }
     return;
@@ -506,7 +508,8 @@ export async function handleSettingsMessage(
       if (result?.notice) {
         deps.postState(result.notice, result.tone ?? 'success');
       }
-    } catch {
+    } catch (err) {
+      warn('Error importing legacy data:', err);
       deps.postState(deps.getStrings().unknownError, 'error');
     }
     return;
@@ -519,7 +522,8 @@ export async function handleSettingsMessage(
       if (result?.notice) {
         deps.postState(result.notice, result.tone ?? 'success');
       }
-    } catch {
+    } catch (err) {
+      warn('Error in selective export:', err);
       deps.postState(deps.getStrings().unknownError, 'error');
     }
     return;
@@ -639,7 +643,8 @@ export async function handleSettingsMessage(
       const settings = deps.repository.getSettings().localBackup;
       const items = settings.directory ? await listLocalBackups(settings.directory) : [];
       deps.postMessage({ type: 'backupList', payload: { items } });
-    } catch {
+    } catch (err) {
+      warn('Error refreshing backup list:', err);
       deps.postMessage({ type: 'backupList', payload: { items: [] } });
     }
     return;

@@ -17,17 +17,24 @@ export function getNoticeJs(): string {
             .replace('{removalVersion}', bulletin.removalVersion || ''),
           (strings.noticeAnnouncementStorageLine3 || '').replace('{removalVersion}', bulletin.removalVersion || '')
         ].filter((line) => !!line);
-        dom.noticeAnnouncementList.innerHTML = lines
-          .map((line) => '<li>' + escapeHtml(line) + '</li>')
-          .join('');
+        dom.noticeAnnouncementList.textContent = '';
+        lines.forEach((line) => {
+          var li = document.createElement('li');
+          li.textContent = line;
+          dom.noticeAnnouncementList.appendChild(li);
+        });
 
         dom.noticeChangelogTitle.textContent = strings.noticeChangelogTitle || '';
 
         const markdown = runtimeState.changelogMarkdown || '';
         if (!markdown.trim()) {
-          dom.noticeChangelogContent.innerHTML = '<p>' + escapeHtml(strings.noticeChangelogEmpty || '') + '</p>';
+          dom.noticeChangelogContent.textContent = '';
+          var emptyP = document.createElement('p');
+          emptyP.textContent = strings.noticeChangelogEmpty || '';
+          dom.noticeChangelogContent.appendChild(emptyP);
           return;
         }
+        // Safe: renderMarkdownToHtml is the extension's own markdown parser; content comes from the extension changelog
         dom.noticeChangelogContent.innerHTML = renderMarkdownToHtml(markdown);
       }
 

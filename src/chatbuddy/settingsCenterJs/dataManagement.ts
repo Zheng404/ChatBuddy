@@ -70,14 +70,23 @@ export function getDataManagementJs(): string {
           { key: 'assistants', label: strings.selectiveExportAssistants || 'Assistants' },
           { key: 'settings', label: strings.selectiveExportSettings || 'Settings' }
         ];
-        var html = '';
+        dom.selectiveExportChecks.textContent = '';
         for (var i = 0; i < categories.length; i++) {
           var cat = categories[i];
-          var checked = selectiveExportCategories[cat.key] !== false ? 'checked' : '';
-          html += '<label class="selective-export-check"><input type="checkbox" data-selective-key="' + escapeHtml(cat.key) + '" ' + checked + ' />'
-            + '<span>' + escapeHtml(cat.label) + '</span></label>';
+          var label = document.createElement('label');
+          label.className = 'selective-export-check';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.setAttribute('data-selective-key', cat.key);
+          if (selectiveExportCategories[cat.key] !== false) {
+            checkbox.checked = true;
+          }
+          var span = document.createElement('span');
+          span.textContent = cat.label;
+          label.appendChild(checkbox);
+          label.appendChild(span);
+          dom.selectiveExportChecks.appendChild(label);
         }
-        dom.selectiveExportChecks.innerHTML = html;
       }
 
       function renderLocalBackupSettings() {
@@ -119,9 +128,14 @@ export function getDataManagementJs(): string {
         var strings = runtimeState.strings || {};
         var items = runtimeState.backupFiles || [];
         if (!items.length) {
-          dom.backupListContainer.innerHTML = '<div class="help">' + escapeHtml(strings.backupListEmpty || 'No backups found.') + '</div>';
+          dom.backupListContainer.textContent = '';
+          var emptyDiv = document.createElement('div');
+          emptyDiv.className = 'help';
+          emptyDiv.textContent = strings.backupListEmpty || 'No backups found.';
+          dom.backupListContainer.appendChild(emptyDiv);
           return;
         }
+        // Safe: all user content escaped via escapeHtml()
         var html = '';
         for (var i = 0; i < items.length; i++) {
           var item = items[i];

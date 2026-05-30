@@ -43,6 +43,12 @@ import {
 export type { McpToolBinding, McpProbeResult } from './mcpTypes';
 export { describeAssistantMcpServers, buildRemotePassthroughTools } from './mcpUtils';
 
+/**
+ * MCP (Model Context Protocol) 运行时客户端。
+ *
+ * 管理 MCP 服务器的连接生命周期，支持 stdio、SSE、streamableHttp 三种传输方式。
+ * 提供工具发现与调用、资源读取、Prompt 获取等功能。
+ */
 export class McpRuntime {
   private readonly connections = new Map<string, { promise: Promise<ManagedConnection>; createdAt: number; lastUsedAt: number }>();
   private readonly connectionLocks = new Map<string, Promise<ManagedConnection>>();
@@ -62,6 +68,11 @@ export class McpRuntime {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
+  /**
+   * 探测单个 MCP 服务器的可用性和能力列表。
+   * @param server - MCP 服务器配置
+   * @returns 探测结果（包含工具、资源、Prompt 列表或错误信息）
+   */
   public async probeServer(server: McpServerProfile): Promise<import('./mcpTypes').McpProbeResult> {
     let client: McpClient | undefined;
     let transport: McpTransport | undefined;
@@ -148,6 +159,12 @@ export class McpRuntime {
     }
   }
 
+  /**
+   * 获取助手当前启用的 MCP 服务器摘要列表。
+   * @param settings - 全局设置
+   * @param assistant - 助手配置
+   * @returns MCP 服务器摘要数组
+   */
   public getServerSummaries(settings: ChatBuddySettings, assistant?: AssistantProfile): McpServerSummary[] {
     if (!assistant) {
       return [];
@@ -160,6 +177,10 @@ export class McpRuntime {
     }));
   }
 
+  /**
+   * 释放所有 MCP 连接并清理资源。
+   * @returns Promise，清理完成后 resolve
+   */
   public async dispose(): Promise<void> {
     this.disposed = true;
     this.toolBindingsCache.clear();
@@ -180,8 +201,10 @@ export class McpRuntime {
   }
 
   /**
-   * Remove connections for servers that are no longer active or have exceeded TTL.
-   * Call this after settings update to clean up stale connections.
+   * 移除不再活跃或超过 TTL 的连接。
+   * 在设置更新后调用以清理过期连接。
+   * @param activeServerIds - 当前活跃的 MCP 服务器 ID 集合
+   * @returns Promise，裁剪完成后 resolve
    */
   public async pruneConnections(activeServerIds: ReadonlySet<string>): Promise<void> {
     const staleIds: string[] = [];
@@ -214,8 +237,9 @@ export class McpRuntime {
   }
 
   /**
-   * Invalidate cached tool bindings for a specific assistant.
-   * Call this when MCP server assignments change for an assistant.
+   * 使指定助手的工具绑定缓存失效。
+   * 当助手的 MCP 服务器分配发生变化时调用。
+   * @param assistantId - 可选的助手 ID，不传则清除所有缓存
    */
   public invalidateToolBindings(assistantId?: string): void {
     if (assistantId) {
@@ -225,6 +249,13 @@ export class McpRuntime {
     }
   }
 
+  /**
+   * 获取助手当前可用的所有 MCP 工具绑定（含缓存）。
+   * @param settings - 全局设置
+   * @param assistant - 助手配置
+   * @returns 工具绑定数组
+   * @throws {Error} 当服务器连接失败或超时时抛出
+   */
   public async listToolBindings(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpToolBinding[]> {
     const cacheKey = assistant.id;
     const now = Date.now();
@@ -283,6 +314,15 @@ export class McpRuntime {
     return bindings;
   }
 
+  /**
+   * 调用已绑定的 MCP 工具。
+   * @param settings - 全局设置
+   * @param assistant - 助手配置
+   * @param boundName - 绑定后的工具名称
+   * @param argsText - 工具参数的 JSON 字符串
+   * @returns 工具调用结果的字符串表示
+   * @throws {Error} 当工具或服务器不可用时抛出
+   */
   public async callBoundTool(
     settings: ChatBuddySettings,
     assistant: AssistantProfile,
@@ -316,6 +356,13 @@ export class McpRuntime {
     return stringifyToolResult(result);
   }
 
+  /**
+   * 获取助手当前可用的所有 MCP 资源列表。
+   * @param settings - 全局设置
+   * @param assistant - 助手配置
+   * @returns 资源条目数组
+   * @throws {Error} 当服务器连接失败或超时时抛出
+   */
   public async listResources(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpResourceEntry[]> {
     const servers = getEnabledServers(settings, assistant);
     const results = await Promise.allSettled(
@@ -356,6 +403,15 @@ export class McpRuntime {
     return result.sort((left, right) => left.name.localeCompare(right.name, 'en'));
   }
 
+  /**
+   * 读取指定 MCP 资源的内容。
+   * @param settings - 全局设置
+   * @param assistant - 助手配置
+   * @param serverId - MCP 服务器 ID
+   * @param uri - 资源 URI
+   * @returns 资源内容的字符串表示
+   * @throws {Error} 当服务器不可用或资源读取失败时抛出
+   */
   public async readResource(
     settings: ChatBuddySettings,
     assistant: AssistantProfile,
@@ -369,6 +425,13 @@ export class McpRuntime {
     return stringifyResourceContents(result.contents ?? []);
   }
 
+  /**
+   * 获取助手当前可用的所有 MCP Prompt 列表。
+   * @param settings - 全局设置
+   * @param assistant - 助手配置
+   * @returns Prompt 条目数组
+   * @throws {Error} 当服务器连接失败或超时时抛出
+   */
   public async listPrompts(settings: ChatBuddySettings, assistant: AssistantProfile): Promise<McpPromptEntry[]> {
     const servers = getEnabledServers(settings, assistant);
     const results = await Promise.allSettled(
@@ -410,6 +473,16 @@ export class McpRuntime {
     return result.sort((left, right) => left.name.localeCompare(right.name, 'en'));
   }
 
+  /**
+   * 获取指定 MCP Prompt 的渲染结果。
+   * @param settings - 全局设置
+   * @param assistant - 助手配置
+   * @param serverId - MCP 服务器 ID
+   * @param name - Prompt 名称
+   * @param args - Prompt 参数字典
+   * @returns Prompt 消息内容的字符串表示
+   * @throws {Error} 当服务器不可用或 Prompt 获取失败时抛出
+   */
   public async getPrompt(
     settings: ChatBuddySettings,
     assistant: AssistantProfile,

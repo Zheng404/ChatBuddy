@@ -30,14 +30,17 @@ export function getModelConfigModelsRendererJs(): string {
 
       function renderManualModelsList(provider) {
         if (!provider) {
+          // Safe: renderModelEmptyState escapes its content via escapeHtml()
           dom.manualModelsList.innerHTML = renderModelEmptyState('selectProviderToEdit');
           return;
         }
         const models = getManualModels(provider);
         if (!models.length) {
+          // Safe: renderModelEmptyState escapes its content via escapeHtml()
           dom.manualModelsList.innerHTML = renderModelEmptyState('providerManualModelsEmpty');
           return;
         }
+        // Safe: all user content escaped via escapeHtml()
         dom.manualModelsList.innerHTML = models
           .map((model) => {
             const actions =
@@ -61,14 +64,17 @@ export function getModelConfigModelsRendererJs(): string {
 
       function renderFetchedModelsList(provider) {
         if (!provider) {
+          // Safe: renderModelEmptyState escapes its content via escapeHtml()
           dom.fetchedModelsList.innerHTML = renderModelEmptyState('selectProviderToEdit');
           return;
         }
         const models = getFetchedSelectedModels(provider);
         if (!models.length) {
+          // Safe: renderModelEmptyState escapes its content via escapeHtml()
           dom.fetchedModelsList.innerHTML = renderModelEmptyState('providerFetchedModelsEmpty');
           return;
         }
+        // Safe: all user content escaped via escapeHtml()
         dom.fetchedModelsList.innerHTML = models
           .map((model) => {
             const actions =
@@ -98,7 +104,7 @@ export function getModelConfigModelsRendererJs(): string {
           dom.fetchModelsModalDescription.textContent = strings.providerFetchModalDescription || '';
           dom.fetchModelsModalSearch.disabled = false;
           dom.fetchModelsModalSearch.placeholder = strings.providerFetchModalSearchPlaceholder || '';
-          dom.fetchModelsModalList.innerHTML = '';
+          dom.fetchModelsModalList.textContent = '';
           if (dom.fetchModelsError) { dom.fetchModelsError.style.display = 'none'; }
           fetchModelsLastError = '';
           return;
@@ -116,13 +122,18 @@ export function getModelConfigModelsRendererJs(): string {
           : strings.providerFetchModalSearchPlaceholder || '';
 
         if (isLoading) {
-          dom.fetchModelsModalList.innerHTML =
-            '<div class="fetch-models-loading">' +
-            '<div class="fetch-models-spinner" aria-hidden="true"></div>' +
-            '<div class="fetch-models-loading-copy">' +
-            escapeHtml(strings.providerFetchModalLoading || '') +
-            '</div>' +
-            '</div>';
+          dom.fetchModelsModalList.textContent = '';
+          var loadingDiv = document.createElement('div');
+          loadingDiv.className = 'fetch-models-loading';
+          var spinnerDiv = document.createElement('div');
+          spinnerDiv.className = 'fetch-models-spinner';
+          spinnerDiv.setAttribute('aria-hidden', 'true');
+          loadingDiv.appendChild(spinnerDiv);
+          var loadingCopy = document.createElement('div');
+          loadingCopy.className = 'fetch-models-loading-copy';
+          loadingCopy.textContent = strings.providerFetchModalLoading || '';
+          loadingDiv.appendChild(loadingCopy);
+          dom.fetchModelsModalList.appendChild(loadingDiv);
           if (dom.fetchModelsError) { dom.fetchModelsError.style.display = 'none'; }
           return;
         }
@@ -137,6 +148,7 @@ export function getModelConfigModelsRendererJs(): string {
 
         const allModels = mergeModels(fetchedModelsByProvider[provider.id] || [], 'fetched');
         if (!allModels.length) {
+          // Safe: renderModelEmptyState escapes its content via escapeHtml()
           dom.fetchModelsModalList.innerHTML = renderModelEmptyState('providerFetchModalEmpty');
           return;
         }
@@ -149,11 +161,13 @@ export function getModelConfigModelsRendererJs(): string {
               return haystack.includes(keyword);
             });
         if (!filtered.length) {
+          // Safe: renderModelEmptyState escapes its content via escapeHtml()
           dom.fetchModelsModalList.innerHTML = renderModelEmptyState('providerFetchModalSearchEmpty');
           return;
         }
 
         const selectedIds = new Set(getSelectedModelIds(provider));
+        // Safe: all user content escaped via escapeHtml()
         dom.fetchModelsModalList.innerHTML = filtered
           .map((model) => {
             const added = selectedIds.has(model.id);

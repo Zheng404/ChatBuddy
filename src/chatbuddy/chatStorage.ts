@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, PersistedStateLite } from './types';
-import { error } from './utils';
+import { error, warn } from './utils';
 import {
   CompassKvStore,
   CompassMigrator,
@@ -86,6 +86,14 @@ export class ChatStorage {
 
   public getSessionDetail(assistantId: string, sessionId: string): ChatSessionDetail | undefined {
     return this.sessionStore.getSessionDetail(assistantId, sessionId);
+  }
+
+  public async loadMessageImages(sessionId: string, messageId: string): Promise<ChatMessage['images']> {
+    const paths = this.paths;
+    if (!paths) {
+      return undefined;
+    }
+    return this.sessionStore.loadMessageImages(sessionId, messageId, paths);
   }
 
   public sessionExists(assistantId: string, sessionId: string): boolean {
@@ -250,8 +258,8 @@ export class ChatStorage {
       for (const entry of entries) {
         await fs.promises.unlink(path.join(imagesDir, entry)).catch(() => {});
       }
-    } catch {
-      // Ignore cleanup errors during reset.
+    } catch (err) {
+      warn('Error cleaning up images:', err);
     }
   }
 

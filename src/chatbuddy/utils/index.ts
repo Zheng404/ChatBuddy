@@ -37,3 +37,6 @@ export { warn, error, log, createOutputChannel } from './logger';
 // 重试工具
 export { retryWithBackoff } from './retry';
 export type { RetryOptions } from './retry';
+
+// LRU 缓存
+export { LRUCache } from './lruCache';

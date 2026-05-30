@@ -150,7 +150,8 @@ export function parseProviderApiKeysSecret(raw: string | undefined): Record<stri
       }
     }
     return result;
-  } catch {
+  } catch (err) {
+    warn('Error parsing provider API keys:', err);
     return {};
   }
 }
@@ -174,7 +175,8 @@ export function parsePersistedStateLiteStore(raw: string | undefined): Persisted
       return parsed as Record<string, unknown>;
     }
     return result.data as unknown as PersistedStateLite;
-  } catch {
+  } catch (err) {
+    warn('Error parsing persisted state:', err);
     return undefined;
   }
 }

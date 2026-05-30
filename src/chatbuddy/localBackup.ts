@@ -11,6 +11,7 @@ import { createBackupArchive, extractBackupPayloadFromArchive } from './backupAr
 import { LOCAL_BACKUP } from './constants';
 import type { BackupFileEntry, LocalBackupSettings } from './types';
 import type { ChatStateRepository } from './stateRepository';
+import { warn } from './utils';
 
 const BACKUP_FILE_PREFIX = 'chatbuddy-backup-';
 const BACKUP_FILE_EXTENSION = '.zip';
@@ -47,7 +48,8 @@ export async function listLocalBackups(directory: string): Promise<BackupFileEnt
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(directory, { withFileTypes: true });
-  } catch {
+  } catch (err) {
+    warn('Error listing local backups:', err);
     return [];
   }
 
@@ -64,7 +66,8 @@ export async function listLocalBackups(directory: string): Promise<BackupFileEnt
     let stat: fs.Stats;
     try {
       stat = await fs.promises.stat(path.join(directory, entry.name));
-    } catch {
+    } catch (err) {
+      warn('Error stating backup file:', err);
       continue;
     }
 
@@ -183,8 +186,8 @@ export async function cleanExpiredBackups(
     try {
       await fs.promises.unlink(path.join(directory, fileName));
       deleted += 1;
-    } catch {
-      // File may have been removed concurrently; skip.
+    } catch (err) {
+      warn('Error deleting backup file:', err);
     }
   }
 
@@ -242,8 +245,11 @@ async function acquireBackupLock(directory: string): Promise<boolean> {
   try {
     await fs.promises.mkdir(lockPath);
     const fd = await fs.promises.open(path.join(lockPath, 'stamp'), 'w');
-    await fd.writeFile(String(Date.now()), 'utf-8');
-    await fd.close();
+    try {
+      await fd.writeFile(String(Date.now()), 'utf-8');
+    } finally {
+      await fd.close();
+    }
     return true;
   } catch (openError) {
     if ((openError as NodeJS.ErrnoException)?.code !== 'EEXIST') {
@@ -258,7 +264,8 @@ async function acquireBackupLock(directory: string): Promise<boolean> {
     if (!isNaN(lockedAt) && Date.now() - lockedAt < LOCK_TIMEOUT_MS) {
       return false; // Another IDE holds the lock
     }
-  } catch {
+  } catch (err) {
+    warn('Error reading backup lock stamp:', err);
     return false;
   }
 
@@ -268,10 +275,14 @@ async function acquireBackupLock(directory: string): Promise<boolean> {
     await fs.promises.mkdir(lockPath);
     // mkdir 成功，写入时间戳到标记文件
     const fd = await fs.promises.open(path.join(lockPath, 'stamp'), 'w');
-    await fd.writeFile(String(Date.now()), 'utf-8');
-    await fd.close();
+    try {
+      await fd.writeFile(String(Date.now()), 'utf-8');
+    } finally {
+      await fd.close();
+    }
     return true;
-  } catch {
+  } catch (err) {
+    warn('Error acquiring backup lock:', err);
     return false;
   }
 }
@@ -279,8 +290,8 @@ async function acquireBackupLock(directory: string): Promise<boolean> {
 async function releaseBackupLock(directory: string): Promise<void> {
   try {
     await fs.promises.rm(path.join(directory, LOCK_FILE_NAME), { recursive: true });
-  } catch {
-    // Lock already removed
+  } catch (err) {
+    warn('Error releasing backup lock:', err);
   }
 }
 

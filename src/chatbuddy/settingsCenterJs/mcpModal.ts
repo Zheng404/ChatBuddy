@@ -105,6 +105,7 @@ export function getMcpModalJs(): string {
             '<label>' + escapeHtml(strings.mcpServerTimeoutLabel || '') + '</label>' +
             '<input id="mcpModalTimeout" type="number" min="1000" value="' + String(server.timeoutMs || 30000) + '" />' +
           '</div>';
+        // Safe: all user content escaped via escapeHtml(); input values are escaped for safe attribute insertion
         var modalFieldsContainer = document.getElementById('mcpModalFields');
         if (modalFieldsContainer) { modalFieldsContainer.innerHTML = fieldsHtml; }
         bindMcpModalFieldEvents();

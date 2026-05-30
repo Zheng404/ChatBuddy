@@ -10,7 +10,7 @@ import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from './
 import { getCodiconRootUri } from './codicon';
 import { ChatStateRepository, UpdateAssistantInput } from './stateRepository';
 import type { AssistantGroup, AssistantProfile, McpServerSummary, ProviderModelOption, ProviderResponseFormat, ProviderToolChoice, RuntimeStrings } from './types';
-import { clamp } from './utils';
+import { clamp, warn } from './utils';
 
 // ─── 类型定义 ────────────────────────────────────────────────────────
 
@@ -148,7 +148,8 @@ export function getAvailableAvatarIcons(): ReadonlyArray<string> {
     const cssContent = fs.readFileSync(codiconCssPath, 'utf8');
     const available = AVATAR_ICON_OPTIONS.filter((icon) => cssContent.includes(`.codicon-${icon}:before`));
     cachedAvailableAvatarIcons = available.length > 0 ? available : AVATAR_ICON_OPTIONS;
-  } catch {
+  } catch (err) {
+    warn('Error reading codicon CSS for avatar icons:', err);
     cachedAvailableAvatarIcons = AVATAR_ICON_OPTIONS;
   }
   return cachedAvailableAvatarIcons;

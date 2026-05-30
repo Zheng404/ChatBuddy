@@ -7,6 +7,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { warn } from './utils';
+
 const symbolDataCache = new Map<string, { viewBox: string; symbolInner: string } | undefined>();
 const symbolSvgCache = new Map<string, vscode.Uri>();
 let codiconSpriteCache: string | undefined;
@@ -55,7 +57,8 @@ function extractSymbolData(symbolId: string): { viewBox: string; symbolInner: st
   let source = '';
   try {
     source = fs.readFileSync(spritePath, 'utf8');
-  } catch {
+  } catch (err) {
+    warn('Error reading codicon sprite:', err);
     symbolDataCache.set(normalizedId, undefined);
     return undefined;
   }

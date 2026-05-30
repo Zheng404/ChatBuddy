@@ -51,10 +51,15 @@ export function getModelConfigProviderRendererJs(): string {
             });
 
         if (!visibleProviders.length) {
-          dom.providerList.innerHTML = '<div class="help">' + escapeHtml(runtimeState.strings.providerSearchEmpty || '') + '</div>';
+          dom.providerList.textContent = '';
+          var emptyDiv = document.createElement('div');
+          emptyDiv.className = 'help';
+          emptyDiv.textContent = runtimeState.strings.providerSearchEmpty || '';
+          dom.providerList.appendChild(emptyDiv);
           return;
         }
 
+        // Safe: all user content escaped via escapeHtml()
         dom.providerList.innerHTML = visibleProviders
           .map((provider) => {
             const active = provider.id === providerEditorId ? 'active' : '';

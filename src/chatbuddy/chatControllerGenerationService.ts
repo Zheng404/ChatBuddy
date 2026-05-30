@@ -70,6 +70,7 @@ type ChatGenerationServiceDeps = {
   postMessage: (message: WebviewOutboundMessage, context?: ToolOrchestratorPanelContext) => void;
   postError: (message: string, context?: ToolOrchestratorPanelContext) => void;
   postState: (error?: string, context?: ToolOrchestratorPanelContext) => void;
+  postStreamDelta: (content: string, reasoning: string | undefined, context?: ToolOrchestratorPanelContext) => void;
   scheduleStreamStatePost: (context?: ToolOrchestratorPanelContext) => void;
   flushScheduledStreamStatePost: (context?: ToolOrchestratorPanelContext) => void;
   confirmDangerousAction: (message: string, actionLabel: string) => Promise<boolean>;
@@ -125,39 +126,20 @@ export class ChatGenerationService {
   constructor(private readonly deps: ChatGenerationServiceDeps) {}
 
   public async sendMessage(content: string, images?: Array<{ base64: string; mimeType: string }>, files?: Array<{ name: string; content: string; language?: string }>, context?: ToolOrchestratorPanelContext): Promise<void> {
-    const normalized = content.trim();
-    if (!normalized && (!images || !images.length) && (!files || !files.length)) {
+    const validated = this.validateSendRequest(content, images, files, context);
+    if (!validated) {
       return;
     }
-    if (this.deps.isGenerating()) {
-      this.deps.postError(getStrings(this.deps.getLocale()).generationBusy, context);
+    const { normalized, assistant, selectedSession } = validated;
+
+    const settings = this.deps.repository.getSettings();
+    const failoverChain = this.buildFailoverChain(settings, assistant, context);
+    if (failoverChain.length === 0) {
       return;
     }
 
     const locale = this.deps.getLocale();
-    const strings = getStrings(locale);
-    const assistant = this.deps.repository.getSelectedAssistant();
-    if (!assistant) {
-      this.deps.postError(strings.noAssistantSelectedBody, context);
-      this.deps.postState(strings.noAssistantSelectedBody, context);
-      return;
-    }
-    if (assistant.isDeleted) {
-      this.deps.postError(strings.assistantArchivedReadonly, context);
-      this.deps.postState(strings.assistantArchivedReadonly, context);
-      return;
-    }
-
-    this.deps.ensureSession(assistant.id);
-    const selectedSession = this.deps.repository.getSelectedSession(assistant.id);
-    if (!selectedSession) {
-      this.deps.postError(strings.sessionNotFound, context);
-      return;
-    }
-
     const normalizedWithPrefix = applyQuestionPrefix(normalized, assistant.questionPrefix);
-    let messageImages: ChatMessageImage[] | undefined = images && images.length > 0 ? images : undefined;
-
     let fullContent = normalizedWithPrefix;
     if (files && files.length > 0) {
       const fileBlocks = files.map(f => {
@@ -171,88 +153,31 @@ export class ChatGenerationService {
         : fileBlocks;
     }
 
-    const settings = this.deps.repository.getSettings();
+    const primaryResolved = failoverChain[0];
+    const modelId = primaryResolved.config.modelId || '';
+    const visionSupported = !!resolveCapabilities(modelId)?.vision;
 
-    // Build failover chain: primary + valid fallbacks
-    const failoverChain = resolveFailoverChain(settings, assistant);
-    if (failoverChain.length === 0) {
-      this.deps.postError(strings.providerUnavailable, context);
-      this.deps.postState(strings.providerUnavailable, context);
+    const messageImages: ChatMessageImage[] | undefined = images && images.length > 0 ? images : undefined;
+    const visionResult = await this.handleVisionFallback(
+      messageImages,
+      visionSupported,
+      failoverChain,
+      locale,
+      fullContent,
+      context
+    );
+
+    if (!visionResult.content.trim() && !visionResult.images?.length) {
       return;
     }
 
-    // Use primary config for vision capability check and initial setup
-    const primaryResolved = failoverChain[0];
-    const modelId = primaryResolved.config.modelId || '';
-    const caps = resolveCapabilities(modelId);
-    const visionSupported = !!caps?.vision;
-
-    // Detect if current model supports vision; if not and images are present,
-    // perform OCR or downgrade to text prompt.
-    if (messageImages && messageImages.length > 0 && !visionSupported) {
-      // 从故障转移链中查找支持 vision 的模型用于 OCR，避免使用不支持视觉的端点
-      const ocrConfig = failoverChain.find((entry) => {
-        const mid = entry.config.modelId || '';
-        return !!resolveCapabilities(mid)?.vision;
-      })?.config ?? primaryResolved.config;
-      const ocrResults: Array<{ index: number; text: string }> = [];
-      for (let i = 0; i < messageImages.length; i++) {
-        const img = messageImages[i];
-        if (!img.base64) { continue; }
-        try {
-          const ocrText = await this.performOcr(img.base64, img.mimeType, ocrConfig, locale);
-          if (ocrText) {
-            ocrResults.push({ index: i, text: ocrText });
-          }
-        } catch {
-          // OCR failed for this image, skip
-        }
-      }
-      if (ocrResults.length > 0) {
-        const ocrBlock = '\n\n<image_ocr>\n' +
-          (locale === 'zh-CN' ? '图片文字识别结果：' : 'Image text recognition results:') +
-          '\n\n' +
-          ocrResults.map((r) => `[${locale === 'zh-CN' ? '图片' : 'Image'} ${r.index + 1}]\n${r.text}`).join('\n\n') +
-          '\n</image_ocr>';
-        fullContent = fullContent + ocrBlock;
-      } else {
-        this.deps.postMessage({
-          type: 'toast',
-          message: strings.imagePasteUnsupportedModel || '',
-          tone: 'info'
-        }, context);
-        messageImages = undefined;
-        if (!fullContent.trim()) {
-          return;
-        }
-      }
-    }
-
-    const messageFiles = files && files.length > 0
-      ? files.map(f => ({ name: f.name, content: f.content, language: f.language }))
-      : undefined;
-
-    const userMessage: ChatMessage = {
-      id: createId('msg'),
-      role: 'user',
-      content: normalizedWithPrefix,
-      timestamp: nowTs(),
-      images: messageImages,
-      files: messageFiles
-    };
-    const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
-
-    // When the current model does not support vision, strip images from ALL messages
-    const messagesForProvider = !visionSupported
-      ? sessionAfterUser.messages.map((msg) =>
-          msg.images && msg.images.length > 0 ? { ...msg, images: undefined } : msg
-        )
-      : sessionAfterUser.messages;
-    const providerMessages = toProviderMessages(
-      resolveTemplateVariables(assistant.systemPrompt),
-      assistant.questionPrefix,
-      messagesForProvider,
-      assistant.contextCount
+    const { providerMessages } = this.buildUserMessage(
+      normalized,
+      visionResult.images,
+      files,
+      assistant,
+      selectedSession,
+      visionSupported
     );
 
     const assistantMessage: ChatMessage = {
@@ -272,275 +197,420 @@ export class ChatGenerationService {
 
     this.deps.postState(undefined, context);
 
-    // Attempt providers in failover chain
     const attemptedProviders: string[] = [];
-
     for (let chainIndex = 0; chainIndex < failoverChain.length; chainIndex++) {
-      const currentResolved = failoverChain[chainIndex];
-
-      // Skip invalid provider configs and try next in chain
-      const invalidReason = validateProviderConfig(currentResolved.config, locale, currentResolved.meta);
-      if (invalidReason) {
-        attemptedProviders.push(currentResolved.config.modelLabel + ' (invalid)');
-        if (chainIndex === failoverChain.length - 1) {
-          // Last provider also invalid - show error
-          this.deps.repository.appendMessage(assistant.id, selectedSession.id, {
-            id: createId('msg'),
-            role: 'assistant',
-            content: invalidReason,
-            timestamp: nowTs(),
-            model: currentResolved.config.modelLabel
-          });
-          this.deps.postError(invalidReason, context);
-          this.deps.postState(invalidReason, context);
-          this.deps.setIsGenerating(false);
-          this.deps.setAbortController(undefined);
-          this.deps.setAbortReason(undefined);
-          return;
-        }
-        // Not the last - continue to next provider
-        continue;
-      }
-
-      attemptedProviders.push(currentResolved.config.modelLabel);
-
-      // Update model label on assistant message for current provider
-      if (chainIndex > 0) {
-        this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
-          id: current?.id ?? assistantMessage.id,
-          role: 'assistant',
-          content: current?.content ?? '',
-          timestamp: nowTs(),
-          model: currentResolved.config.modelLabel,
-          reasoning: current?.reasoning ?? ''
-        }));
-        // Notify user of failover attempt
-        const failoverNotice = formatString(strings.providerFailoverAttempt || 'Failover to {provider}', {
-          provider: currentResolved.config.modelLabel
-        });
-        this.deps.postMessage({
-          type: 'toast',
-          message: failoverNotice,
-          tone: 'info'
-        }, context);
-      }
-
-      // Create fresh accumulator for each provider attempt (clear previous partial content on failover)
-      const acc = createStreamAccumulator();
-      const streamParams: StreamFlushParams = {
-        assistantId: assistant.id,
-        sessionId: selectedSession.id,
-        fallbackMessageId: assistantMessage.id,
-        modelLabel: currentResolved.config.modelLabel,
+      const attemptResult = await this.executeProviderAttempt(
+        failoverChain[chainIndex],
+        assistant,
+        selectedSession,
+        assistantMessage,
+        providerMessages,
+        settings,
+        assistant.streaming,
+        attemptedProviders,
+        chainIndex,
+        failoverChain,
         context
-      };
-      const flushStreamMessage = buildStreamFlush(acc, streamParams, this.deps.repository, strings, (persist) => {
-        if (persist) {
-          this.deps.flushScheduledStreamStatePost(context);
-          return;
-        }
-        this.deps.scheduleStreamStatePost(context);
-      });
-      const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
-
-      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-      try {
-        const providerTools = await this.deps.toolOrchestrator.buildProviderTools(settings, assistant, currentResolved.config);
-        const useToolCalling =
-          providerTools.tools.length > 0 &&
-          this.deps.toolOrchestrator.providerSupportsToolCalling(currentResolved.config.modelRef, currentResolved.config);
-        const useStreaming = assistant.streaming && !useToolCalling;
-
-        if (currentResolved.config.timeoutMs > 0) {
-          timeoutHandle = setTimeout(() => {
-            this.deps.setAbortReason('timeout');
-            this.deps.getAbortController()?.abort();
-          }, currentResolved.config.timeoutMs);
-        }
-
-        let responseTimeoutCleared = false;
-        const wrappedCallbacks = useStreaming ? {
-          onDelta: (delta: string) => {
-            if (!responseTimeoutCleared) {
-              clearTimeout(timeoutHandle);
-              responseTimeoutCleared = true;
-            }
-            streamCallbacks.onDelta(delta);
-          },
-          onReasoningDelta: (delta: string) => {
-            if (!responseTimeoutCleared) {
-              clearTimeout(timeoutHandle);
-              responseTimeoutCleared = true;
-            }
-            streamCallbacks.onReasoningDelta(delta);
-          },
-          onDone: streamCallbacks.onDone
-        } : streamCallbacks;
-
-        if (useStreaming) {
-          await this.deps.providerClient.chatStream(
-            providerMessages,
-            currentResolved.config,
-            wrappedCallbacks,
-            locale,
-            this.deps.getAbortController()?.signal
-          );
-        } else {
-          const result = await this.deps.providerClient.chat(
-            providerMessages,
-            currentResolved.config,
-            locale,
-            this.deps.getAbortController()?.signal,
-            useToolCalling
-              ? { tools: providerTools.tools }
-              : {}
-          );
-          if (useToolCalling) {
-            // 工具调用阶段使用独立的更长超时，避免合法长时间 MCP 操作被中断
-            clearTimeout(timeoutHandle);
-            if (currentResolved.config.timeoutMs > 0) {
-              const TOOL_CALLING_TIMEOUT_MS = Math.max(currentResolved.config.timeoutMs, 300_000);
-              timeoutHandle = setTimeout(() => {
-                this.deps.setAbortReason('timeout');
-                this.deps.getAbortController()?.abort();
-              }, TOOL_CALLING_TIMEOUT_MS);
-            }
-            const runState: PendingToolContinuation = {
-              assistant,
-              sessionId: selectedSession.id,
-              assistantMessageId: assistantMessage.id,
-              settings,
-              locale,
-              providerMessages,
-              providerTools,
-              providerConfig: currentResolved.config,
-              toolRounds: [],
-              result
-            };
-            await this.deps.toolOrchestrator.runToolCallingBatch(runState, context);
-            clearTimeout(timeoutHandle);
-            this.deps.setIsGenerating(false);
-            this.deps.setAbortController(undefined);
-            this.deps.setAbortReason(undefined);
-            this.deps.postState(undefined, context);
-            const currentSession = this.deps.repository.getSessionById(selectedSession.id);
-            if (currentSession && currentSession.titleSource === 'default') {
-              this.triggerTitleGeneration(assistant.id, currentSession.id).catch((error) => {
-                warn('Background title generation failed:', error);
-              });
-            }
-            return;
-          }
-          this.deps.toolOrchestrator.applyProviderResultToAssistantMessage(
-            assistant.id,
-            selectedSession.id,
-            assistantMessage.id,
-            result,
-            currentResolved.config.modelLabel,
-            { fallbackContent: strings.emptyResponse }
-          );
-        }
-        // Success - clean up and return
-        clearTimeout(timeoutHandle);
-        this.deps.setIsGenerating(false);
-        this.deps.setAbortController(undefined);
-        this.deps.setAbortReason(undefined);
-        this.deps.postState(undefined, context);
-        const currentSession = this.deps.repository.getSessionById(selectedSession.id);
-        if (currentSession && currentSession.titleSource === 'default') {
-          this.triggerTitleGeneration(assistant.id, currentSession.id).catch((error) => {
-            warn('Background title generation failed:', error);
-          });
-        }
+      );
+      if (attemptResult.done) {
         return;
-      } catch (error) {
-        clearTimeout(timeoutHandle);
-        clearStreamFlush(acc);
+      }
+    }
+    if (this.deps.isGenerating()) {
+      this.cleanupGenerationState(undefined, context);
+    }
+  }
 
-        // Check abort reason - user manual abort should not failover
-        const abortReason = this.deps.getAbortReason();
-        if (abortReason === 'manual') {
-          const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
-          const partial = buildStreamErrorContent(acc, fallback);
-          this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
-            id: current?.id ?? assistantMessage.id,
-            role: 'assistant',
-            content: partial.content,
-            timestamp: nowTs(),
-            model: currentResolved.config.modelLabel,
-            reasoning: partial.reasoning
-          }));
-          this.deps.postError(fallback, context);
-          this.deps.postState(fallback, context);
-          this.deps.setIsGenerating(false);
-          this.deps.setAbortController(undefined);
-          this.deps.setAbortReason(undefined);
-          return;
+  private async executeProviderAttempt(
+    currentResolved: ResolvedProviderConfig,
+    assistant: AssistantProfile,
+    selectedSession: { id: string },
+    assistantMessage: ChatMessage,
+    providerMessages: ReturnType<typeof toProviderMessages>,
+    settings: ChatBuddySettings,
+    useStreaming: boolean,
+    attemptedProviders: string[],
+    chainIndex: number,
+    failoverChain: ResolvedProviderConfig[],
+    context: ToolOrchestratorPanelContext | undefined
+  ): Promise<{ done: boolean }> {
+    const locale = this.deps.getLocale();
+    const strings = getStrings(locale);
+    const invalidReason = validateProviderConfig(currentResolved.config, locale, currentResolved.meta);
+    if (invalidReason) {
+      attemptedProviders.push(currentResolved.config.modelLabel + ' (invalid)');
+      if (chainIndex === failoverChain.length - 1) {
+        this.deps.repository.appendMessage(assistant.id, selectedSession.id, {
+          id: createId('msg'),
+          role: 'assistant',
+          content: invalidReason,
+          timestamp: nowTs(),
+          model: currentResolved.config.modelLabel
+        });
+        this.deps.postError(invalidReason, context);
+        this.deps.postState(invalidReason, context);
+        this.cleanupGenerationState(undefined, context);
+        return { done: true };
+      }
+      return { done: false };
+    }
+    attemptedProviders.push(currentResolved.config.modelLabel);
+    if (chainIndex > 0) {
+      this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+        id: current?.id ?? assistantMessage.id,
+        role: 'assistant',
+        content: current?.content ?? '',
+        timestamp: nowTs(),
+        model: currentResolved.config.modelLabel,
+        reasoning: current?.reasoning ?? ''
+      }));
+      const failoverNotice = formatString(strings.providerFailoverAttempt || 'Failover to {provider}', {
+        provider: currentResolved.config.modelLabel
+      });
+      this.deps.postMessage({ type: 'toast', message: failoverNotice, tone: 'info' }, context);
+    }
+    const providerTools = await this.deps.toolOrchestrator.buildProviderTools(settings, assistant, currentResolved.config);
+    const acc = createStreamAccumulator();
+    const streamParams: StreamFlushParams = {
+      assistantId: assistant.id,
+      sessionId: selectedSession.id,
+      fallbackMessageId: assistantMessage.id,
+      modelLabel: currentResolved.config.modelLabel,
+      context
+    };
+    const flushStreamMessage = buildStreamFlush(acc, streamParams, this.deps.repository, strings, (persist) => {
+      if (persist) {
+        this.deps.flushScheduledStreamStatePost(context);
+        return;
+      }
+      this.deps.scheduleStreamStatePost(context);
+    }, (content, reasoning) => {
+      this.deps.postStreamDelta(content, reasoning, context);
+    });
+    const streamCallbacks = buildStreamCallbacks(acc, flushStreamMessage);
+    try {
+      const result = await this.attemptProviderGeneration(
+        currentResolved, assistant, selectedSession, assistantMessage, providerMessages, providerTools, useStreaming, streamCallbacks, context
+      );
+      if (result.success) {
+        return { done: true };
+      }
+    } catch (error) {
+      clearStreamFlush(acc);
+      const errorResult = this.handleGenerationError(
+        error, currentResolved, assistant, selectedSession, assistantMessage, acc, context, chainIndex, failoverChain, attemptedProviders
+      );
+      if (!errorResult.shouldContinue) {
+        return { done: true };
+      }
+    }
+    return { done: false };
+  }
+
+  private validateSendRequest(
+    content: string,
+    images: Array<{ base64: string; mimeType: string }> | undefined,
+    files: Array<{ name: string; content: string; language?: string }> | undefined,
+    context: ToolOrchestratorPanelContext | undefined
+  ): { normalized: string; assistant: AssistantProfile; selectedSession: NonNullable<ReturnType<ChatStateRepository['getSelectedSession']>> } | undefined {
+    const normalized = content.trim();
+    if (!normalized && (!images || !images.length) && (!files || !files.length)) {
+      return undefined;
+    }
+    if (this.deps.isGenerating()) {
+      this.deps.postError(getStrings(this.deps.getLocale()).generationBusy, context);
+      return undefined;
+    }
+
+    const locale = this.deps.getLocale();
+    const strings = getStrings(locale);
+    const assistant = this.deps.repository.getSelectedAssistant();
+    if (!assistant) {
+      this.deps.postError(strings.noAssistantSelectedBody, context);
+      this.deps.postState(strings.noAssistantSelectedBody, context);
+      return undefined;
+    }
+    if (assistant.isDeleted) {
+      this.deps.postError(strings.assistantArchivedReadonly, context);
+      this.deps.postState(strings.assistantArchivedReadonly, context);
+      return undefined;
+    }
+
+    this.deps.ensureSession(assistant.id);
+    const selectedSession = this.deps.repository.getSelectedSession(assistant.id);
+    if (!selectedSession) {
+      this.deps.postError(strings.sessionNotFound, context);
+      return undefined;
+    }
+
+    return { normalized, assistant, selectedSession };
+  }
+
+  private buildFailoverChain(
+    settings: ChatBuddySettings,
+    assistant: AssistantProfile,
+    context: ToolOrchestratorPanelContext | undefined
+  ): ResolvedProviderConfig[] {
+    const failoverChain = resolveFailoverChain(settings, assistant);
+    if (failoverChain.length === 0) {
+      const strings = getStrings(this.deps.getLocale());
+      this.deps.postError(strings.providerUnavailable, context);
+      this.deps.postState(strings.providerUnavailable, context);
+    }
+    return failoverChain;
+  }
+
+  private async handleVisionFallback(
+    messageImages: ChatMessageImage[] | undefined,
+    visionSupported: boolean,
+    failoverChain: ResolvedProviderConfig[],
+    locale: RuntimeLocale,
+    fullContent: string,
+    context: ToolOrchestratorPanelContext | undefined
+  ): Promise<{ content: string; images: ChatMessageImage[] | undefined }> {
+    if (!messageImages || messageImages.length === 0 || visionSupported) {
+      return { content: fullContent, images: messageImages };
+    }
+
+    const strings = getStrings(locale);
+    const primaryResolved = failoverChain[0];
+    const ocrConfig = failoverChain.find((entry) => {
+      const mid = entry.config.modelId || '';
+      return !!resolveCapabilities(mid)?.vision;
+    })?.config ?? primaryResolved.config;
+
+    const ocrResults: Array<{ index: number; text: string }> = [];
+    for (let i = 0; i < messageImages.length; i++) {
+      const img = messageImages[i];
+      if (!img.base64) { continue; }
+      try {
+        const ocrText = await this.performOcr(img.base64, img.mimeType, ocrConfig, locale);
+        if (ocrText) {
+          ocrResults.push({ index: i, text: ocrText });
         }
-
-        // Auth errors should not failover
-        if (isAuthError(error)) {
-          const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
-          const partial = buildStreamErrorContent(acc, fallback);
-          this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
-            id: current?.id ?? assistantMessage.id,
-            role: 'assistant',
-            content: partial.content,
-            timestamp: nowTs(),
-            model: currentResolved.config.modelLabel,
-            reasoning: partial.reasoning
-          }));
-          this.deps.postError(fallback, context);
-          this.deps.postState(fallback, context);
-          this.deps.setIsGenerating(false);
-          this.deps.setAbortController(undefined);
-          this.deps.setAbortReason(undefined);
-          return;
-        }
-
-        // If not retryable or this is the last provider, show error
-        // Timeout abort should trigger failover (abort reason is 'timeout' but error message is "aborted")
-        if ((!isRetryableError(error) && abortReason !== 'timeout') || chainIndex === failoverChain.length - 1) {
-          const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
-          // Build comprehensive error message if all providers failed
-          const finalError = chainIndex === failoverChain.length - 1 && failoverChain.length > 1
-            ? formatString(strings.allProvidersFailed || 'All providers failed. Tried: {providers}. Last error: {error}', {
-                providers: attemptedProviders.join(', '),
-                error: fallback
-              })
-            : fallback;
-          const partial = buildStreamErrorContent(acc, finalError);
-          this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
-            id: current?.id ?? assistantMessage.id,
-            role: 'assistant',
-            content: partial.content,
-            timestamp: nowTs(),
-            model: currentResolved.config.modelLabel,
-            reasoning: partial.reasoning
-          }));
-          this.deps.postError(finalError, context);
-          this.deps.postState(finalError, context);
-          this.deps.setIsGenerating(false);
-          this.deps.setAbortController(undefined);
-          this.deps.setAbortReason(undefined);
-          return;
-        }
-
-        // Retryable error - reset abort controller for next attempt
-        this.deps.setAbortController(new AbortController());
-        this.deps.setAbortReason(undefined);
-        // Continue to next provider in chain
+      } catch (err) {
+        warn('Error performing OCR:', err);
       }
     }
 
-    // Safety net: all providers were invalid/skipped, ensure cleanup
-    if (this.deps.isGenerating()) {
-      this.deps.setIsGenerating(false);
-      this.deps.setAbortController(undefined);
-      this.deps.setAbortReason(undefined);
-      this.deps.postState(undefined, context);
+    if (ocrResults.length > 0) {
+      const ocrBlock = '\n\n<image_ocr>\n' +
+        (locale === 'zh-CN' ? '图片文字识别结果：' : 'Image text recognition results:') +
+        '\n\n' +
+        ocrResults.map((r) => `[${locale === 'zh-CN' ? '图片' : 'Image'} ${r.index + 1}]\n${r.text}`).join('\n\n') +
+        '\n</image_ocr>';
+      return { content: fullContent + ocrBlock, images: messageImages };
+    } else {
+      this.deps.postMessage({
+        type: 'toast',
+        message: strings.imagePasteUnsupportedModel || '',
+        tone: 'info'
+      }, context);
+      return { content: fullContent, images: undefined };
     }
+  }
+
+  private buildUserMessage(
+    normalized: string,
+    images: ChatMessageImage[] | undefined,
+    files: Array<{ name: string; content: string; language?: string }> | undefined,
+    assistant: AssistantProfile,
+    selectedSession: { id: string },
+    visionSupported: boolean
+  ): { userMessage: ChatMessage; providerMessages: ReturnType<typeof toProviderMessages> } {
+    const normalizedWithPrefix = applyQuestionPrefix(normalized, assistant.questionPrefix);
+
+    const messageFiles = files && files.length > 0
+      ? files.map(f => ({ name: f.name, content: f.content, language: f.language }))
+      : undefined;
+
+    const userMessage: ChatMessage = {
+      id: createId('msg'),
+      role: 'user',
+      content: normalizedWithPrefix,
+      timestamp: nowTs(),
+      images,
+      files: messageFiles
+    };
+    const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
+
+    const messagesForProvider = !visionSupported
+      ? sessionAfterUser.messages.map((msg) =>
+          msg.images && msg.images.length > 0 ? { ...msg, images: undefined } : msg
+        )
+      : sessionAfterUser.messages;
+
+    const providerMessages = toProviderMessages(
+      resolveTemplateVariables(assistant.systemPrompt),
+      assistant.questionPrefix,
+      messagesForProvider,
+      assistant.contextCount
+    );
+
+    return { userMessage, providerMessages };
+  }
+
+  private async attemptProviderGeneration(
+    resolved: ResolvedProviderConfig,
+    assistant: AssistantProfile,
+    selectedSession: { id: string },
+    assistantMessage: ChatMessage,
+    providerMessages: ReturnType<typeof toProviderMessages>,
+    providerTools: Awaited<ReturnType<ChatGenerationServiceDeps['toolOrchestrator']['buildProviderTools']>>,
+    useStreaming: boolean,
+    streamCallbacks: ReturnType<typeof buildStreamCallbacks>,
+    context: ToolOrchestratorPanelContext | undefined
+  ): Promise<{ success: boolean; shouldFailover: boolean }> {
+    const locale = this.deps.getLocale();
+    const strings = getStrings(locale);
+    const useToolCalling =
+      providerTools.tools.length > 0 &&
+      this.deps.toolOrchestrator.providerSupportsToolCalling(resolved.config.modelRef, resolved.config);
+    const actuallyUseStreaming = useStreaming && !useToolCalling;
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    if (resolved.config.timeoutMs > 0) {
+      timeoutHandle = setTimeout(() => {
+        this.deps.setAbortReason('timeout');
+        this.deps.getAbortController()?.abort();
+      }, resolved.config.timeoutMs);
+    }
+
+    let responseTimeoutCleared = false;
+    const clearTimeoutOnFirstResponse = () => {
+      if (!responseTimeoutCleared) { clearTimeout(timeoutHandle); responseTimeoutCleared = true; }
+    };
+    const wrappedCallbacks = actuallyUseStreaming ? {
+      onDelta: (delta: string) => { clearTimeoutOnFirstResponse(); streamCallbacks.onDelta(delta); },
+      onReasoningDelta: (delta: string) => { clearTimeoutOnFirstResponse(); streamCallbacks.onReasoningDelta(delta); },
+      onDone: streamCallbacks.onDone
+    } : streamCallbacks;
+
+    try {
+      if (actuallyUseStreaming) {
+        await this.deps.providerClient.chatStream(providerMessages, resolved.config, wrappedCallbacks, locale, this.deps.getAbortController()?.signal);
+      } else {
+        const result = await this.deps.providerClient.chat(providerMessages, resolved.config, locale, this.deps.getAbortController()?.signal, useToolCalling ? { tools: providerTools.tools } : {});
+        if (useToolCalling) {
+          clearTimeout(timeoutHandle);
+          if (resolved.config.timeoutMs > 0) {
+            const TOOL_CALLING_TIMEOUT_MS = Math.max(resolved.config.timeoutMs, 300_000);
+            timeoutHandle = setTimeout(() => { this.deps.setAbortReason('timeout'); this.deps.getAbortController()?.abort(); }, TOOL_CALLING_TIMEOUT_MS);
+          }
+          const runState: PendingToolContinuation = { assistant, sessionId: selectedSession.id, assistantMessageId: assistantMessage.id, settings: this.deps.repository.getSettings(), locale, providerMessages, providerTools, providerConfig: resolved.config, toolRounds: [], result };
+          await this.deps.toolOrchestrator.runToolCallingBatch(runState, context);
+          clearTimeout(timeoutHandle);
+          return this.finalizeSuccessfulGeneration(selectedSession, assistant, context);
+        }
+        this.deps.toolOrchestrator.applyProviderResultToAssistantMessage(assistant.id, selectedSession.id, assistantMessage.id, result, resolved.config.modelLabel, { fallbackContent: strings.emptyResponse });
+      }
+      clearTimeout(timeoutHandle);
+      return this.finalizeSuccessfulGeneration(selectedSession, assistant, context);
+    } catch (error) {
+      clearTimeout(timeoutHandle);
+      throw error;
+    }
+  }
+
+  private finalizeSuccessfulGeneration(
+    selectedSession: { id: string },
+    assistant: AssistantProfile,
+    context: ToolOrchestratorPanelContext | undefined
+  ): { success: boolean; shouldFailover: boolean } {
+    this.cleanupGenerationState(undefined, context);
+    const currentSession = this.deps.repository.getSessionById(selectedSession.id);
+    if (currentSession && currentSession.titleSource === 'default') {
+      this.triggerTitleGeneration(assistant.id, currentSession.id).catch((error) => {
+        warn('Background title generation failed:', error);
+      });
+    }
+    return { success: true, shouldFailover: false };
+  }
+
+  private handleGenerationError(
+    error: unknown,
+    currentResolved: ResolvedProviderConfig,
+    assistant: AssistantProfile,
+    selectedSession: { id: string },
+    assistantMessage: ChatMessage,
+    acc: ReturnType<typeof createStreamAccumulator>,
+    context: ToolOrchestratorPanelContext | undefined,
+    chainIndex: number,
+    failoverChain: ResolvedProviderConfig[],
+    attemptedProviders: string[]
+  ): { shouldContinue: boolean } {
+    const locale = this.deps.getLocale();
+    const strings = getStrings(locale);
+    const abortReason = this.deps.getAbortReason();
+
+    if (abortReason === 'manual') {
+      const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
+      const partial = buildStreamErrorContent(acc, fallback);
+      this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+        id: current?.id ?? assistantMessage.id,
+        role: 'assistant',
+        content: partial.content,
+        timestamp: nowTs(),
+        model: currentResolved.config.modelLabel,
+        reasoning: partial.reasoning
+      }));
+      this.deps.postError(fallback, context);
+      this.deps.postState(fallback, context);
+      this.cleanupGenerationState(undefined, context);
+      return { shouldContinue: false };
+    }
+
+    if (isAuthError(error)) {
+      const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
+      const partial = buildStreamErrorContent(acc, fallback);
+      this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+        id: current?.id ?? assistantMessage.id,
+        role: 'assistant',
+        content: partial.content,
+        timestamp: nowTs(),
+        model: currentResolved.config.modelLabel,
+        reasoning: partial.reasoning
+      }));
+      this.deps.postError(fallback, context);
+      this.deps.postState(fallback, context);
+      this.cleanupGenerationState(undefined, context);
+      return { shouldContinue: false };
+    }
+
+    if ((!isRetryableError(error) && abortReason !== 'timeout') || chainIndex === failoverChain.length - 1) {
+      const fallback = resolveGenerationErrorMessage(error, abortReason, strings);
+      const finalError = chainIndex === failoverChain.length - 1 && failoverChain.length > 1
+        ? formatString(strings.allProvidersFailed || 'All providers failed. Tried: {providers}. Last error: {error}', {
+            providers: attemptedProviders.join(', '),
+            error: fallback
+          })
+        : fallback;
+      const partial = buildStreamErrorContent(acc, finalError);
+      this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+        id: current?.id ?? assistantMessage.id,
+        role: 'assistant',
+        content: partial.content,
+        timestamp: nowTs(),
+        model: currentResolved.config.modelLabel,
+        reasoning: partial.reasoning
+      }));
+      this.deps.postError(finalError, context);
+      this.deps.postState(finalError, context);
+      this.cleanupGenerationState(undefined, context);
+      return { shouldContinue: false };
+    }
+
+    this.deps.setAbortController(new AbortController());
+    this.deps.setAbortReason(undefined);
+    return { shouldContinue: true };
+  }
+
+  private cleanupGenerationState(error?: string, context?: ToolOrchestratorPanelContext): void {
+    this.deps.setIsGenerating(false);
+    this.deps.setAbortController(undefined);
+    this.deps.setAbortReason(undefined);
+    this.deps.postState(error, context);
   }
 
   public async regenerateReply(context?: ToolOrchestratorPanelContext): Promise<void> {
@@ -696,7 +766,8 @@ export class ChatGenerationService {
         message: strings.copyMessageSuccess,
         tone: 'success'
       });
-    } catch {
+    } catch (err) {
+      warn('Error copying to clipboard:', err);
       this.deps.postError(strings.unknownError);
     }
   }

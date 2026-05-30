@@ -40,6 +40,7 @@ export function getAboutJs(): string {
             : ''
         ].filter((item) => !!item).join('');
 
+        // Safe: all user content escaped via escapeHtml() and escapeHtmlAttr()
         dom.aboutOverviewGrid.innerHTML =
           '<div class="about-hero-panel">' +
             '<div class="about-hero-copy">' +

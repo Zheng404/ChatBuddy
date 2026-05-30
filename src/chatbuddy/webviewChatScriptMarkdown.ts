@@ -543,6 +543,7 @@ export function getChatMarkdownRendererScript(args: {
         } else {
           errorLabel = '<span class="code-block-lang mermaid-error">Mermaid</span>';
         }
+        // Safe: errorLabel is built with escapeHtml(), and code is escaped via escapeHtml()
         wrapper.innerHTML = errorLabel +
           '<button class="code-block-copy" type="button" title="Copy"><span class="codicon codicon-copy"></span></button>' +
           '<pre><code class="lang-mermaid">' + escapeHtml(code) + '</code></pre>';
@@ -587,6 +588,7 @@ export function getChatMarkdownRendererScript(args: {
                 processMermaidQueue();
                 return;
               }
+              // Safe: SVG output is sanitized by sanitizeSvg() before insertion
               el.innerHTML = sanitizeSvg(result.svg);
               // Bind interactive functions (click events, tooltips, etc.)
               if (result.bindFunctions && typeof result.bindFunctions === 'function') {
@@ -619,7 +621,10 @@ export function getChatMarkdownRendererScript(args: {
         dom.messagesInner.querySelectorAll('pre code.lang-latex, pre code.lang-tex, pre code.lang-math').forEach(function(codeEl) {
           var preEl = codeEl.parentNode;
           if (preEl && preEl.tagName === 'PRE') {
-            preEl.outerHTML = codeEl.innerHTML;
+            // Safe: codeEl.innerHTML contains only escaped content from the markdown parser
+            var latexText = codeEl.textContent;
+            var latexNode = document.createTextNode(latexText);
+            preEl.parentNode.replaceChild(latexNode, preEl);
           }
         });
         dom.messagesInner.querySelectorAll('[data-latex-inline]').forEach(function(el) {
@@ -673,10 +678,16 @@ export function getChatMarkdownRendererScript(args: {
           if (!codeEl) { return; }
           var text = codeEl.textContent || '';
           navigator.clipboard.writeText(text).then(function() {
-            btn.innerHTML = '<span class="codicon codicon-check"></span>';
+            btn.textContent = '';
+            var checkIcon = document.createElement('span');
+            checkIcon.className = 'codicon codicon-check';
+            btn.appendChild(checkIcon);
             btn.classList.add('copied');
             setTimeout(function() {
-              btn.innerHTML = '<span class="codicon codicon-copy"></span>';
+              btn.textContent = '';
+              var copyIcon = document.createElement('span');
+              copyIcon.className = 'codicon codicon-copy';
+              btn.appendChild(copyIcon);
               btn.classList.remove('copied');
             }, 1500);
           });

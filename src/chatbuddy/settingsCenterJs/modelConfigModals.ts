@@ -76,11 +76,13 @@ export function getModelConfigModalsJs(): string {
           return;
         }
         const current = normalizeTestModelForProvider(provider);
-        dom.testModelModalSelect.innerHTML = selectedModels
-          .map((model) => {
-            return '<option value="' + escapeHtml(model.id) + '">' + escapeHtml(model.name || model.id) + '</option>';
-          })
-          .join('');
+        dom.testModelModalSelect.textContent = '';
+        selectedModels.forEach((model) => {
+          var option = document.createElement('option');
+          option.value = model.id || '';
+          option.textContent = model.name || model.id || '';
+          dom.testModelModalSelect.appendChild(option);
+        });
         dom.testModelModalSelect.value = current;
         testModelModalProviderId = provider.id;
         openModal(dom.testModelModal, dom.testModelModalSelect);
@@ -310,6 +312,7 @@ export function getModelConfigModalsJs(): string {
             + '</div>'
             + '</div>';
         }
+        // Safe: all user content escaped via escapeHtml(); template keys use escapeHtml()
         dom.providerTemplateGrid.innerHTML = html;
       }
 

@@ -14,6 +14,7 @@ export function getDefaultModelsJs(defaultTitleSummaryPrompt: string): string {
             ? defaults.assistant.providerId + ':' + defaults.assistant.modelId
             : '';
         const invalidRef = runtimeState.invalidDefaultSelection || '';
+        // Safe: buildModelSelectOptions escapes all values via escapeHtml()
         dom.defaultAssistantModel.innerHTML = buildModelSelectOptions(invalidRef);
         dom.defaultAssistantModel.value = currentRef || '';
         dom.defaultAssistantModelHelp.textContent = invalidRef ? strings.invalidDefaultModelHint || '' : '';
@@ -26,6 +27,7 @@ export function getDefaultModelsJs(defaultTitleSummaryPrompt: string): string {
           defaults.titleSummary && defaults.titleSummary.providerId && defaults.titleSummary.modelId
             ? defaults.titleSummary.providerId + ':' + defaults.titleSummary.modelId
             : '';
+        // Safe: buildModelSelectOptions escapes all values via escapeHtml()
         dom.defaultTitleSummaryModel.innerHTML = buildModelSelectOptions('');
         dom.defaultTitleSummaryModel.value = titleSummaryRef || '';
         dom.defaultTitleSummaryModelHelp.textContent = '';

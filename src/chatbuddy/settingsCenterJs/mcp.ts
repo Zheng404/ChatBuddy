@@ -84,9 +84,10 @@ export function getMcpJs(): string {
       function renderMcpGroups() {
         var strings = runtimeState.strings || {};
         if (!mcpGroups.length) {
-          dom.mcpGroupList.innerHTML = '';
+          dom.mcpGroupList.textContent = '';
           return;
         }
+        // Safe: all user content escaped via escapeHtml(); expandIcon is a static arrow character
         dom.mcpGroupList.innerHTML = mcpGroups.map((group) => {
           var isExpanded = expandedGroupIds.has(group.id);
           var expandIcon = isExpanded ? '▼' : '▶';
@@ -168,22 +169,40 @@ export function getMcpJs(): string {
         var strings = runtimeState.strings || {};
         var lastProbeAt = runtimeState.mcpLastProbeAt || 0;
         var lastProbeBanner = '';
+        var lastProbeText = '';
         if (lastProbeAt > 0) {
           var d = new Date(lastProbeAt);
           var label = strings.mcpLastProbeAt || 'Last probed: {time}';
-          var formatted = label.replace('{time}', d.toLocaleString());
-          lastProbeBanner = '<div class="help mcp-last-probe">' + escapeHtml(formatted) + '</div>';
+          lastProbeText = label.replace('{time}', d.toLocaleString());
+          lastProbeBanner = '<div class="help mcp-last-probe">' + escapeHtml(lastProbeText) + '</div>';
         }
         var ungroupedServers = mcpServers.filter((s) => !s.groupId);
         if (!mcpServers.length && !mcpGroups.length) {
-          dom.mcpServerList.innerHTML = lastProbeBanner + '<div class="help">' + escapeHtml(strings.mcpEmptyState || '') + '</div>';
+          dom.mcpServerList.textContent = '';
+          if (lastProbeBanner) {
+            var probeDiv = document.createElement('div');
+            probeDiv.className = 'help mcp-last-probe';
+            probeDiv.textContent = lastProbeText;
+            dom.mcpServerList.appendChild(probeDiv);
+          }
+          var emptyDiv = document.createElement('div');
+          emptyDiv.className = 'help';
+          emptyDiv.textContent = strings.mcpEmptyState || '';
+          dom.mcpServerList.appendChild(emptyDiv);
           return;
         }
         if (!ungroupedServers.length) {
-          dom.mcpServerList.innerHTML = lastProbeBanner;
+          dom.mcpServerList.textContent = '';
+          if (lastProbeBanner) {
+            var probeDiv2 = document.createElement('div');
+            probeDiv2.className = 'help mcp-last-probe';
+            probeDiv2.textContent = lastProbeText;
+            dom.mcpServerList.appendChild(probeDiv2);
+          }
           return;
         }
         var ungroupedLabel = strings.mcpUngroupedServers || 'Ungrouped Servers';
+        // Safe: all user content escaped via escapeHtml(); lastProbeBanner uses escapeHtml() for its text
         dom.mcpServerList.innerHTML = lastProbeBanner +
           '<div class="mcp-ungrouped-section">' +
           '<h3 class="mcp-ungrouped-title">' + escapeHtml(ungroupedLabel) + '</h3>' +

@@ -18,9 +18,13 @@ export function getGeneralJs(): string {
       }
 
       function renderSelectOptions(select, options) {
-        select.innerHTML = (Array.isArray(options) ? options : [])
-          .map((option) => '<option value="' + escapeHtml(option.value) + '">' + escapeHtml(option.label) + '</option>')
-          .join('');
+        select.textContent = '';
+        (Array.isArray(options) ? options : []).forEach((option) => {
+          var opt = document.createElement('option');
+          opt.value = option.value || '';
+          opt.textContent = option.label || '';
+          select.appendChild(opt);
+        });
       }
 
       function renderGeneralValues() {

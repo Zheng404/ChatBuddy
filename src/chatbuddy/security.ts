@@ -2,6 +2,7 @@
  * 安全工具模块
  * 提供输入验证与清理能力
  */
+import { warn } from './utils';
 
 /**
  * 验证 URL 是否安全
@@ -19,7 +20,8 @@ export function isValidUrl(url: string): boolean {
       return false;
     }
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
+  } catch (err) {
+    warn('Error validating URL:', err);
     return false;
   }
 }

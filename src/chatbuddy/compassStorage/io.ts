@@ -9,11 +9,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { warn } from '../utils';
+
 export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.promises.access(filePath, fs.constants.F_OK);
     return true;
-  } catch {
+  } catch (err) {
+    warn('Error checking file existence:', err);
     return false;
   }
 }
@@ -83,13 +86,14 @@ export async function hasCompassData(dirPath: string): Promise<boolean> {
   try {
     await fs.promises.access(path.join(dirPath, 'meta'), fs.constants.R_OK);
     return true;
-  } catch {
-    // meta/ 不存在，继续检查 sessions/
+  } catch (err) {
+    warn('Error checking meta directory:', err);
   }
   try {
     await fs.promises.access(path.join(dirPath, 'sessions'), fs.constants.R_OK);
     return true;
-  } catch {
+  } catch (err) {
+    warn('Error checking sessions directory:', err);
     return false;
   }
 }
@@ -105,7 +109,8 @@ export async function hasValidCompassState(dirPath: string): Promise<boolean> {
     const content = await fs.promises.readFile(corePath, 'utf-8');
     const parsed = JSON.parse(content);
     return !!parsed && typeof parsed === 'object' && Array.isArray(parsed.groups) && Array.isArray(parsed.assistants);
-  } catch {
+  } catch (err) {
+    warn('Error validating compass state:', err);
     return false;
   }
 }
@@ -248,8 +253,8 @@ export async function cleanOrphanTempFiles(rootDir: string, ageThresholdMs = 60_
             cleaned++;
           }
         }
-      } catch {
-        // 忽略单个文件的清理错误
+      } catch (err) {
+        warn('Error cleaning orphan temp file:', err);
       }
     }
   }
@@ -313,8 +318,8 @@ export async function createPrePersistSnapshot(
   const snapshotPath = path.join(snapshotDir, `state.core.${generation}.json`);
   try {
     await fs.promises.copyFile(stateCorePath, snapshotPath);
-  } catch {
-    // 快照失败不阻塞主流程
+  } catch (err) {
+    warn('Error creating pre-persist snapshot:', err);
   }
 
   // 清理旧快照，保留最近 MAX_SNAPSHOTS 个
@@ -337,7 +342,8 @@ export async function restoreFromSnapshot<T>(metaPath: string): Promise<T | unde
     entries = (await fs.promises.readdir(snapshotDir))
       .filter((name) => name.startsWith('state.core.') && name.endsWith('.json'))
       .sort((a, b) => extractSnapshotGeneration(b) - extractSnapshotGeneration(a));
-  } catch {
+  } catch (err) {
+    warn('Error listing snapshot files:', err);
     return undefined;
   }
 
@@ -365,7 +371,8 @@ async function pruneOldSnapshots(snapshotDir: string): Promise<void> {
     entries = (await fs.promises.readdir(snapshotDir))
       .filter((name) => name.startsWith('state.core.') && name.endsWith('.json'))
       .sort((a, b) => extractSnapshotGeneration(a) - extractSnapshotGeneration(b));
-  } catch {
+  } catch (err) {
+    warn('Error pruning old snapshots:', err);
     return;
   }
 

@@ -471,8 +471,16 @@ export type WebviewInboundMessage =
   | { type: 'deleteTemplate'; templateId: string }
   | { type: 'renameTemplate'; templateId: string; name: string };
 
+export type StreamDeltaPayload = {
+  messageId: string;
+  content: string;
+  reasoning?: string;
+  modelLabel: string;
+};
+
 export type WebviewOutboundMessage =
   | { type: 'state'; payload: ChatStatePayload }
+  | { type: 'streamDelta'; payload: StreamDeltaPayload }
   | { type: 'error'; message: string }
   | { type: 'mcpResources'; payload: { items: McpResourceEntry[]; message?: string } }
   | { type: 'mcpPrompts'; payload: { items: McpPromptEntry[]; message?: string } }

@@ -16,7 +16,7 @@ import * as path from 'path';
 
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 
-import { error } from '../utils';
+import { error, warn } from '../utils';
 import { fileExists, readJsonFile, removeFileIfExists, writeJsonAtomic } from './io';
 import {
   COMPASS_LAYOUT_VERSION,
@@ -357,7 +357,8 @@ export class CompassMigrator {
         locateFile: (file: string) => {
           try {
             return require.resolve(`sql.js/dist/${file}`);
-          } catch {
+          } catch (err) {
+            warn('Error resolving sql.js file:', err);
             return path.join(__dirname, '../../../node_modules/sql.js/dist', file);
           }
         }

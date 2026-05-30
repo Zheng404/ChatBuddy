@@ -15,6 +15,7 @@ import {
   normalizeThemeToken,
   normalizeFontFamilyToken
 } from './codiconUtils';
+import { warn } from './utils';
 
 const CODICON_CANDIDATE_DIRS: ReadonlyArray<string> = [
   path.join('out', 'vs', 'base', 'browser', 'ui', 'codicons', 'codicon'),
@@ -117,7 +118,8 @@ function readPackageNlsValue(extensionPath: string, key: string): string | undef
         }
         nlsMap = parsed;
         break;
-      } catch {
+      } catch (err) {
+        warn('Error reading package NLS file:', err);
         continue;
       }
     }
@@ -178,7 +180,8 @@ function scanAppExtensionsForProductIconThemes(target: Map<string, ProductIconTh
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(extensionsRoot, { withFileTypes: true });
-  } catch {
+  } catch (err) {
+    warn('Error scanning app extensions:', err);
     return;
   }
 
@@ -209,7 +212,8 @@ function scanAppExtensionsForProductIconThemes(target: Map<string, ProductIconTh
       const publisher = typeof parsed.publisher === 'string' ? parsed.publisher : 'builtin';
       const extensionId = `${publisher}.${name}`;
       appendProductIconThemeCandidates(target, extensionId, extensionPath, parsed, 'app-extensions-scan');
-    } catch {
+    } catch (err) {
+      warn('Error parsing extension package.json:', err);
       continue;
     }
   }
@@ -304,8 +308,8 @@ function resolveRelativeAssetPath(baseFilePath: string, rawAssetPath: string): s
   let decodedRelativePath = normalizedRelativePath;
   try {
     decodedRelativePath = decodeURIComponent(normalizedRelativePath);
-  } catch {
-    // 解码失败时返回 undefined (路径无效喵～)
+  } catch (err) {
+    warn('Error decoding relative asset path:', err);
     return undefined;
   }
   return path.resolve(path.dirname(baseFilePath), decodedRelativePath);
@@ -383,7 +387,8 @@ function buildHostWorkbenchCodiconOverrides(appRoot: string): HostCodiconOverrid
   let workbenchCss = '';
   try {
     workbenchCss = fs.readFileSync(workbenchCssPath, 'utf8');
-  } catch {
+  } catch (err) {
+    warn('Error reading workbench CSS:', err);
     return {
       workbenchCssPath,
       configuredFontFamilyChain: [],
@@ -432,7 +437,8 @@ function buildHostWorkbenchCodiconOverrides(appRoot: string): HostCodiconOverrid
         )}";font-display:block;src:url("data:${detected.mime};base64,${base64}") format("${detected.format}");}`
       );
       injectedFontFamilies.push(fontFamily);
-    } catch {
+    } catch (err) {
+      warn('Error reading font file:', err);
       continue;
     }
   }
@@ -495,7 +501,8 @@ function readCodiconCssLength(directoryPath: string): number {
   try {
     const cssPath = path.join(directoryPath, 'codicon.css');
     return fs.readFileSync(cssPath, 'utf8').length;
-  } catch {
+  } catch (err) {
+    warn('Error reading codicon CSS:', err);
     return 0;
   }
 }
@@ -558,7 +565,8 @@ function discoverCodiconRoots(appRoot: string): CodiconDiscoveredRoot[] {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(current.dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      warn('Error reading directory:', err);
       continue;
     }
 
@@ -677,8 +685,8 @@ function inlineLocalFontUrls(rawCss: string, cssRootPath: string): string {
     let decodedRelativePath = normalizedRelativePath;
     try {
       decodedRelativePath = decodeURIComponent(normalizedRelativePath);
-    } catch {
-      // keep raw path when decode fails
+    } catch (err) {
+      warn('Error decoding URI component:', err);
     }
     const resolvedPath = path.resolve(cssRootPath, decodedRelativePath);
     if (!fs.existsSync(resolvedPath)) {
@@ -693,7 +701,8 @@ function inlineLocalFontUrls(rawCss: string, cssRootPath: string): string {
     try {
       const base64 = fs.readFileSync(resolvedPath).toString('base64');
       return `url("data:${detected.mime};base64,${base64}")`;
-    } catch {
+    } catch (err) {
+      warn('Error reading font base64:', err);
       return full;
     }
   });
@@ -761,7 +770,8 @@ function resolveActiveProductIconThemeCandidate(): ProductIconThemeCandidate | u
     }
 
     return undefined;
-  } catch {
+  } catch (err) {
+    warn('Error resolving product icon theme:', err);
     return undefined;
   }
 }
@@ -780,7 +790,8 @@ function buildProductIconThemeOverrides(): string {
   try {
     const rawThemeContent = fs.readFileSync(themeFilePath, 'utf8');
     parsed = parseJsonLike<ProductIconThemeFile>(rawThemeContent);
-  } catch {
+  } catch (err) {
+    warn('Error reading product icon theme:', err);
     return '';
   }
   if (!parsed) {
@@ -822,7 +833,8 @@ function buildProductIconThemeOverrides(): string {
         try {
           const fontBase64 = fs.readFileSync(absoluteFontPath).toString('base64');
           sourceEntries.push(`url("data:${detected.mime};base64,${fontBase64}") format("${detected.format}")`);
-        } catch {
+        } catch (err) {
+          warn('Error reading theme font file:', err);
           continue;
         }
       }
@@ -877,7 +889,8 @@ function buildProductIconThemeOverrides(): string {
 function safeBuildProductIconThemeOverrides(): string {
   try {
     return buildProductIconThemeOverrides();
-  } catch {
+  } catch (err) {
+    warn('Error building product icon theme overrides:', err);
     return '';
   }
 }
@@ -918,7 +931,8 @@ export function getCodiconStyleText(): string {
   let rawCss = '';
   try {
     rawCss = fs.readFileSync(cssPath, 'utf8');
-  } catch {
+  } catch (err) {
+    warn('Error reading codicon CSS:', err);
     codiconStyleTextCache.set(appRoot, '');
     return '';
   }

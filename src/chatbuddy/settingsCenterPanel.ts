@@ -340,7 +340,8 @@ export class SettingsCenterPanelController {
           publisher && packageName ? `https://marketplace.visualstudio.com/items?itemName=${publisher}.${packageName}` : '',
         openVsxUrl: publisher && packageName ? `https://open-vsx.org/extension/${publisher}/${packageName}` : ''
       };
-    } catch {
+    } catch (err) {
+      warn('Error reading package metadata:', err);
       this.packageMetadataCache = {
         appName: 'ChatBuddy',
         version: '',
@@ -376,8 +377,8 @@ export class SettingsCenterPanelController {
       try {
         this.changelogMarkdownCache = fs.readFileSync(path.join(extRoot, name), 'utf-8');
         return this.changelogMarkdownCache;
-      } catch {
-        // try next candidate
+      } catch (err) {
+        warn('Error reading changelog file:', err);
       }
     }
     this.changelogMarkdownCache = '';

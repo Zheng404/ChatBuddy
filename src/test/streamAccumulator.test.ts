@@ -169,6 +169,38 @@ describe('buildStreamFlush', () => {
     assert.deepEqual(notified, [true, false]);
   });
 
+  test('calls notifyDelta callback with content and reasoning', () => {
+    const acc = makeAcc({ rawMerged: 'hello', reasoningMerged: 'thinking' });
+    const repository = createMockRepository([]);
+    const deltas: Array<{ content: string; reasoning?: string }> = [];
+    const flush = buildStreamFlush(acc, {
+      assistantId: 'a1',
+      sessionId: 's1',
+      fallbackMessageId: 'msg-fb',
+      modelLabel: 'M'
+    }, repository, makeStrings(), undefined, (content, reasoning) => { deltas.push({ content, reasoning }); });
+
+    flush(false);
+    assert.equal(deltas.length, 1);
+    assert.equal(deltas[0].content, 'hello');
+    assert.equal(deltas[0].reasoning, 'thinking');
+  });
+
+  test('notifyDelta is called before notifyState', () => {
+    const acc = makeAcc({ rawMerged: 'content' });
+    const repository = createMockRepository([]);
+    const order: string[] = [];
+    const flush = buildStreamFlush(acc, {
+      assistantId: 'a1',
+      sessionId: 's1',
+      fallbackMessageId: 'msg-fb',
+      modelLabel: 'M'
+    }, repository, makeStrings(), () => { order.push('state'); }, () => { order.push('delta'); });
+
+    flush(false);
+    assert.deepEqual(order, ['delta', 'state']);
+  });
+
   test('handles think-tagged content correctly', () => {
     const acc = makeAcc({ rawMerged: '<think reasoning here</think actual content' });
     const captures: CapturedUpdate[] = [];

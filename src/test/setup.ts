@@ -11,12 +11,26 @@ const vscodeStub = {
     language: 'en',
     appRoot: process.cwd()
   },
+  commands: {
+    registerCommand: () => ({ dispose: () => undefined }),
+    executeCommand: async () => undefined
+  },
   window: {
     createOutputChannel: () => ({
       appendLine: () => undefined,
       dispose: () => undefined
     }),
-    showWarningMessage: async () => undefined
+    showWarningMessage: async () => undefined,
+    showInformationMessage: async () => undefined,
+    showInputBox: async () => undefined,
+    showQuickPick: async () => undefined,
+    showSaveDialog: async () => undefined
+  },
+  workspace: {
+    workspaceFolders: undefined,
+    fs: {
+      writeFile: async () => undefined
+    }
   },
   ViewColumn: {
     One: 1

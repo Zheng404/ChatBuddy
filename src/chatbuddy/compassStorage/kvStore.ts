@@ -7,6 +7,7 @@
 import { fileExists, readJsonFile, readTextFile, removeFileIfExists, writeJsonAtomic } from './io';
 import { CompassPaths } from './paths';
 import { CompassValidationResult } from './types';
+import { warn } from '../utils';
 
 export class CompassKvStore {
   private readonly kv = new Map<string, string>();
@@ -56,7 +57,8 @@ export class CompassKvStore {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
-    } catch {
+    } catch (err) {
+      warn('Error parsing KV snapshot:', err);
       return { valid: false, reason: `KV snapshot is not valid JSON: ${paths.kvPath}` };
     }
 
