@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.schema.json",
+  "context": {
+    "instructions": "这是一个 VS Code 扩展项目，使用 TypeScript 严格模式。遵循分层架构：extension/ 是适配层，chatbuddy/ 是业务核心层。修改代码时注意：1) 禁止循环依赖 2) 状态变更必须通过 ChatStateRepository 和 refreshAll() 3) WebView 不使用 eval/innerHTML 4) MCP 客户端通过动态 import() 加载",
+    "include": ["src/", "docs/", "scripts/"],
+    "exclude": ["out/", "node_modules/", "*.vsix", "coverage/"]
+  },
+  "commands": {
+    "test": {
+      "description": "运行 lint + 编译 + 单元测试",
+      "prompt": "运行 npm run lint && npm run compile && npm run test:unit。如果测试失败，分析失败原因并修复。"
+    },
+    "check-types": {
+      "description": "检查 TypeScript 类型",
+      "prompt": "运行 npm run compile，确保没有 TypeScript 编译错误。如果有错误，修复它们。"
+    }
+  }
+}

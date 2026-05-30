@@ -68,7 +68,6 @@ bun.lockb
 # Build Artifacts
 # -----------------------------------------------------------------------------
 *.vsix
-*.zip
 *.tgz
 .github-release-notes.md
 

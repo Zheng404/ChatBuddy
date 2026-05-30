@@ -85,6 +85,7 @@ ChatBuddy/
 │   │   ├── stateClone.ts
 │   │   ├── stateHelpers.ts
 │   │   ├── stateSanitizers.ts
+│   │   ├── chatStorage.ts
 │   │   │
 │   │   ├── chatController.ts           ← 聊天控制器主入口
 │   │   ├── chatControllerGenerationService.ts
@@ -406,6 +407,42 @@ fix(chat): handle empty tool call arguments gracefully
 refactor(storage): extract session persistence logic
 
 docs: add architecture documentation for Compass storage
+```
+
+### 提交模板格式
+
+```
+<type>(<scope>): <subject>
+│        │         │
+│        │         └─ Summary: 使用现在时态（50 字符以内）
+│        │            - 英文首字母大写
+│        │            - 结尾不加句号
+│        │
+│        └─── Scope: 受影响的模块或区域
+│               - 例如: chat, settings, storage, mcp, ui, provider
+│               - 可选：无特定范围时可省略
+│
+└──────── Type: 从下方列表中选择
+               - feat: 新功能
+               - fix: Bug 修复
+               - docs: 文档更新
+               - style: 代码格式调整（不影响功能）
+               - refactor: 代码重构
+               - perf: 性能优化
+               - test: 测试相关
+               - build: 构建系统变更
+               - ci: CI/CD 变更
+               - chore: 其他任务
+
+Body (可选): 解释 WHAT 和 WHY，不是 HOW
+- 使用项目符号列出多项变更
+- 每行不超过 72 字符
+- 使用英文
+
+Footer (可选):
+Closes #123
+Refs #456
+BREAKING CHANGE: 新的 API 接口
 ```
 
 ### 预提交检查

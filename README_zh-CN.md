@@ -97,10 +97,12 @@ ChatBuddy 是一款**通用 OpenAI 兼容 API 客户端**。只要 API 端点实
 
 > 详细的开发文档请查看 [`docs/`](./docs) 目录。
 
-- [架构概览](./docs/ARCHITECTURE.md)
-- [存储格式与迁移机制](./docs/STORAGE.md)
-- [WebView 通信协议](./docs/WEBVIEW_PROTOCOL.md)
-- [贡献指南](./docs/CONTRIBUTING.md)
+- [项目上下文 (AGENTS.md)](./AGENTS.md) — 架构、编码规范、常见任务
+- [开发指南](./docs/DEVELOPMENT.md) — 快速参考与文档索引
+- [架构概览](./docs/ARCHITECTURE.md) — 详细架构设计与数据流
+- [存储格式与迁移机制](./docs/STORAGE.md) — Compass 存储结构与迁移机制
+- [WebView 通信协议](./docs/WEBVIEW_PROTOCOL.md) — Extension Host ↔ WebView 消息格式
+- [贡献指南](./docs/CONTRIBUTING.md) — 开发环境搭建与贡献规范
 
 ```bash
 # 克隆并初始化

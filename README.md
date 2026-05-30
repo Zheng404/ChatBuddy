@@ -97,10 +97,12 @@ ChatBuddy is a **generic OpenAI-compatible API client**. It works with any API e
 
 > For detailed development documentation, see the [`docs/`](./docs) directory.
 
-- [Architecture Overview](./docs/ARCHITECTURE.md)
-- [Storage Format & Migration](./docs/STORAGE.md)
-- [WebView Communication Protocol](./docs/WEBVIEW_PROTOCOL.md)
-- [Contributing Guide](./docs/CONTRIBUTING.md)
+- [Project Context (AGENTS.md)](./AGENTS.md) — Architecture, conventions, common tasks
+- [Development Guide](./docs/DEVELOPMENT.md) — Quick reference and documentation index
+- [Architecture Overview](./docs/ARCHITECTURE.md) — Detailed architecture and data flow
+- [Storage Format & Migration](./docs/STORAGE.md) — Compass storage and migration
+- [WebView Communication Protocol](./docs/WEBVIEW_PROTOCOL.md) — Extension Host ↔ WebView protocol
+- [Contributing Guide](./docs/CONTRIBUTING.md) — Development setup and contribution guidelines
 
 ```bash
 # Clone and setup
