@@ -15,7 +15,7 @@
   <a href="https://open-vsx.org/extension/Zheng404/chatbuddy">
     <img src="https://img.shields.io/badge/Open%20VSX-Install-orange.svg" alt="Open VSX">
   </a>
-  <img src="https://img.shields.io/badge/VS%20Code-1.85.0+-blue.svg" alt="VS Code Version">
+  <img src="https://img.shields.io/badge/VS%20Code-1.120.0+-blue.svg" alt="VS Code Version">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License">
 </p>
 
@@ -34,6 +34,7 @@ A powerful, multi-assistant AI chat extension for VS Code. Chat with any OpenAI-
 - **Tool Calling** — Local function tools + MCP remote tools with user confirmation for dangerous actions.
 - **Model Capability Inference** — Auto-detects model type (chat, image, video, audio, embedding, rerank) and capabilities (vision, reasoning, tools, webSearch).
 - **Bilingual UI** — Full Chinese and English support with runtime language switching.
+- **Custom Sidebar Views** — Assistants, sessions, recycle bin, and settings are rendered as custom Webview Views for richer layouts and interactions.
 - **Data Backup & Migration** — Export/import structured ZIP backups. Automatic migration from legacy SQLite storage.
 
 ---

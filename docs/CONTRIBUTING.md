@@ -21,7 +21,7 @@
 ## 环境要求
 
 - **Node.js**: 20.x 或更高
-- **VS Code**: 1.85.0 或更高（用于调试和测试）
+- **VS Code**: 1.120.0 或更高（用于调试和测试）
 - **Git**: 任意现代版本
 
 ---
@@ -51,21 +51,28 @@ code .
 ChatBuddy/
 ├── docs/                       ← 项目文档
 │   ├── ARCHITECTURE.md
+│   ├── DEVELOPMENT.md
 │   ├── STORAGE.md
 │   ├── WEBVIEW_PROTOCOL.md
-│   └── CONTRIBUTING.md
+│   ├── CONTRIBUTING.md
+│   └── adr/                    ← 架构决策记录
 │
 ├── src/                        ← TypeScript 源码
 │   ├── extension.ts            ← 扩展入口，依赖注入组装
 │   │
-│   ├── extension/              ← 命令层
+│   ├── extension/              ← 适配层（命令注册、侧边栏 WebviewView、面板控制器）
+│   │   ├── commands.ts         ← 命令注册聚合
+│   │   ├── panelControllers.ts ← 面板控制器工厂
+│   │   ├── sidebarViewProviders.ts ← 侧边栏 WebviewViewProvider 工厂
+│   │   ├── activationTypes.ts  ← 激活阶段共享类型
+│   │   ├── dataActions.ts      ← 数据导入/导出/重置动作
 │   │   ├── settingsCommands.ts
 │   │   ├── navigationCommands.ts
 │   │   ├── assistantTreeCommands.ts
 │   │   ├── assistantManagementCommands.ts
 │   │   ├── sessionCommands.ts
 │   │   ├── localeMenuCommands.ts
-│   │   ├── shared.ts
+│   │   ├── shared.ts           ← ExtensionContext 接口与导出辅助
 │   │   └── localeAwareManifestData.json
 │   │
 │   ├── chatbuddy/              ← 业务核心层
@@ -93,7 +100,6 @@ ChatBuddy/
 │   │   ├── chatControllerPayload.ts
 │   │   ├── chatControllerToolOrchestrator.ts
 │   │   ├── chatControllerWebviewRouter.ts
-│   │   ├── chatStorage.ts
 │   │   ├── chatUtils.ts
 │   │   │
 │   │   ├── providerClient.ts           ← Provider 客户端主入口
@@ -160,8 +166,23 @@ ChatBuddy/
 │   │   │   ├── locale.ts
 │   │   │   └── logger.ts
 │   │   │
-│   │   ├── assistantsView.ts   ← 助手树数据提供器
-│   │   ├── sessionsView.ts     ← 会话树数据提供器
+│   │   ├── sidebarViewBase.ts          ← 侧边栏 WebviewView 抽象基类
+│   │   ├── sidebarViewTypes.ts         ← 侧边栏通信消息联合类型
+│   │   ├── sidebarViewStyles.ts        ← 侧边栏共享样式（VS Code CSS 变量）
+│   │   ├── sidebarViewHtml.ts          ← 侧边栏 HTML 骨架
+│   │   ├── sidebarViewSorters.ts       ← 侧边栏排序逻辑
+│   │   ├── sidebarViewSettings.ts      ← 设置侧边栏 Webview View Provider
+│   │   ├── sidebarViewAssistants.ts    ← 助手侧边栏 Webview View Provider（含回收站模式）
+│   │   ├── sidebarViewSessions.ts      ← 会话侧边栏 Webview View Provider
+│   │   ├── sidebarViewJs/              ← 侧边栏前端 JS
+│   │   │   ├── index.ts
+│   │   │   ├── shared.ts
+│   │   │   ├── assistants.ts
+│   │   │   ├── sessions.ts
+│   │   │   ├── settings.ts
+│   │   │   ├── contextMenu.ts
+│   │   │   ├── searchBox.ts
+│   │   │   └── treeList.ts
 │   │   ├── assistantEditorPanel.ts
 │   │   ├── backupArchive.ts
 │   │   ├── security.ts
@@ -321,7 +342,7 @@ npx eslint src --ext ts --fix
 # 运行 lint + 编译 + 单元测试
 npm test
 
-# 仅运行单元测试（需要先编译）
+# 仅运行单元测试（脚本会自动前置 compile，无需手动编译）
 npm run test:unit
 
 # 仅运行 lint
@@ -330,29 +351,17 @@ npm run lint
 
 ### 测试文件说明
 
-| 测试文件 | 覆盖范围 |
-|----------|----------|
-| `chatController.behavior.test.ts` | 聊天控制器端到端行为 |
-| `chatControllerGenerationService.test.ts` | 消息生成服务 |
-| `chatControllerPayload.test.ts` | 消息载荷构建 |
-| `chatControllerToolOrchestrator.test.ts` | 工具调用编排 |
-| `chatFileContext.test.ts` | 文件上下文处理 |
-| `chatStorage.test.ts` | 存储层读写 |
-| `mcpRuntime.test.ts` | MCP 运行时 |
-| `modelCapabilityPatterns.test.ts` | 模型能力推断 |
-| `providerClient.stream.test.ts` | Provider 流式解析 |
-| `providerClientParsers.test.ts` | 响应解析器 |
-| `providerClientRequestBuilders.test.ts` | 请求构建器 |
-| `provider.test.ts` | 提供商管理 |
-| `backupArchive.test.ts` | ZIP 备份压缩解压 |
-| `retry.test.ts` | 重试工具函数 |
-| `stateClone.test.ts` | 状态深拷贝 |
-| `stateRepositoryAssistantService.test.ts` | 助手状态服务 |
-| `stateRepositoryBackup.test.ts` | 备份导入导出 |
-| `stateRepositoryPersistenceService.test.ts` | 持久化服务 |
-| `stateSanitizers.test.ts` | 状态初始化与清理 |
-| `streamAccumulator.test.ts` | 流式累加器 |
-| `template.test.ts` | 模板工具函数 |
+测试文件按域分目录组织在 `src/test/unit/` 下，当前共 67 个测试套件 / 433 个测试用例：
+
+| 子目录 | 代表测试文件 | 覆盖范围 |
+|--------|--------------|----------|
+| `unit/chat/` | `chatController.behavior.test.ts`、`chatControllerGenerationService.test.ts`、`chatControllerPayload.test.ts`、`chatControllerToolOrchestrator.test.ts`、`chatFileContext.test.ts`、`streamAccumulator.test.ts` | 聊天控制器、消息生成、工具编排、流式累加 |
+| `unit/provider/` | `providerClient.stream.test.ts`、`providerClientParsers.test.ts`、`providerClientRequestBuilders.test.ts`、`provider.test.ts`、`providerFailover.test.ts`、`modelCapabilityPatterns.test.ts` | Provider 客户端、流式解析、故障转移、模型能力推断 |
+| `unit/state/` | `stateRepositoryAssistantService.test.ts`、`stateRepositoryPersistenceService.test.ts`、`stateRepositoryBackup.test.ts`、`stateClone.test.ts`、`stateSanitizers.test.ts`、`apiKeyPersistence.test.ts` | 状态仓库、持久化、备份、API Key 存储 |
+| `unit/storage/` | `chatStorage.test.ts`、`backupArchive.test.ts`、`sessionStoreLoad.test.ts`、`sessionStoreSearch.test.ts` | Compass 存储层、会话读写、ZIP 备份 |
+| `unit/mcp/` | `mcpRuntime.test.ts`、`mcpServerGroups.test.ts` | MCP 运行时、服务器分组 |
+| `unit/extension/` | `assistantManagementCommands.test.ts`、`sessionCommands.test.ts` | 命令层行为 |
+| `unit/utils/` | `retry.test.ts`、`template.test.ts` | 工具函数 |
 
 ### 添加新测试
 

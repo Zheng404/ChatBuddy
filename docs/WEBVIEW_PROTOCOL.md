@@ -1,12 +1,13 @@
 # ChatBuddy WebView 通信协议
 
-> 最后更新：2026-04-28
+> 最后更新：2026-06-14
 
 本文档描述 ChatBuddy 中 Extension Host 与 WebView 之间的双向消息协议。
 
-ChatBuddy 使用两套独立的 WebView 通信协议：
+ChatBuddy 使用三套独立的 WebView 通信协议：
 1. **聊天面板协议** — `ChatController` ↔ 聊天 WebView
 2. **设置中心协议** — `SettingsCenterPanelController` ↔ 设置中心 WebView
+3. **侧边栏协议** — `BaseSidebarViewProvider` ↔ 4 个侧边栏 Webview View（settings / assistants / recycleBin / sessions）
 
 ---
 
@@ -18,6 +19,7 @@ ChatBuddy 使用两套独立的 WebView 通信协议：
   - [状态载荷 (ChatStatePayload)](#状态载荷-chatstatepayload)
   - [完整通信流程](#完整通信流程)
 - [设置中心协议](#设置中心协议)
+- [侧边栏 Webview 通信协议](#侧边栏-webview-通信协议)
 - [安全机制](#安全机制)
 
 ---
@@ -263,6 +265,80 @@ WebView                         Extension Host
 | `settings:connectionResult` | 连接测试结果 |
 | `settings:toast` | 显示 Toast |
 | `settings:close` | 关闭设置面板 |
+
+---
+
+## 侧边栏 Webview 通信协议
+
+4 个侧边栏 view（settings / assistants / recycleBin / sessions）均为自定义 Webview View，通过统一的轻量协议与 Extension Host 通信。所有 view 继承自抽象基类 `BaseSidebarViewProvider<TState, TMessage>`（`sidebarViewBase.ts`），消息联合类型定义在 `sidebarViewTypes.ts`。
+
+### 协议特点
+
+- **ready 握手**：Webview 加载完成后发送 `{type:'ready'}`，Host 收到后才推送状态；未 ready 时 `postState()` 静默丢弃，避免首屏竞态。
+- **全量状态推送**：Host 通过 `{type:'state', payload}` 推送完整状态，各 view 的 `TState` 接口由各自的 provider 文件定义。
+- **命令转发**：右键菜单等操作通过 `{type:'invokeCommand', command, args}` 回传 Host，Host 端命令 handler 统一为 id-based 签名。
+
+### Webview → Host (Inbound)
+
+| 消息类型 | 参数 | 说明 |
+|----------|------|------|
+| `ready` | 无 | Webview 加载完成，Host 收到后开始推送状态 |
+| `invokeCommand` | `command: string, args?: unknown[]` | 转发右键菜单等命令到 Host（id-based） |
+| `toggleGroupCollapse` | `groupId: string, collapsed: boolean` | 切换分组折叠状态 |
+| `search` | `keyword: string` | 搜索过滤（助手/会话） |
+
+### Host → Webview (Outbound)
+
+| 消息类型 | 载荷 | 说明 |
+|----------|------|------|
+| `state` | `payload: TState` | 全量状态更新（未 ready 时静默丢弃） |
+| `clearSearch` | 无 | 显式清空搜索框（reset / import 场景） |
+
+### 通信流程
+
+```
+Webview View                        Extension Host
+    │                                     │
+    │  1. 加载完成                        │
+    │ ────────── ready ─────────────────>│
+    │                                     │
+    │                                     │  2. ready 标志置位
+    │                                     │     构建该 view 的 TState
+    │                                     │
+    │  3. 推送初始状态                    │
+    │ <───────── state ─────────────────│
+    │                                     │
+    │  4. 用户操作（搜索/折叠/命令）      │
+    │ ── search / toggleGroupCollapse ──>│
+    │ ── invokeCommand ─────────────────>│
+    │                                     │
+    │  5. 状态变更后 refreshAll() 触发    │
+    │ <───────── state ─────────────────│
+    │                                     │
+    │  6. reset/import 时清空搜索        │
+    │ <───────── clearSearch ───────────│
+```
+
+### TypeScript 类型定义
+
+```ts
+// Host → Webview 出站消息
+type SidebarOutbound<TState> =
+  | { type: 'state'; payload: TState }
+  | { type: 'clearSearch' };
+
+// Webview → Host 入站消息
+type SidebarInbound =
+  | { type: 'ready' }
+  | { type: 'invokeCommand'; command: string; args?: unknown[] }
+  | { type: 'toggleGroupCollapse'; groupId: string; collapsed: boolean }
+  | { type: 'search'; keyword: string };
+
+// 侧边栏 view 种类标识
+type SidebarViewKind = 'assistants' | 'sessions' | 'recycleBin' | 'settings';
+```
+
+> 参考源码：`src/chatbuddy/sidebarViewTypes.ts`、`src/chatbuddy/sidebarViewBase.ts`。
 
 ---
 

@@ -15,7 +15,7 @@
   <a href="https://open-vsx.org/extension/Zheng404/chatbuddy">
     <img src="https://img.shields.io/badge/Open%20VSX-安装-orange.svg" alt="Open VSX">
   </a>
-  <img src="https://img.shields.io/badge/VS%20Code-1.85.0+-blue.svg" alt="VS Code 版本">
+  <img src="https://img.shields.io/badge/VS%20Code-1.120.0+-blue.svg" alt="VS Code 版本">
   <img src="https://img.shields.io/badge/许可证-MIT-green.svg" alt="许可证">
 </p>
 
@@ -34,6 +34,7 @@
 - **工具调用** — 本地函数工具 + MCP 远程工具，危险操作需用户确认。
 - **模型能力推断** — 自动检测模型类型（chat、image、video、audio、embedding、rerank）和能力（vision、reasoning、tools、webSearch）。
 - **双语界面** — 完整的中英文支持，运行时语言切换。
+- **自定义侧边栏视图** — 助手、会话、回收站、设置均以自定义 Webview View 渲染，提供更丰富的布局与交互。
 - **数据备份与迁移** — 导出/导入结构化 ZIP 备份，自动从旧版 SQLite 存储迁移。
 
 ---

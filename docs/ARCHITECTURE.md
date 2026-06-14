@@ -1,6 +1,6 @@
 # ChatBuddy 架构文档
 
-> 最后更新：2026-05-30
+> 最后更新：2026-06-14
 
 本文档描述 ChatBuddy VS Code 扩展的整体架构、模块分层和数据流。
 
@@ -25,7 +25,7 @@ ChatBuddy 是一个 VS Code 侧边栏扩展，提供多助手 AI 聊天功能。
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      VS Code 宿主环境                         │
-│  (TreeView, WebViewPanel, Commands, globalStorage, Events)  │
+│  (WebviewView, WebViewPanel, Commands, globalStorage, Events)│
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -38,7 +38,7 @@ ChatBuddy 是一个 VS Code 侧边栏扩展，提供多助手 AI 聊天功能。
 │              扩展入口 (src/extension.ts)                      │
 │  - activate/deactivate 生命周期                              │
 │  - 依赖注入图的构建与组装                                     │
-│  - TreeProvider / TreeView / PanelController 的实例化       │
+│  - SidebarViewProvider / PanelController 的实例化           │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -62,14 +62,13 @@ ChatBuddy 是一个 VS Code 侧边栏扩展，提供多助手 AI 聊天功能。
 
 1. **全局异常兜底**：注册 `unhandledRejection` 处理器，静默忽略 VS Code 生命周期中的良性错误
 2. **依赖注入**：按顺序创建 Repository → ProviderClient → McpRuntime → ChatController
-3. **视图构建**：创建 4 个 TreeProvider 和对应的 TreeView
+3. **视图构建**：创建 4 个侧边栏 WebviewView Provider（settings / assistants / recycleBin / sessions）
 4. **面板控制器**：初始化 SettingsCenterPanelController 和 AssistantEditorPanelController
 5. **命令注册**：将所有命令注册到 VS Code 命令系统
 6. **订阅管理**：通过 `context.subscriptions` 统一管理资源释放
 
 关键类型：
-- `ActivationTreeProviders` — 助手树、回收站树、会话树
-- `ActivationTreeViews` — 4 个 TreeView 实例
+- `ActivationSidebarViewProviders` — 设置、助手、回收站、会话 4 个侧边栏 Webview View Provider
 - `PanelControllers` — 设置中心和助手编辑器面板控制器
 
 ### 2. 命令层 (`src/extension/`)
@@ -79,26 +78,24 @@ ChatBuddy 是一个 VS Code 侧边栏扩展，提供多助手 AI 聊天功能。
 | 模块 | 职责 |
 |------|------|
 | `settingsCommands.ts` | 打开设置、模型配置、默认模型、MCP、关于页面 |
-| `navigationCommands.ts` | 打开助手聊天、树视图操作 |
-| `assistantTreeCommands.ts` | 助手树的搜索、折叠、展开 |
+| `navigationCommands.ts` | 打开助手聊天、"问 AI" 等导航命令 |
+| `assistantTreeCommands.ts` | 助手侧边栏的搜索、折叠、分组管理（转发到 Webview View） |
 | `assistantManagementCommands.ts` | 助手的创建、编辑、删除、置顶、分组管理 |
 | `sessionCommands.ts` | 会话的创建、重命名、删除、导出、清空 |
 | `localeMenuCommands.ts` | 中英文菜单别名命令注册 |
 
 所有命令共享一个 `ExtensionContext` 接口，通过解构获取依赖：
 ```ts
-interface ExtensionContext {
+type ExtensionContext = {
   repository: ChatStateRepository;
   chatController: ChatController;
   settingsCenterPanelController: SettingsCenterPanelController;
   assistantEditorPanelController: AssistantEditorPanelController;
-  assistantsTreeProvider: AssistantsTreeProvider;
-  sessionsTreeProvider: SessionsTreeProvider;
+  sidebarViewProviders: ActivationSidebarViewProviders;
   refreshAll: () => void;
-  updateTreeMessage: () => void;
-  getRuntimeLocale: () => RuntimeLocale;
-  getRuntimeStrings: () => RuntimeStrings;
-}
+  getRuntimeLocale: () => string;
+  getRuntimeStrings: () => Record<string, string>;
+};
 ```
 
 ### 3. 业务核心层 (`src/chatbuddy/`)
@@ -232,7 +229,7 @@ MCP 模块是 ESM-only，通过动态 `import()` 在运行时加载。
                    │ 状态变更触发
                    ▼
             ┌─────────────┐
-            │ refreshAll() │ → TreeView 刷新 + WebView state 推送
+             │ refreshAll() │ → 侧边栏 Webview View 刷新 + WebView state 推送
             └─────────────┘
 ```
 
@@ -267,21 +264,19 @@ ChatController
 
 ## 核心模块详解
 
-### TreeProvider 体系
+### 侧边栏视图体系
 
-**`AssistantsTreeProvider`** (`assistantsView.ts`)
+**`AssistantsSidebarViewProvider`** (`sidebarViewAssistants.ts`)
 
-助手树数据提供器，同时服务于两个 TreeView：
+助手侧边栏 Webview View Provider，同时服务于两个视图：
 - **主视图** (`assistantsView`) — 显示活跃助手（默认分组 + 自定义分组）
 - **回收站视图** (`recycleBinView`) — 显示已删除的助手
 
-节点类型：
-- `group` — 分组节点（可展开/折叠）
-- `assistant` — 助手节点（活跃或已删除）
+通过 webview 内自定义菜单替代原 `view/item/context` 右键菜单，渲染分组与助手列表，交互通过 `postMessage` 与 Extension Host 通信。
 
-**`SessionsTreeProvider`** (`sessionsView.ts`)
+**`SessionsSidebarViewProvider`** (`sidebarViewSessions.ts`)
 
-会话树数据提供器，显示当前选中助手的所有会话。支持搜索过滤。
+会话侧边栏 Webview View Provider，显示当前选中助手的所有会话。支持搜索过滤。
 
 ### 设置中心
 
@@ -334,6 +329,19 @@ getChatWebviewHtml()
 | KaTeX | 数学公式渲染 | `node_modules` 内联加载 |
 | Mermaid | 流程图/时序图 | `node_modules` 内联加载 |
 | Codicon | VS Code 图标字体 | 内联 CSS |
+
+### 侧边栏 Webview 渲染体系
+
+4 个侧边栏 view（settings / assistants / recycleBin / sessions）同样使用 WebviewViewProvider 渲染，与聊天面板和设置中心共用 CSP / postMessage / codicon 模式，但走独立的轻量协议。
+
+- **抽象基类**：`BaseSidebarViewProvider<TState, TMessage>`（`sidebarViewBase.ts`）封装 ready 握手、全量状态推送、显式清空搜索与资源释放。
+- **共享基建**：`sidebarViewStyles.ts`（VS Code CSS 变量）、`sidebarViewHtml.ts`（HTML 骨架）、`sidebarViewSorters.ts`（排序逻辑）、`sidebarViewTypes.ts`（消息联合类型）。
+- **前端 JS**：`sidebarViewJs/` 下按职责拆分（index / assistants / sessions / settings / contextMenu / searchBox / treeList / shared）。
+- **具体 Provider**：`sidebarViewSettings.ts`、`sidebarViewAssistants.ts`（同时服务助手视图与回收站视图）、`sidebarViewSessions.ts`。
+
+侧边栏右键菜单不再使用原生 `view/item/context`，改为 Webview 内自定义右键菜单，命令通过 `{type:'invokeCommand', command, args}` 消息回传 Host，Host 端命令 handler 统一改为 id-based 签名。
+
+详细的通信消息格式见 [WEBVIEW_PROTOCOL.md](./WEBVIEW_PROTOCOL.md) 的「侧边栏 Webview 通信协议」章节。
 
 ---
 

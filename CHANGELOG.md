@@ -16,7 +16,13 @@ The format is based on Keep a Changelog, but kept intentionally simple for this 
 
 - Compass storage self-heal: automatically rebuilds session index when session files are missing or orphaned, without falling back to SQLite recovery.
 - Settings center pane order now matches navigation tab order.
-- Added missing Templates entry to the settings sidebar tree view.
+- Added missing Templates entry to the settings sidebar view.
+
+#### Refactored
+
+- Migrated all sidebar views (settings, assistants, recycle bin, sessions) from native TreeView to WebviewViewProvider for greater layout and animation flexibility.
+- Replaced native `view/item/context` context menus with custom in-webview context menus.
+- Unified command handlers to an id-based signature invoked via `{type:'invokeCommand', command, args}`.
 
 ### 中文
 
@@ -28,7 +34,13 @@ The format is based on Keep a Changelog, but kept intentionally simple for this 
 
 - Compass 存储自愈：会话文件缺失或孤立时自动重建索引，无需回退到 SQLite 恢复。
 - 设置中心面板顺序与导航标签页顺序对齐。
-- 补全设置侧边栏树视图中缺失的模板入口。
+- 补全设置侧边栏视图中缺失的模板入口。
+
+#### 重构
+
+- 侧边栏全部 view（设置、助手、回收站、会话）从原生 TreeView 迁移为 WebviewViewProvider，获得更高的自定义布局/动画自由度。
+- 原生 `view/item/context` 右键菜单改为 Webview 内自定义右键菜单。
+- 命令 handler 统一改为 id-based 签名，通过 `{type:'invokeCommand', command, args}` 消息触发。
 
 ## [0.3.5] - 2026-05-11
 
