@@ -2,6 +2,8 @@
  * assistantManagementCommands 单元测试。
  *
  * 覆盖助手管理命令的注册和命令处理器逻辑。
+ *
+ * 阶段 2.3：命令 handler 参数从 AssistantNode 改为 assistantId: string。
  */
 import { describe, test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +11,6 @@ import * as vscode from 'vscode';
 
 import { registerAssistantManagementCommands } from '../../../extension/assistantManagementCommands';
 import type { ExtensionContext } from '../../../extension/shared';
-import type { AssistantNode } from '../../../chatbuddy/assistantsView';
 import type { AssistantProfile } from '../../../chatbuddy/types';
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -43,10 +44,6 @@ function makeAssistant(overrides: Partial<AssistantProfile> = {}): AssistantProf
   };
 }
 
-function makeAssistantNode(assistant: AssistantProfile): AssistantNode {
-  return { kind: 'assistant', assistant };
-}
-
 type CommandHandler = (...args: unknown[]) => unknown;
 
 function createMockContext(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
@@ -70,20 +67,28 @@ function createMockContext(overrides: Partial<ExtensionContext> = {}): Extension
       openCreateAssistantEditor: () => undefined
     } as unknown as ExtensionContext['assistantEditorPanelController'],
     settingsCenterPanelController: {} as ExtensionContext['settingsCenterPanelController'],
-    assistantsTreeProvider: {
-      getSearchKeyword: () => '',
-      setSearchKeyword: () => undefined,
-      clearSearchKeyword: () => undefined,
-      refresh: () => undefined
-    } as unknown as ExtensionContext['assistantsTreeProvider'],
-    sessionsTreeProvider: {
-      getSearchKeyword: () => '',
-      setSearchKeyword: () => undefined,
-      clearSearchKeyword: () => undefined,
-      refresh: () => undefined
-    } as unknown as ExtensionContext['sessionsTreeProvider'],
+    sidebarViewProviders: {
+      assistantsViewProvider: {
+        clearSearch: () => undefined,
+        collapseAll: () => undefined,
+        focusSearch: () => undefined,
+        scrollToAssistant: () => undefined
+      },
+      recycleBinViewProvider: {
+        clearSearch: () => undefined,
+        collapseAll: () => undefined,
+        focusSearch: () => undefined,
+        scrollToAssistant: () => undefined
+      },
+      sessionsViewProvider: {
+        clearSearch: () => undefined,
+        focusSearch: () => undefined,
+        scrollToSession: () => undefined,
+        postState: () => undefined,
+        buildState: () => undefined
+      }
+    } as unknown as ExtensionContext['sidebarViewProviders'],
     refreshAll: () => undefined,
-    updateTreeMessage: () => undefined,
     getRuntimeLocale: () => 'en',
     getRuntimeStrings: () => ({
       deleteAction: 'Delete',
@@ -167,13 +172,13 @@ describe('pinAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.pinAssistant')!;
-    handler(makeAssistantNode(assistant));
+    handler(assistant.id);
 
     assert.equal(toggleCalled, true);
     assert.equal(refreshed, true);
   });
 
-  test('no-ops when node is missing', () => {
+  test('no-ops when id is missing', () => {
     let toggleCalled = false;
     const ctx = createMockContext({
       repository: {
@@ -209,7 +214,7 @@ describe('unpinAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.unpinAssistant')!;
-    handler(makeAssistantNode(assistant));
+    handler(assistant.id);
 
     assert.equal(toggleCalled, true);
     assert.equal(refreshed, true);
@@ -237,7 +242,7 @@ describe('editAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.editAssistant')!;
-    handler(makeAssistantNode(assistant));
+    handler(assistant.id);
 
     assert.equal(openedId, assistant.id);
   });
@@ -262,13 +267,13 @@ describe('editAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.editAssistant')!;
-    handler(makeAssistantNode(assistant));
+    handler(assistant.id);
 
     // showWarningMessage is fire-and-forget with void, so we check the mock directly
     assert.equal(shownMessage, 'Cannot edit deleted assistant');
   });
 
-  test('falls back to selected assistant when no node provided', () => {
+  test('falls back to selected assistant when no id provided', () => {
     let openedId: string | undefined;
     const assistant = makeAssistant();
     const ctx = createMockContext({
@@ -302,6 +307,7 @@ describe('softDeleteAssistant', () => {
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
+        getAssistantById: () => assistant,
         softDeleteAssistant: (id: string) => {
           softDeleteCalled = true;
           assert.equal(id, assistant.id);
@@ -321,7 +327,7 @@ describe('softDeleteAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.softDeleteAssistant')!;
-    await handler(makeAssistantNode(assistant));
+    await handler(assistant.id);
 
     assert.equal(softDeleteCalled, true);
     assert.equal(openChatCalled, true);
@@ -333,6 +339,7 @@ describe('softDeleteAssistant', () => {
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
+        getAssistantById: () => assistant,
         softDeleteAssistant: () => { softDeleteCalled = true; }
       } as unknown as ExtensionContext['repository']
     });
@@ -341,12 +348,12 @@ describe('softDeleteAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.softDeleteAssistant')!;
-    await handler(makeAssistantNode(assistant));
+    await handler(assistant.id);
 
     assert.equal(softDeleteCalled, false);
   });
 
-  test('no-ops when node is missing', async () => {
+  test('no-ops when id is missing', async () => {
     let softDeleteCalled = false;
     const ctx = createMockContext({
       repository: {
@@ -392,7 +399,7 @@ describe('restoreAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.restoreAssistant')!;
-    handler(makeAssistantNode(assistant));
+    handler(assistant.id);
 
     assert.equal(restoreCalled, true);
     assert.equal(openChatCalled, true);
@@ -413,7 +420,7 @@ describe('restoreAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.restoreAssistant')!;
-    handler(makeAssistantNode(assistant));
+    handler(assistant.id);
 
     assert.equal(openChatCalled, false);
   });
@@ -433,6 +440,7 @@ describe('hardDeleteAssistant', () => {
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
+        getAssistantById: () => assistant,
         hardDeleteAssistant: async (id: string) => {
           hardDeleteCalled = true;
           assert.equal(id, assistant.id);
@@ -453,7 +461,7 @@ describe('hardDeleteAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.hardDeleteAssistant')!;
-    await handler(makeAssistantNode(assistant));
+    await handler(assistant.id);
 
     assert.equal(disposeCalled, true);
     assert.equal(hardDeleteCalled, true);
@@ -466,6 +474,7 @@ describe('hardDeleteAssistant', () => {
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
+        getAssistantById: () => assistant,
         hardDeleteAssistant: async () => { hardDeleteCalled = true; }
       } as unknown as ExtensionContext['repository']
     });
@@ -474,7 +483,7 @@ describe('hardDeleteAssistant', () => {
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.hardDeleteAssistant')!;
-    await handler(makeAssistantNode(assistant));
+    await handler(assistant.id);
 
     assert.equal(hardDeleteCalled, false);
   });

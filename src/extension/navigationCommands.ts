@@ -2,10 +2,11 @@
  * 导航相关命令注册模块。
  *
  * 注册"问 AI"、打开助手聊天等导航命令。
+ *
+ * 阶段 2.3：命令 handler 参数统一为 id（string），适配 Webview View 调用。
  */
 import * as vscode from 'vscode';
 import type { ExtensionContext } from './shared';
-import { asAssistantNode, asSessionNode } from './shared';
 
 export function registerNavigationCommands(ctx: ExtensionContext): vscode.Disposable[] {
   const { repository, chatController, refreshAll, getRuntimeStrings } = ctx;
@@ -30,20 +31,15 @@ export function registerNavigationCommands(ctx: ExtensionContext): vscode.Dispos
       chatController.prefillComposer(selectedText, assistant.id);
       refreshAll();
     }),
-    vscode.commands.registerCommand('chatbuddy.openAssistantChat', (assistantOrId?: import('../chatbuddy/assistantsView').AssistantNode | string) => {
-      const assistantId =
-        typeof assistantOrId === 'string'
-          ? assistantOrId
-          : asAssistantNode(assistantOrId)?.assistant.id;
+    vscode.commands.registerCommand('chatbuddy.openAssistantChat', (assistantId?: string) => {
       chatController.openAssistantChat(assistantId);
       refreshAll();
     }),
-    vscode.commands.registerCommand('chatbuddy.openSessionChat', (arg?: import('../chatbuddy/sessionsView').SessionNode) => {
-      const node = asSessionNode(arg);
-      if (!node) { return; }
-      repository.setSelectedAssistant(node.assistantId);
-      repository.selectSession(node.assistantId, node.session.id);
-      chatController.openAssistantChat(node.assistantId);
+    vscode.commands.registerCommand('chatbuddy.openSessionChat', (assistantId?: string, sessionId?: string) => {
+      if (!assistantId || !sessionId) { return; }
+      repository.setSelectedAssistant(assistantId);
+      repository.selectSession(assistantId, sessionId);
+      chatController.openAssistantChat(assistantId);
       refreshAll();
     })
   ];

@@ -5,30 +5,32 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
 
-import { AssistantsTreeProvider } from '../chatbuddy/assistantsView';
 import { ChatController } from '../chatbuddy/chatController';
 import { createBackupArchive, extractBackupPayloadFromArchive, isZipArchive } from '../chatbuddy/backupArchive';
 import { formatString } from '../chatbuddy/i18n';
 import { ChatStateRepository } from '../chatbuddy/stateRepository';
 import { warn } from '../chatbuddy/utils';
-import { DataActionResult } from './activationTypes';
+import { DataActionResult, ActivationSidebarViewProviders } from './activationTypes';
 import { buildBackupFileName } from './shared';
 
+/**
+ * 清空 assistants / recycleBin 两个侧边栏 Webview View 的搜索状态。
+ *
+ * 阶段 2.3：从原 TreeProvider.clearSearchKeyword 改为 WebviewView Provider.clearSearch，
+ *          同时推送清空搜索框指令与最新状态到前端。
+ */
 export function clearAssistantSearchFilters(
-  assistantsTreeProvider: AssistantsTreeProvider,
-  recycleBinTreeProvider: AssistantsTreeProvider
+  sidebarViewProviders: ActivationSidebarViewProviders
 ): void {
-  assistantsTreeProvider.clearSearchKeyword();
-  recycleBinTreeProvider.clearSearchKeyword();
+  sidebarViewProviders.assistantsViewProvider.clearSearch();
+  sidebarViewProviders.recycleBinViewProvider.clearSearch();
 }
 
 export function createDataActionHandlers(args: {
   repository: ChatStateRepository;
   chatController: ChatController;
-  getAssistantsTreeProvider: () => AssistantsTreeProvider;
-  getRecycleBinTreeProvider: () => AssistantsTreeProvider;
+  sidebarViewProviders: ActivationSidebarViewProviders;
   refreshAll: () => void;
-  updateTreeMessage: () => void;
   getRuntimeStrings: () => Record<string, string>;
 }): {
   handleResetData: () => Promise<boolean>;
@@ -40,10 +42,8 @@ export function createDataActionHandlers(args: {
   const {
     repository,
     chatController,
-    getAssistantsTreeProvider,
-    getRecycleBinTreeProvider,
+    sidebarViewProviders,
     refreshAll,
-    updateTreeMessage,
     getRuntimeStrings
   } = args;
 
@@ -96,9 +96,8 @@ export function createDataActionHandlers(args: {
       await repository.resetState();
       chatController.applySettings(repository.getSettings());
       chatController.openAssistantChat();
-      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
+      clearAssistantSearchFilters(sidebarViewProviders);
       refreshAll();
-      updateTreeMessage();
       return true;
     },
     handleExportData: async () => {
@@ -175,9 +174,8 @@ export function createDataActionHandlers(args: {
 
       chatController.applySettings(repository.getSettings());
       chatController.openAssistantChat();
-      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
+      clearAssistantSearchFilters(sidebarViewProviders);
       refreshAll();
-      updateTreeMessage();
       return {
         notice: strings.importDataDone,
         tone: 'success'
@@ -233,9 +231,8 @@ export function createDataActionHandlers(args: {
 
       chatController.applySettings(repository.getSettings());
       chatController.openAssistantChat();
-      clearAssistantSearchFilters(getAssistantsTreeProvider(), getRecycleBinTreeProvider());
+      clearAssistantSearchFilters(sidebarViewProviders);
       refreshAll();
-      updateTreeMessage();
       return {
         notice: strings.importLegacyDataDone,
         tone: 'success'

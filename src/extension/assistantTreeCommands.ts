@@ -2,20 +2,21 @@
  * 助手树交互命令注册模块。
  *
  * 注册助手树的搜索、折叠、展开、创建分组等交互命令。
+ *
+ * 阶段 2.3：assistants / recycleBin 已迁移为 Webview View，
+ *          搜索 / 折叠 / 聚焦等命令改为转发到 AssistantsSidebarViewProvider。
  */
 import * as vscode from 'vscode';
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID, isLegacyDefaultGroupName } from '../chatbuddy/constants';
 import { formatString } from '../chatbuddy/i18n';
 import type { ExtensionContext } from './shared';
-import { asGroupNode } from './shared';
 
 export function registerAssistantTreeCommands(ctx: ExtensionContext): vscode.Disposable[] {
   const {
     repository,
     assistantEditorPanelController,
-    assistantsTreeProvider,
+    sidebarViewProviders,
     refreshAll,
-    updateTreeMessage,
     getRuntimeStrings
   } = ctx;
   const strings = getRuntimeStrings;
@@ -57,7 +58,6 @@ export function registerAssistantTreeCommands(ctx: ExtensionContext): vscode.Dis
       const created = repository.createAssistantFromTemplate(picked.templateId);
       if (!created) { return; }
       refreshAll();
-      updateTreeMessage();
       assistantEditorPanelController.openAssistantEditor(created.id);
       void vscode.window.showInformationMessage(formatString(strings().templateCreatedAssistant, { name: created.name }));
     }),
@@ -82,7 +82,6 @@ export function registerAssistantTreeCommands(ctx: ExtensionContext): vscode.Dis
       const created = repository.createAssistantFromTemplate(picked.templateId);
       if (!created) { return; }
       refreshAll();
-      updateTreeMessage();
       assistantEditorPanelController.openAssistantEditor(created.id);
       void vscode.window.showInformationMessage(formatString(strings().templateCreatedAssistant, { name: created.name }));
     }),
@@ -94,59 +93,54 @@ export function registerAssistantTreeCommands(ctx: ExtensionContext): vscode.Dis
       if (!name?.trim()) { return; }
       repository.createGroup(name.trim());
       refreshAll();
-      updateTreeMessage();
     }),
-    vscode.commands.registerCommand('chatbuddy.searchAssistants', async () => {
-      const keyword = await vscode.window.showInputBox({
-        prompt: strings().assistantSearchPlaceholder,
-        value: assistantsTreeProvider.getSearchKeyword(),
-        ignoreFocusOut: true
-      });
-      if (keyword === undefined) { return; }
-      assistantsTreeProvider.setSearchKeyword(keyword);
-      updateTreeMessage();
+    vscode.commands.registerCommand('chatbuddy.searchAssistants', () => {
+      // 搜索框由 webview 内嵌实现，命令仅负责聚焦搜索框
+      sidebarViewProviders.assistantsViewProvider.focusSearch();
     }),
     vscode.commands.registerCommand('chatbuddy.collapseAllAssistants', () => {
-      void vscode.commands.executeCommand('workbench.actions.treeView.chatbuddy.assistantsView.collapseAll');
+      sidebarViewProviders.assistantsViewProvider.collapseAll();
+      refreshAll();
     }),
     vscode.commands.registerCommand('chatbuddy.clearAssistantSearch', () => {
-      assistantsTreeProvider.clearSearchKeyword();
-      updateTreeMessage();
+      sidebarViewProviders.assistantsViewProvider.clearSearch();
     }),
-    vscode.commands.registerCommand('chatbuddy.renameGroup', async (arg?: import('../chatbuddy/assistantsView').AssistantGroupNode) => {
-      const node = asGroupNode(arg);
-      if (!node) { return; }
-      if (node.group.id === DELETED_GROUP_ID) {
+    vscode.commands.registerCommand('chatbuddy.renameGroup', async (groupId?: string) => {
+      if (!groupId) { return; }
+      if (groupId === DELETED_GROUP_ID) {
         void vscode.window.showWarningMessage(strings().groupRenameBlocked);
         return;
       }
+      const group = repository.getGroups().find((g) => g.id === groupId);
+      if (!group) { return; }
       const name = await vscode.window.showInputBox({
         prompt: strings().renameGroupPrompt,
         value:
-          node.group.id === DEFAULT_GROUP_ID &&
-          (!node.group.name.trim() || (node.group.updatedAt === node.group.createdAt && isLegacyDefaultGroupName(node.group.name)))
+          group.id === DEFAULT_GROUP_ID &&
+          (!group.name.trim() || (group.updatedAt === group.createdAt && isLegacyDefaultGroupName(group.name)))
             ? strings().defaultGroupName
-            : node.group.name,
+            : group.name,
         ignoreFocusOut: true
       });
       if (!name?.trim()) { return; }
-      repository.renameGroup(node.group.id, name.trim());
+      repository.renameGroup(group.id, name.trim());
       refreshAll();
     }),
-    vscode.commands.registerCommand('chatbuddy.deleteGroup', async (arg?: import('../chatbuddy/assistantsView').AssistantGroupNode) => {
-      const node = asGroupNode(arg);
-      if (!node) { return; }
-      if (node.group.id === DEFAULT_GROUP_ID || node.group.id === DELETED_GROUP_ID) {
+    vscode.commands.registerCommand('chatbuddy.deleteGroup', async (groupId?: string) => {
+      if (!groupId) { return; }
+      if (groupId === DEFAULT_GROUP_ID || groupId === DELETED_GROUP_ID) {
         void vscode.window.showWarningMessage(strings().groupDeleteBlocked);
         return;
       }
+      const group = repository.getGroups().find((g) => g.id === groupId);
+      const groupName = group?.name ?? groupId;
       const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmDeleteGroup, { name: node.group.name }),
+        formatString(strings().confirmDeleteGroup, { name: groupName }),
         { modal: true },
         strings().deleteAction
       );
       if (confirm !== strings().deleteAction) { return; }
-      repository.deleteGroup(node.group.id);
+      repository.deleteGroup(groupId);
       refreshAll();
     })
   ];

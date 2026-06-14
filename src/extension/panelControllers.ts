@@ -1,7 +1,10 @@
 /**
  * 面板控制器的创建工厂。
+ *
+ * 阶段 2.3：新建助手后的「滚动到指定助手」由原 TreeView.reveal(node)
+ *          改为 AssistantsSidebarViewProvider.scrollToAssistant(id)，
+ *          通知 webview 内部滚动到对应条目。
  */
-import { AssistantsTreeProvider } from '../chatbuddy/assistantsView';
 import { AssistantEditorPanelController } from '../chatbuddy/assistantEditorPanel';
 import { SettingsCenterPanelController } from '../chatbuddy/settingsCenterPanel';
 import { ChatController } from '../chatbuddy/chatController';
@@ -10,16 +13,14 @@ import { McpRuntime } from '../chatbuddy/mcpRuntime';
 import { OpenAICompatibleClient } from '../chatbuddy/providerClient';
 import { ChatStateRepository } from '../chatbuddy/stateRepository';
 import { ChatBuddySettings } from '../chatbuddy/types';
-import * as vscode from 'vscode';
-import { DataActionResult, PanelControllers } from './activationTypes';
+import { DataActionResult, PanelControllers, ActivationSidebarViewProviders } from './activationTypes';
 
 export function createPanelControllers(args: {
   repository: ChatStateRepository;
   providerClient: OpenAICompatibleClient;
   mcpRuntime: McpRuntime;
   chatController: ChatController;
-  assistantsTreeProvider: AssistantsTreeProvider;
-  assistantsTreeView: vscode.TreeView<unknown>;
+  sidebarViewProviders: ActivationSidebarViewProviders;
   applySettingsAndRefresh: (settings: ChatBuddySettings) => void;
   handleResetData: () => Promise<boolean>;
   handleExportData: () => Promise<DataActionResult | undefined>;
@@ -28,7 +29,6 @@ export function createPanelControllers(args: {
   handleSelectiveExportData: (categories: string[]) => Promise<DataActionResult | undefined>;
   onBackupSettingsChanged?: () => void;
   refreshAll: () => void;
-  updateTreeMessage: () => void;
   getRuntimeStrings: () => Record<string, string>;
 }): PanelControllers {
   const {
@@ -36,8 +36,7 @@ export function createPanelControllers(args: {
     providerClient,
     mcpRuntime,
     chatController,
-    assistantsTreeProvider,
-    assistantsTreeView,
+    sidebarViewProviders,
     applySettingsAndRefresh,
     handleResetData,
     handleExportData,
@@ -46,7 +45,6 @@ export function createPanelControllers(args: {
     handleSelectiveExportData,
     onBackupSettingsChanged,
     refreshAll,
-    updateTreeMessage,
     getRuntimeStrings
   } = args;
 
@@ -79,15 +77,8 @@ export function createPanelControllers(args: {
       repository.updateAssistant(created.id, patch);
       chatController.openAssistantChat(created.id);
       refreshAll();
-      updateTreeMessage();
-      const targetNode = assistantsTreeProvider.findAssistantNode(created.id);
-      if (targetNode) {
-        void assistantsTreeView.reveal(targetNode, {
-          select: true,
-          focus: false,
-          expand: true
-        });
-      }
+      // 通知 assistants webview 滚动到新建助手（替代原 TreeView.reveal）
+      sidebarViewProviders.assistantsViewProvider.scrollToAssistant(created.id);
       return created.id;
     }
   );

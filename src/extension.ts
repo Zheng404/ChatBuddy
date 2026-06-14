@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 
-import type { AssistantsTreeNode } from './chatbuddy/assistantsView';
 import { ChatController } from './chatbuddy/chatController';
 import { getStrings, resolveLocale } from './chatbuddy/i18n';
 import { McpRuntime } from './chatbuddy/mcpRuntime';
@@ -12,7 +11,7 @@ import { ChatBuddySettings } from './chatbuddy/types';
 import { PanelControllers } from './extension/activationTypes';
 import { createDataActionHandlers } from './extension/dataActions';
 import { createPanelControllers } from './extension/panelControllers';
-import { createTreeProviders, createTreeViews, createSettingsTreeDataSource } from './extension/treeViews';
+import { createSidebarViewProviders } from './extension/sidebarViewProviders';
 import { registerCommands } from './extension/commands';
 import { getBackupIntervalMs, runScheduledBackup } from './chatbuddy/localBackup';
 
@@ -78,57 +77,31 @@ export async function activate(context: vscode.ExtensionContext) {
   const updateLocaleContext = () => {
     void vscode.commands.executeCommand('setContext', 'chatbuddy.locale', getRuntimeLocale());
   };
-  const { emitter: settingsTreeDataEmitter, provider: settingsTreeProvider } = createSettingsTreeDataSource(getRuntimeStrings);
-  const { assistantsTreeProvider, recycleBinTreeProvider, sessionsTreeProvider } = createTreeProviders(repository);
-  const { assistantsTreeView, recycleBinTreeView, sessionsTreeView, settingsTreeView } = createTreeViews({
-    assistantsTreeProvider,
-    recycleBinTreeProvider,
-    sessionsTreeProvider,
-    settingsTreeProvider
+
+  // 侧边栏 Webview View 集合（settings 阶段 1；assistants/recycleBin 阶段 2；sessions 阶段 3）
+  const sidebarViewProviders = createSidebarViewProviders(context, {
+    settings: { getLocale: getRuntimeLocale, getStrings: getRuntimeStrings },
+    assistants: { repository, getLocale: getRuntimeLocale, getStrings: getRuntimeStrings },
+    sessions: { repository, getLocale: getRuntimeLocale, getStrings: getRuntimeStrings }
   });
+  const { settingsViewProvider, assistantsViewProvider, recycleBinViewProvider, sessionsViewProvider } = sidebarViewProviders;
 
   const panelControllers: Partial<PanelControllers> = {};
 
-  const updateViewHeadings = () => {
-    const strings = getRuntimeStrings();
-    assistantsTreeView.title = strings.assistantsViewTitle || strings.searchAssistants;
-    assistantsTreeView.description = undefined;
-    recycleBinTreeView.title = strings.recycleBinViewTitle || strings.emptyRecycleBin;
-    recycleBinTreeView.description = undefined;
-    settingsTreeView.title = strings.settingsViewTitle || strings.settingsTitle;
-    settingsTreeView.description = undefined;
-
-    const selectedAssistant = repository.getSelectedAssistant();
-    sessionsTreeView.title =
-      selectedAssistant && !selectedAssistant.isDeleted
-        ? `${strings.sessions} · ${selectedAssistant.name}`
-        : strings.sessions;
-    sessionsTreeView.description = undefined;
-  };
-
-  const updateTreeMessage = () => {
-    const strings = getRuntimeStrings();
-    const keyword = assistantsTreeProvider.getSearchKeyword();
-    assistantsTreeView.message = keyword ? `${strings.searchAssistants}: ${keyword}` : undefined;
-    recycleBinTreeView.message = undefined;
-    const sessionKeyword = sessionsTreeProvider.getSearchKeyword();
-    sessionsTreeView.message = sessionKeyword ? `${strings.searchSessions}: ${sessionKeyword}` : undefined;
-  };
-
   const refreshAll = () => {
     updateLocaleContext();
-    assistantsTreeProvider.refresh();
-    sessionsTreeProvider.refresh();
-    recycleBinTreeProvider.refresh();
-    settingsTreeDataEmitter.fire();
+    // 推送最新状态到各侧边栏 Webview
+    settingsViewProvider.postState(settingsViewProvider.buildState());
+    assistantsViewProvider.postState(assistantsViewProvider.buildState());
+    recycleBinViewProvider.postState(recycleBinViewProvider.buildState());
+    sessionsViewProvider.postState(sessionsViewProvider.buildState());
     panelControllers.settingsCenterPanelController?.refresh();
     panelControllers.assistantEditorPanelController?.refresh();
-    updateViewHeadings();
   };
 
   chatController.setActivePanelChangeCallback(() => {
-    sessionsTreeProvider.refresh();
-    updateViewHeadings();
+    // 活动面板变化时刷新 sessions webview（与原 sessionsTreeProvider.refresh 等价）
+    sessionsViewProvider.postState(sessionsViewProvider.buildState());
   });
 
   const applySettingsAndRefresh = (settings: ChatBuddySettings) => {
@@ -139,16 +112,13 @@ export async function activate(context: vscode.ExtensionContext) {
     void mcpRuntime.pruneConnections(activeServerIds).catch(e => warn('MCP prune error:', e));
     restartBackupTimer(settings);
     refreshAll();
-    updateTreeMessage();
   };
 
   const { handleResetData, handleExportData, handleImportData, handleImportLegacyData, handleSelectiveExportData } = createDataActionHandlers({
     repository,
     chatController,
-    getAssistantsTreeProvider: () => assistantsTreeProvider,
-    getRecycleBinTreeProvider: () => recycleBinTreeProvider,
+    sidebarViewProviders,
     refreshAll,
-    updateTreeMessage,
     getRuntimeStrings
   });
 
@@ -157,8 +127,7 @@ export async function activate(context: vscode.ExtensionContext) {
     providerClient,
     mcpRuntime,
     chatController,
-    assistantsTreeProvider,
-    assistantsTreeView,
+    sidebarViewProviders,
     applySettingsAndRefresh,
     handleResetData,
     handleExportData,
@@ -167,7 +136,6 @@ export async function activate(context: vscode.ExtensionContext) {
     handleSelectiveExportData,
     onBackupSettingsChanged: () => restartBackupTimer(),
     refreshAll,
-    updateTreeMessage,
     getRuntimeStrings
   });
 
@@ -179,17 +147,13 @@ export async function activate(context: vscode.ExtensionContext) {
     chatController,
     settingsCenterPanelController,
     assistantEditorPanelController,
-    assistantsTreeProvider,
-    sessionsTreeProvider,
+    sidebarViewProviders,
     refreshAll,
-    updateTreeMessage,
     getRuntimeLocale,
     getRuntimeStrings
   });
 
   updateLocaleContext();
-  updateTreeMessage();
-  updateViewHeadings();
 
   // Local backup auto-timer
   let backupTimer: ReturnType<typeof setInterval> | undefined;
@@ -211,24 +175,7 @@ export async function activate(context: vscode.ExtensionContext) {
   restartBackupTimer();
 
   context.subscriptions.push(
-    assistantsTreeView,
-    sessionsTreeView,
-    recycleBinTreeView,
-    settingsTreeView,
-    settingsTreeDataEmitter,
     ...commandDisposables,
-    assistantsTreeView.onDidExpandElement((e) => {
-      const node = e.element as AssistantsTreeNode;
-      if (node.kind === 'group') {
-        repository.setGroupCollapsed(node.group.id, false);
-      }
-    }),
-    assistantsTreeView.onDidCollapseElement((e) => {
-      const node = e.element as AssistantsTreeNode;
-      if (node.kind === 'group') {
-        repository.setGroupCollapsed(node.group.id, true);
-      }
-    }),
     { dispose: () => { chatController.dispose(); } },
     // Note: mcpRuntime.dispose() and repository.close() are async;
     // they are awaited in deactivate() below rather than here.

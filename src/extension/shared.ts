@@ -2,81 +2,28 @@
  * 扩展命令层共享类型与工具模块。
  *
  * 定义 `ExtensionContext` 接口（命令注册函数共享的依赖上下文），
- * 以及树节点类型断言、会话导出等辅助函数。
+ * 以及会话导出等辅助函数。
  */
-import { AssistantGroupNode, AssistantNode } from '../chatbuddy/assistantsView';
 import { ChatController } from '../chatbuddy/chatController';
 import { AssistantEditorPanelController } from '../chatbuddy/assistantEditorPanel';
 import { SettingsCenterPanelController } from '../chatbuddy/settingsCenterPanel';
 import { escapeHtml, resolveLocaleString, warn } from '../chatbuddy/utils';
 import { ChatStateRepository } from '../chatbuddy/stateRepository';
-import { AssistantsTreeProvider } from '../chatbuddy/assistantsView';
-import { SessionsTreeProvider } from '../chatbuddy/sessionsView';
 import { ChatSessionDetail } from '../chatbuddy/types';
-import { SessionNode } from '../chatbuddy/sessionsView';
+import type { ActivationSidebarViewProviders } from './activationTypes';
 
 export type ExtensionContext = {
   repository: ChatStateRepository;
   chatController: ChatController;
   settingsCenterPanelController: SettingsCenterPanelController;
   assistantEditorPanelController: AssistantEditorPanelController;
-  assistantsTreeProvider: AssistantsTreeProvider;
-  sessionsTreeProvider: SessionsTreeProvider;
+  sidebarViewProviders: ActivationSidebarViewProviders;
   refreshAll: () => void;
-  updateTreeMessage: () => void;
   getRuntimeLocale: () => string;
   getRuntimeStrings: () => Record<string, string>;
 };
 
 export type SessionExportFormat = 'json' | 'markdown' | 'html';
-
-// ─── Type guards ──────────────────────────────────────────────────────────────
-
-export function asAssistantNode(arg: unknown): AssistantNode | undefined {
-  if (!arg || typeof arg !== 'object') { return undefined; }
-  const node = arg as Partial<AssistantNode>;
-  if (node.kind !== 'assistant' || !node.assistant) { return undefined; }
-  if (typeof node.assistant.id !== 'string' || typeof node.assistant.name !== 'string' || !node.assistant.id.trim()) {
-    warn('Invalid assistant node structure:', node);
-    return undefined;
-  }
-  return node as AssistantNode;
-}
-
-export function asGroupNode(arg: unknown): AssistantGroupNode | undefined {
-  if (!arg || typeof arg !== 'object') { return undefined; }
-  const node = arg as Partial<AssistantGroupNode>;
-  if (node.kind !== 'group' || !node.group) { return undefined; }
-  if (typeof node.group.id !== 'string' || typeof node.group.name !== 'string' || !node.group.id.trim()) {
-    warn('Invalid group node structure:', node);
-    return undefined;
-  }
-  return node as AssistantGroupNode;
-}
-
-export function asSessionNode(arg: unknown): SessionNode | undefined {
-  if (!arg || typeof arg !== 'object') { return undefined; }
-  const node = arg as Partial<SessionNode>;
-  if (node.kind !== 'session' || !node.session || typeof node.assistantId !== 'string') { return undefined; }
-  if (typeof node.session.id !== 'string' || typeof node.session.assistantId !== 'string' || !node.session.id.trim() || !node.assistantId.trim()) {
-    return undefined;
-  }
-  return node as SessionNode;
-}
-
-// ─── Session command helpers ──────────────────────────────────────────────────
-
-export function getSessionCommandAssistant(repository: ChatStateRepository, node?: SessionNode) {
-  return node ? repository.getAssistantById(node.assistantId) : repository.getSelectedAssistant();
-}
-
-export function getSessionCommandTarget(repository: ChatStateRepository, assistantId: string, node?: SessionNode): ChatSessionDetail | undefined {
-  if (node) {
-    const session = repository.getSessionById(node.session.id);
-    return session?.assistantId === assistantId ? session : undefined;
-  }
-  return repository.getSelectedSession(assistantId);
-}
 
 // ─── Export helpers ───────────────────────────────────────────────────────────
 

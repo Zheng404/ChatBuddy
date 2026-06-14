@@ -2,6 +2,9 @@
  * sessionCommands 单元测试。
  *
  * 覆盖会话管理命令的注册和命令处理器逻辑。
+ *
+ * 阶段 2.3：renameSession / deleteSession / exportSession 的参数从 SessionNode
+ *          改为 (assistantId, sessionId)，适配 Webview View 调用。
  */
 import { describe, test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +12,6 @@ import * as vscode from 'vscode';
 
 import { registerSessionCommands } from '../../../extension/sessionCommands';
 import type { ExtensionContext } from '../../../extension/shared';
-import type { SessionNode } from '../../../chatbuddy/sessionsView';
 import type { AssistantProfile, ChatSessionDetail } from '../../../chatbuddy/types';
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -57,22 +59,6 @@ function makeSession(overrides: Partial<ChatSessionDetail> = {}): ChatSessionDet
   };
 }
 
-function makeSessionNode(session: ChatSessionDetail, assistantId = 'a1'): SessionNode {
-  return {
-    kind: 'session',
-    assistantId,
-    session: {
-      id: session.id,
-      assistantId: session.assistantId,
-      title: session.title,
-      titleSource: session.titleSource,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-      messageCount: session.messages.length
-    }
-  };
-}
-
 type CommandHandler = (...args: unknown[]) => unknown;
 
 function createMockContext(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
@@ -101,20 +87,28 @@ function createMockContext(overrides: Partial<ExtensionContext> = {}): Extension
       openCreateAssistantEditor: () => undefined
     } as unknown as ExtensionContext['assistantEditorPanelController'],
     settingsCenterPanelController: {} as ExtensionContext['settingsCenterPanelController'],
-    assistantsTreeProvider: {
-      getSearchKeyword: () => '',
-      setSearchKeyword: () => undefined,
-      clearSearchKeyword: () => undefined,
-      refresh: () => undefined
-    } as unknown as ExtensionContext['assistantsTreeProvider'],
-    sessionsTreeProvider: {
-      getSearchKeyword: () => '',
-      setSearchKeyword: () => undefined,
-      clearSearchKeyword: () => undefined,
-      refresh: () => undefined
-    } as unknown as ExtensionContext['sessionsTreeProvider'],
+    sidebarViewProviders: {
+      assistantsViewProvider: {
+        clearSearch: () => undefined,
+        collapseAll: () => undefined,
+        focusSearch: () => undefined,
+        scrollToAssistant: () => undefined
+      },
+      recycleBinViewProvider: {
+        clearSearch: () => undefined,
+        collapseAll: () => undefined,
+        focusSearch: () => undefined,
+        scrollToAssistant: () => undefined
+      },
+      sessionsViewProvider: {
+        clearSearch: () => undefined,
+        focusSearch: () => undefined,
+        scrollToSession: () => undefined,
+        postState: () => undefined,
+        buildState: () => undefined
+      }
+    } as unknown as ExtensionContext['sidebarViewProviders'],
     refreshAll: () => undefined,
-    updateTreeMessage: () => undefined,
     getRuntimeLocale: () => 'en',
     getRuntimeStrings: () => ({
       deleteAction: 'Delete',
@@ -245,9 +239,7 @@ describe('renameSession', () => {
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
-        getSelectedAssistant: () => assistant,
         setSelectedAssistant: () => { setSelectedCalled = true; },
-        getSelectedSession: () => session,
         getSessionById: () => session
       } as unknown as ExtensionContext['repository'],
       chatController: {
@@ -268,7 +260,7 @@ describe('renameSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.renameSession')!;
-    await handler(makeSessionNode(session));
+    await handler(assistant.id, session.id);
 
     assert.equal(setSelectedCalled, true);
     assert.equal(renameCalled, true);
@@ -280,7 +272,7 @@ describe('renameSession', () => {
     let shownMessage: string | undefined;
     const ctx = createMockContext({
       repository: {
-        getSelectedAssistant: () => undefined
+        getAssistantById: () => undefined
       } as unknown as ExtensionContext['repository'],
       getRuntimeStrings: () => ({
         noAssistantSelectedBody: 'No assistant selected'
@@ -294,7 +286,7 @@ describe('renameSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.renameSession')!;
-    await handler(undefined);
+    await handler('a1', 's1');
 
     assert.equal(shownMessage, 'No assistant selected');
   });
@@ -304,8 +296,8 @@ describe('renameSession', () => {
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
-        getSelectedAssistant: () => assistant,
-        getSelectedSession: () => undefined
+        getAssistantById: () => assistant,
+        getSessionById: () => undefined
       } as unknown as ExtensionContext['repository'],
       getRuntimeStrings: () => ({
         noSessionsToRename: 'No sessions to rename'
@@ -319,7 +311,7 @@ describe('renameSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.renameSession')!;
-    await handler(undefined);
+    await handler(assistant.id, 's1');
 
     assert.equal(shownMessage, 'No sessions to rename');
   });
@@ -331,8 +323,6 @@ describe('renameSession', () => {
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
-        getSelectedAssistant: () => assistant,
-        getSelectedSession: () => session,
         getSessionById: () => session
       } as unknown as ExtensionContext['repository'],
       chatController: {
@@ -344,7 +334,7 @@ describe('renameSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.renameSession')!;
-    await handler(makeSessionNode(session));
+    await handler(assistant.id, session.id);
 
     assert.equal(renameCalled, false);
   });
@@ -366,9 +356,7 @@ describe('deleteSession', () => {
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
-        getSelectedAssistant: () => assistant,
         setSelectedAssistant: () => { setSelectedCalled = true; },
-        getSelectedSession: () => session,
         getSessionById: () => session
       } as unknown as ExtensionContext['repository'],
       chatController: {
@@ -388,7 +376,7 @@ describe('deleteSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.deleteSession')!;
-    await handler(makeSessionNode(session));
+    await handler(assistant.id, session.id);
 
     assert.equal(setSelectedCalled, true);
     assert.equal(deleteCalled, true);
@@ -403,8 +391,6 @@ describe('deleteSession', () => {
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
-        getSelectedAssistant: () => assistant,
-        getSelectedSession: () => session,
         getSessionById: () => session
       } as unknown as ExtensionContext['repository'],
       chatController: {
@@ -416,7 +402,7 @@ describe('deleteSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.deleteSession')!;
-    await handler(makeSessionNode(session));
+    await handler(assistant.id, session.id);
 
     assert.equal(deleteCalled, false);
   });
@@ -428,7 +414,7 @@ describe('exportSession', () => {
   beforeEach(setupVscodeStubs);
   afterEach(restoreVscodeStubs);
 
-  test('shows hint when no node provided', async () => {
+  test('shows hint when ids are missing', async () => {
     let shownMessage: string | undefined;
     const ctx = createMockContext({
       getRuntimeStrings: () => ({
@@ -443,7 +429,7 @@ describe('exportSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.exportSession')!;
-    await handler(undefined);
+    await handler(undefined, undefined);
 
     assert.equal(shownMessage, 'Select a session');
   });
@@ -490,7 +476,7 @@ describe('exportSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.exportSession')!;
-    await handler(makeSessionNode(session));
+    await handler(assistant.id, session.id);
 
     assert.equal(writeFileCalled, true);
   });
@@ -522,7 +508,7 @@ describe('exportSession', () => {
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.exportSession')!;
-    await handler(makeSessionNode(session));
+    await handler(assistant.id, session.id);
 
     // Should not throw
     assert.ok(true);

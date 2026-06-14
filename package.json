@@ -32,22 +32,26 @@
         {
           "id": "chatbuddy.assistantsView",
           "name": "%chatbuddy.assistantsView.name%",
-          "icon": "$(person)"
+          "icon": "$(person)",
+          "type": "webview"
         },
         {
           "id": "chatbuddy.sessionsView",
           "name": "%chatbuddy.sessionsView.name%",
-          "icon": "$(comment-discussion)"
+          "icon": "$(comment-discussion)",
+          "type": "webview"
         },
         {
           "id": "chatbuddy.recycleBinView",
           "name": "%chatbuddy.recycleBinView.name%",
-          "icon": "$(trash)"
+          "icon": "$(trash)",
+          "type": "webview"
         },
         {
           "id": "chatbuddy.settingsView",
           "name": "%chatbuddy.settingsView.name%",
-          "icon": "$(settings-gear)"
+          "icon": "$(settings-gear)",
+          "type": "webview"
         }
       ]
     },
@@ -482,178 +486,7 @@
           "group": "navigation@1"
         }
       ],
-      "view/item/context": [
-        {
-          "command": "chatbuddy.pinAssistant.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active) && chatbuddy.locale == 'en'",
-          "group": "assistant@1"
-        },
-        {
-          "command": "chatbuddy.pinAssistant.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@1"
-        },
-        {
-          "command": "chatbuddy.unpinAssistant.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned) && chatbuddy.locale == 'en'",
-          "group": "assistant@1"
-        },
-        {
-          "command": "chatbuddy.unpinAssistant.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@1"
-        },
-        {
-          "command": "chatbuddy.editAssistant.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active) && chatbuddy.locale == 'en'",
-          "group": "assistant@2"
-        },
-        {
-          "command": "chatbuddy.editAssistant.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@2"
-        },
-        {
-          "command": "chatbuddy.editAssistant.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned) && chatbuddy.locale == 'en'",
-          "group": "assistant@2"
-        },
-        {
-          "command": "chatbuddy.editAssistant.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@2"
-        },
-        {
-          "command": "chatbuddy.softDeleteAssistant.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active) && chatbuddy.locale == 'en'",
-          "group": "assistant@3"
-        },
-        {
-          "command": "chatbuddy.softDeleteAssistant.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.active) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@3"
-        },
-        {
-          "command": "chatbuddy.softDeleteAssistant.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned) && chatbuddy.locale == 'en'",
-          "group": "assistant@3"
-        },
-        {
-          "command": "chatbuddy.softDeleteAssistant.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.assistant.pinned) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@3"
-        },
-        {
-          "command": "chatbuddy.restoreAssistant.uiEn",
-          "when": "(view == chatbuddy.recycleBinView && viewItem == chatbuddy.assistant.deleted) && chatbuddy.locale == 'en'",
-          "group": "assistant@1"
-        },
-        {
-          "command": "chatbuddy.restoreAssistant.uiZh",
-          "when": "(view == chatbuddy.recycleBinView && viewItem == chatbuddy.assistant.deleted) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@1"
-        },
-        {
-          "command": "chatbuddy.hardDeleteAssistant.uiEn",
-          "when": "(view == chatbuddy.recycleBinView && viewItem == chatbuddy.assistant.deleted) && chatbuddy.locale == 'en'",
-          "group": "assistant@2"
-        },
-        {
-          "command": "chatbuddy.hardDeleteAssistant.uiZh",
-          "when": "(view == chatbuddy.recycleBinView && viewItem == chatbuddy.assistant.deleted) && chatbuddy.locale == 'zh-CN'",
-          "group": "assistant@2"
-        },
-        {
-          "command": "chatbuddy.renameGroup.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.group.default) && chatbuddy.locale == 'en'",
-          "group": "group@1"
-        },
-        {
-          "command": "chatbuddy.renameGroup.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.group.default) && chatbuddy.locale == 'zh-CN'",
-          "group": "group@1"
-        },
-        {
-          "command": "chatbuddy.renameGroup.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.group.custom) && chatbuddy.locale == 'en'",
-          "group": "group@1"
-        },
-        {
-          "command": "chatbuddy.renameGroup.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.group.custom) && chatbuddy.locale == 'zh-CN'",
-          "group": "group@1"
-        },
-        {
-          "command": "chatbuddy.deleteGroup.uiEn",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.group.custom) && chatbuddy.locale == 'en'",
-          "group": "group@2"
-        },
-        {
-          "command": "chatbuddy.deleteGroup.uiZh",
-          "when": "(view == chatbuddy.assistantsView && viewItem == chatbuddy.group.custom) && chatbuddy.locale == 'zh-CN'",
-          "group": "group@2"
-        },
-        {
-          "command": "chatbuddy.renameSession.uiEn",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'en'",
-          "group": "session@1"
-        },
-        {
-          "command": "chatbuddy.renameSession.uiZh",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'zh-CN'",
-          "group": "session@1"
-        },
-        {
-          "command": "chatbuddy.renameSession.uiEn",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'en'",
-          "group": "inline@1"
-        },
-        {
-          "command": "chatbuddy.renameSession.uiZh",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'zh-CN'",
-          "group": "inline@1"
-        },
-        {
-          "command": "chatbuddy.deleteSession.uiEn",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'en'",
-          "group": "session@2"
-        },
-        {
-          "command": "chatbuddy.deleteSession.uiZh",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'zh-CN'",
-          "group": "session@2"
-        },
-        {
-          "command": "chatbuddy.exportSession.uiEn",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'en'",
-          "group": "session@3"
-        },
-        {
-          "command": "chatbuddy.exportSession.uiZh",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'zh-CN'",
-          "group": "session@3"
-        },
-        {
-          "command": "chatbuddy.deleteSession.uiEn",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'en'",
-          "group": "inline@2"
-        },
-        {
-          "command": "chatbuddy.deleteSession.uiZh",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'zh-CN'",
-          "group": "inline@2"
-        },
-        {
-          "command": "chatbuddy.exportSession.uiEn",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'en'",
-          "group": "inline@3"
-        },
-        {
-          "command": "chatbuddy.exportSession.uiZh",
-          "when": "(view == chatbuddy.sessionsView && viewItem == chatbuddy.session.item) && chatbuddy.locale == 'zh-CN'",
-          "group": "inline@3"
-        }
-      ],
+      "view/item/context": [],
       "commandPalette": [
         {
           "command": "chatbuddy.createAssistant.uiEn",
@@ -848,7 +681,7 @@
     "lint": "eslint src",
     "check:changelog": "node ./scripts/validateChangelogVersion.cjs",
     "extract:release-notes": "node ./scripts/extractReleaseNotes.cjs",
-    "test:unit": "node --require ./out/test/setup.js --test out/test/unit/**/*.test.js",
+    "test:unit": "npm run compile && node --require ./out/test/setup.js --test out/test/unit/**/*.test.js",
     "benchmark": "node --require ./out/test/setup.js --test out/test/benchmark/**/*.bench.js",
     "test:coverage": "c8 --reporter=text --reporter=html --include='out/chatbuddy/**/*.js' --exclude='out/test/**' npm run test:unit",
     "test:coverage:ci": "c8 --reporter=text --lines=40 --functions=40 --branches=30 npm run test:unit",

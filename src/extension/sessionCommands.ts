@@ -2,6 +2,12 @@
  * 会话管理命令注册模块。
  *
  * 注册会话的创建、重命名、删除、导出、清空等管理命令。
+ *
+ * 阶段 2.3：renameSession / deleteSession / exportSession 的参数从 SessionNode
+ *          改为 (assistantId, sessionId)，适配 Webview View 调用。
+ * 阶段 3：searchSessions / clearSessionSearch 改为转发到
+ *          SessionsSidebarViewProvider.focusSearch() / clearSearch()，
+ *          搜索框由 webview 内嵌实现。
  */
 import * as vscode from 'vscode';
 import * as os from 'os';
@@ -9,41 +15,34 @@ import * as path from 'path';
 import { formatString } from '../chatbuddy/i18n';
 import { warn } from '../chatbuddy/utils';
 import type { ExtensionContext } from './shared';
-import { asSessionNode, getSessionCommandAssistant, getSessionCommandTarget, buildSessionExportFileName, buildSessionExportContent } from './shared';
+import { buildSessionExportFileName, buildSessionExportContent } from './shared';
 
 export function registerSessionCommands(ctx: ExtensionContext): vscode.Disposable[] {
-  const { repository, chatController, refreshAll, getRuntimeLocale, getRuntimeStrings, sessionsTreeProvider, updateTreeMessage } = ctx;
+  const { repository, chatController, refreshAll, getRuntimeLocale, getRuntimeStrings, sidebarViewProviders } = ctx;
   const strings = getRuntimeStrings;
 
   return [
-    vscode.commands.registerCommand('chatbuddy.searchSessions', async () => {
-      const keyword = await vscode.window.showInputBox({
-        prompt: strings().sessionSearchPlaceholder,
-        value: sessionsTreeProvider.getSearchKeyword(),
-        ignoreFocusOut: true
-      });
-      if (keyword === undefined) { return; }
-      sessionsTreeProvider.setSearchKeyword(keyword);
-      updateTreeMessage();
+    vscode.commands.registerCommand('chatbuddy.searchSessions', () => {
+      // 搜索框由 webview 内嵌实现，命令仅负责聚焦搜索框
+      sidebarViewProviders.sessionsViewProvider.focusSearch();
     }),
     vscode.commands.registerCommand('chatbuddy.clearSessionSearch', () => {
-      sessionsTreeProvider.clearSearchKeyword();
-      updateTreeMessage();
+      sidebarViewProviders.sessionsViewProvider.clearSearch();
     }),
     vscode.commands.registerCommand('chatbuddy.createSession', () => {
       chatController.createSessionForSelectedAssistant();
       chatController.openAssistantChat();
       refreshAll();
     }),
-    vscode.commands.registerCommand('chatbuddy.renameSession', async (arg?: import('../chatbuddy/sessionsView').SessionNode) => {
-      const node = asSessionNode(arg);
-      const assistant = getSessionCommandAssistant(repository, node);
+    vscode.commands.registerCommand('chatbuddy.renameSession', async (assistantId?: string, sessionId?: string) => {
+      if (!assistantId || !sessionId) { return; }
+      const assistant = repository.getAssistantById(assistantId);
       if (!assistant) {
         void vscode.window.showInformationMessage(strings().noAssistantSelectedBody);
         return;
       }
-      const currentSession = getSessionCommandTarget(repository, assistant.id, node);
-      if (!currentSession) {
+      const currentSession = repository.getSessionById(sessionId);
+      if (!currentSession || currentSession.assistantId !== assistantId) {
         void vscode.window.showInformationMessage(strings().noSessionsToRename);
         return;
       }
@@ -52,20 +51,20 @@ export function registerSessionCommands(ctx: ExtensionContext): vscode.Disposabl
         value: currentSession.title
       });
       if (!nextTitle?.trim()) { return; }
-      repository.setSelectedAssistant(assistant.id);
-      chatController.renameSessionForSelectedAssistant(currentSession.id, nextTitle.trim());
-      chatController.openAssistantChat(assistant.id);
+      repository.setSelectedAssistant(assistantId);
+      chatController.renameSessionForSelectedAssistant(sessionId, nextTitle.trim());
+      chatController.openAssistantChat(assistantId);
       refreshAll();
     }),
-    vscode.commands.registerCommand('chatbuddy.deleteSession', async (arg?: import('../chatbuddy/sessionsView').SessionNode) => {
-      const node = asSessionNode(arg);
-      const assistant = getSessionCommandAssistant(repository, node);
+    vscode.commands.registerCommand('chatbuddy.deleteSession', async (assistantId?: string, sessionId?: string) => {
+      if (!assistantId || !sessionId) { return; }
+      const assistant = repository.getAssistantById(assistantId);
       if (!assistant) {
         void vscode.window.showInformationMessage(strings().noAssistantSelectedBody);
         return;
       }
-      const currentSession = getSessionCommandTarget(repository, assistant.id, node);
-      if (!currentSession) {
+      const currentSession = repository.getSessionById(sessionId);
+      if (!currentSession || currentSession.assistantId !== assistantId) {
         void vscode.window.showInformationMessage(strings().noSessionsToDelete);
         return;
       }
@@ -75,25 +74,24 @@ export function registerSessionCommands(ctx: ExtensionContext): vscode.Disposabl
         strings().deleteAction
       );
       if (confirm !== strings().deleteAction) { return; }
-      repository.setSelectedAssistant(assistant.id);
-      chatController.deleteSessionForSelectedAssistant(currentSession.id);
-      chatController.openAssistantChat(assistant.id);
+      repository.setSelectedAssistant(assistantId);
+      chatController.deleteSessionForSelectedAssistant(sessionId);
+      chatController.openAssistantChat(assistantId);
       refreshAll();
     }),
-    vscode.commands.registerCommand('chatbuddy.exportSession', async (arg?: import('../chatbuddy/sessionsView').SessionNode) => {
+    vscode.commands.registerCommand('chatbuddy.exportSession', async (assistantId?: string, sessionId?: string) => {
       const locale = getRuntimeLocale();
-      const node = asSessionNode(arg);
-      if (!node) {
+      if (!assistantId || !sessionId) {
         void vscode.window.showInformationMessage(strings().exportSessionSelectHint);
         return;
       }
-      const assistant = repository.getAssistantById(node.assistantId);
+      const assistant = repository.getAssistantById(assistantId);
       if (!assistant) {
         void vscode.window.showInformationMessage(strings().noAssistantSelectedBody);
         return;
       }
-      const currentSession = getSessionCommandTarget(repository, assistant.id, node);
-      if (!currentSession) {
+      const currentSession = repository.getSessionById(sessionId);
+      if (!currentSession || currentSession.assistantId !== assistantId) {
         void vscode.window.showInformationMessage(strings().noSessionsToExport);
         return;
       }
