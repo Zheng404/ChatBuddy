@@ -1,18 +1,142 @@
 {
-  "$schema": "https://opencode.ai/config.schema.json",
-  "context": {
-    "instructions": "这是一个 VS Code 扩展项目，使用 TypeScript 严格模式。遵循分层架构：extension/ 是适配层，chatbuddy/ 是业务核心层。修改代码时注意：1) 禁止循环依赖 2) 状态变更必须通过 ChatStateRepository 和 refreshAll() 3) WebView 不使用 eval/innerHTML 4) MCP 客户端通过动态 import() 加载",
-    "include": ["src/", "docs/", "scripts/"],
-    "exclude": ["out/", "node_modules/", "*.vsix", "coverage/"]
-  },
-  "commands": {
-    "test": {
-      "description": "运行 lint + 编译 + 单元测试",
-      "prompt": "运行 npm run lint && npm run compile && npm run test:unit。如果测试失败，分析失败原因并修复。"
+  "$schema": "https://opencode.ai/config.json",
+
+  // 用户标识（显示在对话中）
+  "username": "Zheng404",
+
+  // 默认模型：取消注释并替换为你实际使用的 provider/model
+  // 常见可选值：anthropic/claude-sonnet-4-6、openai/gpt-4o、openai/gpt-4o-mini 等
+  // "model": "anthropic/claude-sonnet-4-6",
+  // "small_model": "anthropic/claude-sonnet-4",
+
+  "default_agent": "build",
+  "shell": "/bin/zsh",
+  "logLevel": "INFO",
+  "share": "manual",
+  "autoupdate": "notify",
+  "snapshot": true,
+
+  // 项目级指令文件
+  "instructions": [
+    "AGENTS.md"
+  ],
+
+  // 参考资料（@ 引用）
+  "references": {
+    "readme": "README.md",
+    "readme-zh": "README_zh-CN.md",
+    "architecture": {
+      "path": "docs/ARCHITECTURE.md",
+      "description": "ChatBuddy 架构文档，用于理解分层设计"
     },
-    "check-types": {
-      "description": "检查 TypeScript 类型",
-      "prompt": "运行 npm run compile，确保没有 TypeScript 编译错误。如果有错误，修复它们。"
+    "development": {
+      "path": "docs/DEVELOPMENT.md",
+      "description": "本地开发与调试指南"
+    },
+    "storage": {
+      "path": "docs/STORAGE.md",
+      "description": "Compass 存储层实现细节"
+    },
+    "webview": {
+      "path": "docs/WEBVIEW_PROTOCOL.md",
+      "description": "WebView 通信协议"
     }
+  },
+
+  // 技能搜索路径
+  "skills": {
+    "paths": [".opencode/skills"]
+  },
+
+  // 自定义 Agent
+  "agent": {
+    "chatbuddy": {
+      "description": "ChatBuddy 代码库专家，熟悉 VS Code 扩展、WebView、Compass 存储和 MCP",
+      "mode": "subagent",
+      "prompt": "你是 ChatBuddy 项目的代码库专家。你熟悉以下技术栈与约束：\n- TypeScript 5.x + Node16/ESM\n- VS Code Extension API（WebView、TreeView、命令、上下文菜单）\n- 分层架构：extension/ 适配层与 chatbuddy/ 业务核心层解耦\n- Compass 结构化存储（JSON + JSONL，原子写入）\n- MCP 运行时（@modelcontextprotocol/client，ESM-only 动态导入）\n- 国际化（i18n/ 中英双语）\n- Zod 运行时校验与 Node 原生测试运行器\n\n回答或实施变更时，优先引用 docs/ 下的架构文档，遵循项目中已有的命名规范、严格 TypeScript 模式和 AGENTS.md 中的工程原则（SOLID、KISS、DRY、YAGNI）。对任何可能破坏 VS Code 扩展启动、WebView CSP 或存储原子性的修改保持谨慎。",
+      "permission": {
+        "edit": "allow",
+        "bash": "ask"
+      }
+    }
+  },
+
+  // 自定义命令
+  "command": {
+    "build": {
+      "template": "运行 npm run compile，报告 TypeScript 编译错误，不要自动修复",
+      "description": "编译扩展"
+    },
+    "test": {
+      "template": "运行 npm run test:unit，总结失败的测试用例并指出可能原因",
+      "description": "运行单元测试"
+    },
+    "lint": {
+      "template": "运行 npm run lint，仅报告问题，不要自动修改文件",
+      "description": "代码静态检查"
+    },
+    "check": {
+      "template": "依次运行 npm run lint、npm run compile、npm run test:unit 和 npm run check:changelog，输出完整结果摘要",
+      "description": "发布前完整检查"
+    },
+    "package": {
+      "template": "运行 npm run package 构建 .vsix 包",
+      "description": "打包扩展"
+    }
+  },
+
+  // Provider 与 MCP 服务器统一在全局 ~/.config/opencode/opencode.json 中配置
+  // 项目级配置仅保留项目专属内容，避免 API Key 或本地服务器路径泄漏到仓库
+
+  // 权限策略
+  "permission": {
+    "read": "allow",
+    "edit": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "bash": {
+      "git commit*": "ask",
+      "git push*": "ask",
+      "git reset*": "ask",
+      "rm *": "ask",
+      "npm run *": "allow",
+      "npm test*": "allow",
+      "npx *": "ask",
+      "*": "ask"
+    },
+    "task": "allow",
+    "external_directory": {
+      "*": "ask"
+    },
+    "todowrite": "allow",
+    "question": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "lsp": "allow",
+    "skill": "allow",
+    "doom_loop": "ask"
+  },
+
+  // 格式化与 LSP
+  "formatter": true,
+  "lsp": true,
+
+  // 工具输出截断阈值
+  "tool_output": {
+    "max_lines": 200,
+    "max_bytes": 8192
+  },
+
+  // 上下文压缩
+  "compaction": {
+    "auto": true,
+    "tail_turns": 15
+  },
+
+  // 实验性功能
+  "experimental": {
+    "mcp_timeout": 30000,
+    "batch_tool": true
   }
 }
