@@ -4,7 +4,7 @@
  * 将多个 JS 片段（事件处理、Markdown 渲染、UI 交互）组装为单个脚本块，
  * 注入到聊天 WebView 中。包含 KaTeX 和 Mermaid 的初始化逻辑。
  */
-import { getToastScript } from './webviewShared';
+import { getToastScript, getDangerModalScript } from './webviewShared';
 import { getHtmlEscaperScript } from './utils/html';
 import { getChatEventScript } from './webviewChatScriptEvents';
 import { getChatMarkdownRendererScript } from './webviewChatScriptMarkdown';
@@ -391,6 +391,7 @@ export function getChatScript(args: {
       }
 
 ${getToastScript()}
+${getDangerModalScript()}
 ${getHtmlEscaperScript()}
 ${getChatMarkdownRendererScript({
   nonce,

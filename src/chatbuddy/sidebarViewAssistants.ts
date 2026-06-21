@@ -30,6 +30,7 @@ import {
 } from './sidebarViewSorters';
 import { SidebarInbound } from './sidebarViewTypes';
 import { ChatStateRepository } from './stateRepository';
+import { postMessageSafely } from './utils';
 import { AssistantGroup, AssistantGroupKind, AssistantProfile, RuntimeLocale, RuntimeStrings } from './types';
 
 export type AssistantsViewMode = 'main' | 'recycle';
@@ -121,13 +122,17 @@ export class AssistantsSidebarViewProvider extends BaseSidebarViewProvider<Assis
   /** 处理前端入站消息 */
   protected handleMessage(message: SidebarInbound): void {
     switch (message.type) {
+      case 'ready':
+        // ready 握手由 BaseSidebarViewProvider 统一处理，此处忽略
+        break;
       case 'invokeCommand':
         // 转发执行对应命令（pin/edit/delete/restore/renameGroup 等）
         void vscode.commands.executeCommand(message.command, ...(message.args ?? []));
         break;
       case 'toggleGroupCollapse':
-        // setGroupCollapsed 内部会 bump()，由 refreshAll 统一推送新状态
+        // setGroupCollapsed 内部会 bump()，立即推送新状态（不依赖 refreshAll）
         this.deps.repository.setGroupCollapsed(message.groupId, message.collapsed);
+        this.postState(this.buildState());
         break;
       case 'search':
         this.searchKeyword = message.keyword.trim().toLowerCase();
@@ -151,19 +156,20 @@ export class AssistantsSidebarViewProvider extends BaseSidebarViewProvider<Assis
         this.deps.repository.setGroupCollapsed(group.id, true);
       }
     }
-    // setGroupCollapsed 已 bump()，由 refreshAll 推送
+    // setGroupCollapsed 已 bump()，立即推送新状态（不依赖 refreshAll）
+    this.postState(this.buildState());
   }
 
   /** 通知 webview 聚焦搜索框（仅 main 模式有意义） */
   public focusSearch(): void {
     if (!this.view || !this.isReady()) { return; }
-    void this.view.webview.postMessage({ type: 'focusSearch' }).then(undefined, () => {});
+    postMessageSafely(this.view.webview.postMessage({ type: 'focusSearch' }));
   }
 
   /** 通知 webview 滚动到指定助手并高亮 */
   public scrollToAssistant(assistantId: string): void {
     if (!this.view || !this.isReady()) { return; }
-    void this.view.webview.postMessage({ type: 'scrollTo', id: assistantId }).then(undefined, () => {});
+    postMessageSafely(this.view.webview.postMessage({ type: 'scrollTo', id: assistantId }));
   }
 }
 

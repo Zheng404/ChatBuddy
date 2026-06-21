@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 
 import { cloneDefaultModels } from './modelCatalog';
 import { ChatStorage } from './chatStorage';
+import { getStrings, resolveLocale } from './i18n';
 import { cloneMcpSettings } from './stateClone';
 import { mergePersistedState } from './stateRepositoryImportExport';
 import { PersistedStateLite, ProviderModelProfile } from './types';
@@ -164,7 +165,8 @@ export class StatePersistenceService {
       return;
     }
     this.persistFailureNotified = true;
-    void vscode.window.showWarningMessage('ChatBuddy: Failed to save data. Your changes may not be persisted.');
+    const locale = resolveLocale(undefined, vscode.env.language);
+    void vscode.window.showWarningMessage(getStrings(locale).dataSaveFailed);
   }
 
   /**

@@ -320,6 +320,8 @@ export function sanitizeSettings(raw: unknown): ChatBuddySettings {
 
 export function sanitizeLocalBackupSettings(raw: unknown): import('./types').LocalBackupSettings {
   const source = raw && typeof raw === 'object' ? (raw as Partial<import('./types').LocalBackupSettings>) : {};
+  // 语义对齐 cleanExpiredBackups：maxCount === 0 表示「不限制份数」，
+  // maxAgeDays === 0 表示「不限制年龄」（详见 localBackup.ts 的文档注释）。
   return {
     enabled: source.enabled === true,
     directory: typeof source.directory === 'string' ? source.directory.trim() : '',

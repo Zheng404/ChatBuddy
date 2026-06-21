@@ -683,8 +683,8 @@
     "extract:release-notes": "node ./scripts/extractReleaseNotes.cjs",
     "test:unit": "npm run compile && node --require ./out/test/setup.js --test out/test/unit/**/*.test.js",
     "benchmark": "node --require ./out/test/setup.js --test out/test/benchmark/**/*.bench.js",
-    "test:coverage": "c8 --reporter=text --reporter=html --include='out/chatbuddy/**/*.js' --exclude='out/test/**' npm run test:unit",
-    "test:coverage:ci": "c8 --reporter=text --lines=40 --functions=40 --branches=30 npm run test:unit",
+    "test:coverage": "npm run compile && node --require ./out/test/setup.js --test --experimental-test-coverage --test-coverage-include='out/chatbuddy/**/*.js' --test-coverage-exclude='out/test/**' out/test/unit/**/*.test.js",
+    "test:coverage:ci": "npm run compile && node --require ./out/test/setup.js --test --experimental-test-coverage --test-coverage-include='out/chatbuddy/**/*.js' --test-coverage-exclude='out/test/**' --test-coverage-lines=40 --test-coverage-functions=40 --test-coverage-branches=30 out/test/unit/**/*.test.js",
     "test:watch": "nodemon --watch src --ext ts --exec 'npm run compile && npm run test:unit'",
     "test": "npm run lint && npm run compile && npm run test:unit",
     "package": "vsce package",
@@ -699,7 +699,6 @@
     "@eslint/js": "^9.0.0",
     "@vscode/vsce": "^3.9.1",
     "typescript-eslint": "^8.0.0",
-    "c8": "^11.0.0",
     "eslint": "^9.0.0",
     "ovsx": "^0.10.11",
     "typescript": "^5.8.0"

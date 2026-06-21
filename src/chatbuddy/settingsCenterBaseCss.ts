@@ -5,7 +5,7 @@
  * 数据管理、Toast 和响应式样式。
  */
 import { SHARED_TOAST_STYLE } from './toastTheme';
-import { SHARED_WEBVIEW_BASE } from './webviewBaseTheme';
+import { SHARED_WEBVIEW_BASE, BREAKPOINT_MOBILE } from './webviewBaseTheme';
 import { SHARED_FORM_STYLE } from './webviewFormTheme';
 
 export function getSettingsCenterBaseCss(): string {
@@ -16,19 +16,6 @@ export function getSettingsCenterBaseCss(): string {
         --panel-bg: color-mix(in srgb, var(--bg) 92%, white 8%);
         --panel-bg-strong: color-mix(in srgb, var(--bg) 86%, white 14%);
         --accent: var(--vscode-focusBorder, var(--vscode-button-background));
-
-        --radius-sm: 6px;
-        --radius-md: 8px;
-        --radius-lg: 10px;
-        --radius-xl: 12px;
-        --radius-pill: 999px;
-
-        --color-success: #10b981;
-        --color-info: #3b82f6;
-        --color-warning: #f59e0b;
-        --color-error: #be1100;
-        --color-muted: #6b7280;
-        --color-purple: #a855f7;
       }
 
       body {
@@ -42,7 +29,7 @@ export function getSettingsCenterBaseCss(): string {
 
       .frame {
         border: 1px solid var(--border);
-        border-radius: 14px;
+        border-radius: var(--radius-xl);
         display: grid;
         grid-template-columns: 1fr;
         grid-template-rows: auto 1fr;
@@ -57,7 +44,7 @@ export function getSettingsCenterBaseCss(): string {
         padding: 10px 16px;
         border-bottom: 1px solid var(--border);
         background: color-mix(in srgb, var(--bg) 96%, white 4%);
-        border-radius: 14px 14px 0 0;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
         min-width: 0;
       }
 
@@ -103,7 +90,7 @@ export function getSettingsCenterBaseCss(): string {
         padding: 0;
         opacity: 0;
         pointer-events: none;
-        transition: opacity 0.15s;
+        transition: opacity var(--duration-normal);
       }
 
       .tab-arrow.visible {
@@ -492,7 +479,7 @@ export function getSettingsCenterBaseCss(): string {
         justify-content: space-between;
         padding: 10px 12px;
         border: 1px solid var(--border);
-        border-radius: var(--radius);
+        border-radius: var(--radius-md);
         margin-bottom: 6px;
         gap: 12px;
       }
@@ -538,7 +525,7 @@ export function getSettingsCenterBaseCss(): string {
 
 ${SHARED_TOAST_STYLE}
 
-      @media (max-width: 760px) {
+      @media (max-width: ${BREAKPOINT_MOBILE}px) {
         body {
           padding: 14px;
         }

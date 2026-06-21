@@ -19,9 +19,6 @@ export {
   getTimeoutOptions
 } from './locale';
 
-// 类型守卫
-export { isString, isObject, isNonEmptyArray, isNumber, isBoolean } from './guard';
-
 // 文件操作
 export { readFile, writeFile, fileExists } from './fs';
 
@@ -29,7 +26,10 @@ export { readFile, writeFile, fileExists } from './fs';
 export { normalizeProvider } from './provider';
 
 // 错误工具
-export { toErrorMessage } from './error';
+export { toErrorMessage, postMessageSafely } from './error';
+
+// VSCode 命令工具
+export { safeSetContext } from './vscode';
 
 // 日志工具
 export { warn, error, log, createOutputChannel } from './logger';

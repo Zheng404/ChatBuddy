@@ -68,6 +68,12 @@ export type AssistantEditorState = {
   models: ReadonlyArray<ProviderModelOption>;
   mcpServers: ReadonlyArray<McpServerSummary>;
   notice?: string;
+  /**
+   * 通知的视觉样式。Host 端根据操作结果显式传递，避免前端通过字符串匹配
+   * 误判 tone（例如「保存为模板」成功提示被误判为 error）。
+   * 默认按 success 渲染。
+   */
+  noticeTone?: 'success' | 'error';
 };
 
 // ─── 头像图标常量 ────────────────────────────────────────────────────

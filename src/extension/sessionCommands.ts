@@ -68,12 +68,7 @@ export function registerSessionCommands(ctx: ExtensionContext): vscode.Disposabl
         void vscode.window.showInformationMessage(strings().noSessionsToDelete);
         return;
       }
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmDeleteSession, { title: currentSession.title }),
-        { modal: true },
-        strings().deleteAction
-      );
-      if (confirm !== strings().deleteAction) { return; }
+      // 前端 webview 已通过 Danger Modal 确认（A 类：侧边栏右键触发）
       repository.setSelectedAssistant(assistantId);
       chatController.deleteSessionForSelectedAssistant(sessionId);
       chatController.openAssistantChat(assistantId);

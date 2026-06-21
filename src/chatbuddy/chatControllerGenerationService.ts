@@ -132,8 +132,14 @@ export class ChatGenerationService {
     }
     const { normalized, assistant, selectedSession } = validated;
 
+    // 多面板模式下，将生成开始时的目标 assistantId/sessionId 绑定到 context，
+    // 防止后续 stream delta 因面板切换触发 setSelectedAssistant 后定位到错误会话（Bug 1）
+    const generationContext: ToolOrchestratorPanelContext | undefined = context
+      ? { panel: context.panel, assistantId: context.assistantId ?? assistant.id, sessionId: selectedSession.id }
+      : undefined;
+
     const settings = this.deps.repository.getSettings();
-    const failoverChain = this.buildFailoverChain(settings, assistant, context);
+    const failoverChain = this.buildFailoverChain(settings, assistant, generationContext);
     if (failoverChain.length === 0) {
       return;
     }
@@ -164,7 +170,7 @@ export class ChatGenerationService {
       failoverChain,
       locale,
       fullContent,
-      context
+      generationContext
     );
 
     if (!visionResult.content.trim() && !visionResult.images?.length) {
@@ -177,7 +183,8 @@ export class ChatGenerationService {
       files,
       assistant,
       selectedSession,
-      visionSupported
+      visionSupported,
+      visionResult.ocrText
     );
 
     const assistantMessage: ChatMessage = {
@@ -195,7 +202,7 @@ export class ChatGenerationService {
     this.deps.setAbortReason(undefined);
     this.deps.setStreamingEnabled(assistant.streaming);
 
-    this.deps.postState(undefined, context);
+    this.deps.postState(undefined, generationContext);
 
     const attemptedProviders: string[] = [];
     for (let chainIndex = 0; chainIndex < failoverChain.length; chainIndex++) {
@@ -210,14 +217,14 @@ export class ChatGenerationService {
         attemptedProviders,
         chainIndex,
         failoverChain,
-        context
+        generationContext
       );
       if (attemptResult.done) {
         return;
       }
     }
     if (this.deps.isGenerating()) {
-      this.cleanupGenerationState(undefined, context);
+      this.cleanupGenerationState(undefined, generationContext);
     }
   }
 
@@ -240,13 +247,16 @@ export class ChatGenerationService {
     if (invalidReason) {
       attemptedProviders.push(currentResolved.config.modelLabel + ' (invalid)');
       if (chainIndex === failoverChain.length - 1) {
-        this.deps.repository.appendMessage(assistant.id, selectedSession.id, {
-          id: createId('msg'),
+        // 更新循环前插入的空助手消息，而非追加新消息（Bug 3）。
+        // sendMessage 在 failover 循环前已 appendMessage 一条空内容助手消息，
+        // 此处若再 appendMessage 会导致会话末尾出现空助手消息 + 错误助手消息两条。
+        this.deps.repository.updateLastAssistantMessage(assistant.id, selectedSession.id, (current) => ({
+          id: current?.id ?? assistantMessage.id,
           role: 'assistant',
           content: invalidReason,
           timestamp: nowTs(),
           model: currentResolved.config.modelLabel
-        });
+        }));
         this.deps.postError(invalidReason, context);
         this.deps.postState(invalidReason, context);
         this.cleanupGenerationState(undefined, context);
@@ -367,9 +377,9 @@ export class ChatGenerationService {
     locale: RuntimeLocale,
     fullContent: string,
     context: ToolOrchestratorPanelContext | undefined
-  ): Promise<{ content: string; images: ChatMessageImage[] | undefined }> {
+  ): Promise<{ content: string; images: ChatMessageImage[] | undefined; ocrText: string }> {
     if (!messageImages || messageImages.length === 0 || visionSupported) {
-      return { content: fullContent, images: messageImages };
+      return { content: fullContent, images: messageImages, ocrText: '' };
     }
 
     const strings = getStrings(locale);
@@ -394,19 +404,20 @@ export class ChatGenerationService {
     }
 
     if (ocrResults.length > 0) {
-      const ocrBlock = '\n\n<image_ocr>\n' +
+      const ocrBlock = '<image_ocr>\n' +
         (locale === 'zh-CN' ? '图片文字识别结果：' : 'Image text recognition results:') +
         '\n\n' +
         ocrResults.map((r) => `[${locale === 'zh-CN' ? '图片' : 'Image'} ${r.index + 1}]\n${r.text}`).join('\n\n') +
         '\n</image_ocr>';
-      return { content: fullContent + ocrBlock, images: messageImages };
+      // content 仅用于空内容判断；ocrText 用于注入 Provider 消息（不持久化到历史）
+      return { content: fullContent + '\n\n' + ocrBlock, images: messageImages, ocrText: ocrBlock };
     } else {
       this.deps.postMessage({
         type: 'toast',
         message: strings.imagePasteUnsupportedModel || '',
         tone: 'info'
       }, context);
-      return { content: fullContent, images: undefined };
+      return { content: fullContent, images: undefined, ocrText: '' };
     }
   }
 
@@ -416,7 +427,8 @@ export class ChatGenerationService {
     files: Array<{ name: string; content: string; language?: string }> | undefined,
     assistant: AssistantProfile,
     selectedSession: { id: string },
-    visionSupported: boolean
+    visionSupported: boolean,
+    ocrText: string
   ): { userMessage: ChatMessage; providerMessages: ReturnType<typeof toProviderMessages> } {
     const normalizedWithPrefix = applyQuestionPrefix(normalized, assistant.questionPrefix);
 
@@ -434,11 +446,21 @@ export class ChatGenerationService {
     };
     const sessionAfterUser = this.deps.repository.appendMessage(assistant.id, selectedSession.id, userMessage);
 
-    const messagesForProvider = !visionSupported
-      ? sessionAfterUser.messages.map((msg) =>
-          msg.images && msg.images.length > 0 ? { ...msg, images: undefined } : msg
-        )
-      : sessionAfterUser.messages;
+    // vision 不支持时剥离图片；将 OCR 文本注入当前 user 消息（仅发给 Provider，不持久化到历史，
+    // 避免重新生成时重复 OCR）
+    const trimmedOcr = ocrText.trim();
+    const targetMessageId = userMessage.id;
+    const messagesForProvider = sessionAfterUser.messages.map((msg) => {
+      let next = msg;
+      if (!visionSupported && next.images && next.images.length > 0) {
+        next = { ...next, images: undefined };
+      }
+      if (trimmedOcr && next.id === targetMessageId && next.role === 'user') {
+        const base = next.content;
+        next = { ...next, content: base ? `${base}\n\n${ocrText}` : ocrText };
+      }
+      return next;
+    });
 
     const providerMessages = toProviderMessages(
       resolveTemplateVariables(assistant.systemPrompt),
@@ -499,8 +521,13 @@ export class ChatGenerationService {
             timeoutHandle = setTimeout(() => { this.deps.setAbortReason('timeout'); this.deps.getAbortController()?.abort(); }, TOOL_CALLING_TIMEOUT_MS);
           }
           const runState: PendingToolContinuation = { assistant, sessionId: selectedSession.id, assistantMessageId: assistantMessage.id, settings: this.deps.repository.getSettings(), locale, providerMessages, providerTools, providerConfig: resolved.config, toolRounds: [], result };
-          await this.deps.toolOrchestrator.runToolCallingBatch(runState, context);
+          const runResult = await this.deps.toolOrchestrator.runToolCallingBatch(runState, context);
           clearTimeout(timeoutHandle);
+          // Bug 5: 达到 maxToolRounds 暂停时，仅清理生成状态，不触发标题生成与成功收尾
+          if (runResult === 'paused') {
+            this.cleanupGenerationState(undefined, context);
+            return { success: true, shouldFailover: false };
+          }
           return this.finalizeSuccessfulGeneration(selectedSession, assistant, context);
         }
         this.deps.toolOrchestrator.applyProviderResultToAssistantMessage(assistant.id, selectedSession.id, assistantMessage.id, result, resolved.config.modelLabel, { fallbackContent: strings.emptyResponse });
@@ -613,7 +640,7 @@ export class ChatGenerationService {
     this.deps.postState(error, context);
   }
 
-  public async regenerateReply(context?: ToolOrchestratorPanelContext): Promise<void> {
+  public async regenerateReply(context?: ToolOrchestratorPanelContext, confirmed?: boolean): Promise<void> {
     const locale = this.deps.getLocale();
     const strings = getStrings(locale);
     if (this.deps.isGenerating()) {
@@ -643,12 +670,16 @@ export class ChatGenerationService {
     }
 
     const removedCount = Math.max(0, session.messages.length - userIndex - 1);
-    const confirmed = await this.deps.confirmDangerousAction(
-      formatString(strings.confirmRegenerateReply, { count: String(removedCount) }),
-      strings.regenerateReplyAction
-    );
+    // 前端 webview 已确认时跳过 Host 端 VS Code 原生对话框（A 类：webview 内触发）
+    // 命令面板路径（B 类）不传 confirmed，保留 Host 端 confirmDangerousAction 确认
     if (!confirmed) {
-      return;
+      const isConfirmed = await this.deps.confirmDangerousAction(
+        formatString(strings.confirmRegenerateReply, { count: String(removedCount) }),
+        strings.regenerateReplyAction
+      );
+      if (!isConfirmed) {
+        return;
+      }
     }
 
     const userMsg = session.messages[userIndex];
@@ -661,7 +692,8 @@ export class ChatGenerationService {
 
   public async regenerateFromMessage(
     messageId: string,
-    context?: ToolOrchestratorPanelContext
+    context?: ToolOrchestratorPanelContext,
+    confirmed?: boolean
   ): Promise<void> {
     const locale = this.deps.getLocale();
     const strings = getStrings(locale);
@@ -697,12 +729,15 @@ export class ChatGenerationService {
     }
 
     const removedCount = Math.max(0, session.messages.length - userIndex - 1);
-    const confirmed = await this.deps.confirmDangerousAction(
-      formatString(strings.confirmRegenerateFromMessage, { count: String(removedCount) }),
-      strings.regenerateFromMessageAction
-    );
+    // 前端 webview 已确认时跳过 Host 端 VS Code 原生对话框（A 类：webview 内触发）
     if (!confirmed) {
-      return;
+      const isConfirmed = await this.deps.confirmDangerousAction(
+        formatString(strings.confirmRegenerateFromMessage, { count: String(removedCount) }),
+        strings.regenerateFromMessageAction
+      );
+      if (!isConfirmed) {
+        return;
+      }
     }
 
     const userMsg = session.messages[userIndex];
@@ -772,7 +807,7 @@ export class ChatGenerationService {
     }
   }
 
-  public async deleteMessage(messageId: string): Promise<void> {
+  public async deleteMessage(messageId: string, confirmed?: boolean): Promise<void> {
     const strings = getStrings(this.deps.getLocale());
     const assistant = this.deps.repository.getSelectedAssistant();
     if (!assistant) {
@@ -786,9 +821,12 @@ export class ChatGenerationService {
     if (!message) {
       return;
     }
-    const confirmed = await this.deps.confirmDangerousAction(strings.confirmDeleteMessage, strings.deleteAction);
+    // 前端 webview 已确认时跳过 Host 端 VS Code 原生对话框（A 类：webview 内触发）
     if (!confirmed) {
-      return;
+      const isConfirmed = await this.deps.confirmDangerousAction(strings.confirmDeleteMessage, strings.deleteAction);
+      if (!isConfirmed) {
+        return;
+      }
     }
     this.deps.repository.deleteMessage(assistant.id, session.id, messageId);
     this.deps.postState();
@@ -813,16 +851,18 @@ export class ChatGenerationService {
     }
     if (regenerate && message.role === 'user') {
       const originalImages = message.images && message.images.length > 0 ? message.images : undefined;
+      // 重新生成时同时保留文件附件，避免丢失（Bug 4）
+      const originalFiles = message.files && message.files.length > 0 ? message.files : undefined;
       this.deps.repository.editMessageAndTruncateAfter(assistant.id, session.id, messageId, trimmedContent);
       this.deps.postState();
-      await this.sendMessage(trimmedContent, originalImages);
+      await this.sendMessage(trimmedContent, originalImages, originalFiles);
       return;
     }
     this.deps.repository.editMessage(assistant.id, session.id, messageId, trimmedContent);
     this.deps.postState();
   }
 
-  public async clearSession(): Promise<void> {
+  public async clearSession(confirmed?: boolean): Promise<void> {
     const strings = getStrings(this.deps.getLocale());
     const assistant = this.deps.repository.getSelectedAssistant();
     if (!assistant) {
@@ -835,9 +875,12 @@ export class ChatGenerationService {
     if (!session.messages.length) {
       return;
     }
-    const confirmed = await this.deps.confirmDangerousAction(strings.confirmClearSession, strings.clearAction);
+    // 前端 webview 已确认时跳过 Host 端 VS Code 原生对话框（A 类：webview 内触发）
     if (!confirmed) {
-      return;
+      const isConfirmed = await this.deps.confirmDangerousAction(strings.confirmClearSession, strings.clearAction);
+      if (!isConfirmed) {
+        return;
+      }
     }
     this.deps.repository.clearSessionMessages(assistant.id, session.id);
     const greeting = assistant.greeting?.trim();

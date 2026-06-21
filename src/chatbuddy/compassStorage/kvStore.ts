@@ -16,7 +16,15 @@ export class CompassKvStore {
   public async load(paths: CompassPaths): Promise<void> {
     this.kv.clear();
     this.dirty = false;
-    const payload = await readJsonFile<Record<string, unknown>>(paths.kvPath);
+    // kv 文件损坏（JSON 解析失败）时降级为空 kv，避免单个文件损坏导致整个加载失败。
+    // readJsonFile 在 ENOENT 时返回 undefined（合法），仅在文件损坏时抛出。
+    let payload: Record<string, unknown> | undefined;
+    try {
+      payload = await readJsonFile<Record<string, unknown>>(paths.kvPath);
+    } catch (err) {
+      warn('kv.compass.json is corrupted, falling back to empty kv map:', err);
+      payload = undefined;
+    }
     if (!payload || typeof payload !== 'object') {
       return;
     }

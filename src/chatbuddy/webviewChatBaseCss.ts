@@ -42,7 +42,7 @@ export function getWebviewChatBaseCss(): string {
       .assistant-badge {
         width: 36px;
         height: 36px;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -103,9 +103,9 @@ export function getWebviewChatBaseCss(): string {
       .empty-card {
         width: min(460px, 100%);
         border: 1px solid var(--border);
-        border-radius: 16px;
-        background: color-mix(in srgb, var(--bg) 93%, var(--fg) 7%);
-        padding: 22px;
+        border-radius: var(--radius-xl);
+        background: color-mix(in srgb, var(--bg) 96%, white 4%);
+        padding: 16px;
       }
 
       .empty-card .assistant-badge {
@@ -140,7 +140,7 @@ export function getWebviewChatBaseCss(): string {
       .message-avatar {
         width: 28px;
         height: 28px;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         border: 1px solid var(--border);
         background: var(--vscode-list-hoverBackground);
         display: inline-flex;
@@ -156,7 +156,7 @@ export function getWebviewChatBaseCss(): string {
       .message-card {
         width: min(760px, 90%);
         border: 1px solid var(--border);
-        border-radius: 14px;
+        border-radius: var(--radius-xl);
         padding: 12px 14px;
         background: var(--assistant-bg);
       }
@@ -217,7 +217,7 @@ export function getWebviewChatBaseCss(): string {
         height: auto;
         margin: 10px 0 0;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--bg) 90%, var(--fg) 10%);
       }
 
@@ -228,7 +228,7 @@ export function getWebviewChatBaseCss(): string {
         max-width: 100%;
         margin: 10px 0 0;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: #000;
       }
 
@@ -243,7 +243,7 @@ export function getWebviewChatBaseCss(): string {
       .message-image {
         max-width: 260px;
         max-height: 200px;
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         object-fit: contain;
         cursor: pointer;
       }
@@ -257,7 +257,7 @@ export function getWebviewChatBaseCss(): string {
 
       .file-attachment {
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         overflow: hidden;
         background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
       }
@@ -269,7 +269,7 @@ export function getWebviewChatBaseCss(): string {
         padding: 8px 12px;
         cursor: pointer;
         user-select: none;
-        transition: background 0.15s;
+        transition: background var(--duration-normal);
       }
 
       .file-attachment-header:hover {
@@ -290,7 +290,7 @@ export function getWebviewChatBaseCss(): string {
         display: inline-block;
         font-size: 10px;
         color: var(--muted);
-        transition: transform 0.2s;
+        transition: transform var(--duration-slow);
       }
 
       .file-attachment-header.expanded .file-attachment-toggle {
@@ -306,7 +306,7 @@ export function getWebviewChatBaseCss(): string {
       .file-attachment-content pre {
         margin: 0;
         padding: 8px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         background: var(--code-bg, rgba(128,128,128,0.08));
         overflow-x: auto;
         font-size: 12px;
@@ -322,7 +322,7 @@ export function getWebviewChatBaseCss(): string {
 
 .message-action-btn {
         border: 0;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         background: transparent;
         color: var(--muted);
         width: 22px;
@@ -332,6 +332,7 @@ export function getWebviewChatBaseCss(): string {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        transition: background var(--duration-normal) ease, color var(--duration-normal) ease;
       }
 
       .message-action-btn:hover {
@@ -341,7 +342,7 @@ export function getWebviewChatBaseCss(): string {
 
       .action-btn-icon {
         border: 0;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         background: transparent;
         color: var(--muted);
         width: 22px;
@@ -351,6 +352,7 @@ export function getWebviewChatBaseCss(): string {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        transition: background var(--duration-normal) ease, color var(--duration-normal) ease;
       }
 
       .action-btn-icon:hover {

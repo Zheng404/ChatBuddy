@@ -11,7 +11,7 @@ import { getStrings } from './i18n';
 import { getPanelIconPath } from './panelIcon';
 import { ChatStateRepository } from './stateRepository';
 import { RuntimeLocale, WebviewInboundMessage } from './types';
-import { warn } from './utils';
+import { safeSetContext, warn } from './utils';
 import { ToolOrchestratorPanelContext } from './chatControllerToolOrchestrator';
 
 const CHAT_PANEL_VIEW_TYPE = 'chatbuddy.mainChat';
@@ -199,7 +199,7 @@ export class ChatPanelManager {
 
     const viewStateListener = panel.onDidChangeViewState((event) => {
       const isActive = !!event.webviewPanel.active;
-      void vscode.commands.executeCommand('setContext', 'chatBuddyChatPanelFocused', isActive);
+      safeSetContext('chatBuddyChatPanelFocused', isActive);
       if (!isActive || !context.assistantId) {
         return;
       }
@@ -209,7 +209,7 @@ export class ChatPanelManager {
     });
 
     panel.onDidDispose(() => {
-      void vscode.commands.executeCommand('setContext', 'chatBuddyChatPanelFocused', false);
+      safeSetContext('chatBuddyChatPanelFocused', false);
       this.deps.handlePanelDisposing(panel, context.assistantId);
       messageListener.dispose();
       viewStateListener.dispose();

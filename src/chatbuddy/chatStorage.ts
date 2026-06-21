@@ -256,7 +256,7 @@ export class ChatStorage {
       const imagesDir = paths.imagesPath;
       const entries = await fs.promises.readdir(imagesDir).catch(() => [] as string[]);
       for (const entry of entries) {
-        await fs.promises.unlink(path.join(imagesDir, entry)).catch(() => {});
+        await fs.promises.unlink(path.join(imagesDir, entry)).catch((err) => warn('Failed to delete image file:', err));
       }
     } catch (err) {
       warn('Error cleaning up images:', err);
@@ -433,6 +433,7 @@ export class ChatStorage {
   private async isLegacyNestedRootCandidate(candidatePath: string): Promise<boolean> {
     return (
       (await fileExists(path.join(candidatePath, COMPASS_META_DIR_NAME))) ||
+      // eslint-disable-next-line no-return-await -- await required: || operand must resolve to boolean, not Promise
       (await fileExists(path.join(candidatePath, COMPASS_SESSIONS_DIR_NAME)))
     );
   }

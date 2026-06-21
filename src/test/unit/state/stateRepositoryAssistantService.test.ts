@@ -79,6 +79,7 @@ function createService(stateOverrides: Partial<PersistedStateLite> = {}) {
   const state = makeState(stateOverrides);
   const persistCalls: number[] = [];
   const storageCalls: string[] = [];
+  const bumpCalls: number[] = [];
   const service = new AssistantStateService({
     getState: () => state,
     setState: (s) => { Object.assign(state, s); },
@@ -88,6 +89,7 @@ function createService(stateOverrides: Partial<PersistedStateLite> = {}) {
     } as unknown as AssistantStateService['context']['storage'],
     storageReady: () => true,
     persistLater: () => { persistCalls.push(Date.now()); },
+    bumpVersion: () => { bumpCalls.push(Date.now()); },
     isWritableGroup: (groupId: string) => groupId === DEFAULT_GROUP_ID || groupId.startsWith('group_'),
     defaultAssistantSystemPrompt: 'You are helpful.',
     getSelectedAssistantId: () => state.selectedAssistantId,
@@ -95,7 +97,7 @@ function createService(stateOverrides: Partial<PersistedStateLite> = {}) {
     getSelectedSessionIds: () => state.selectedSessionIdByAssistant,
     setSelectedSessionIds: (ids) => { state.selectedSessionIdByAssistant = ids; }
   });
-  return { service, state, persistCalls, storageCalls };
+  return { service, state, persistCalls, storageCalls, bumpCalls };
 }
 
 // ─── setSelectedAssistant ──────────────────────────────────────────
@@ -445,21 +447,25 @@ describe('setAssistantStreaming', () => {
 
 describe('markAssistantInteracted', () => {
   test('updates lastInteractedAt', () => {
-    const { service, state, persistCalls } = createService();
+    const { service, state, persistCalls, bumpCalls } = createService();
     service.markAssistantInteracted('a1');
     assert.ok(state.assistants[0].lastInteractedAt > 0);
     assert.equal(persistCalls.length, 1);
+    assert.equal(bumpCalls.length, 1);
   });
 
-  test('skips persist when persist=false', () => {
-    const { service, persistCalls } = createService();
+  test('skips persist when persist=false but still bumps version', () => {
+    const { service, persistCalls, bumpCalls } = createService();
     service.markAssistantInteracted('a1', false);
     assert.equal(persistCalls.length, 0);
+    // 即使不持久化，状态已修改，必须同步 bump 以失效 getState() 缓存
+    assert.equal(bumpCalls.length, 1);
   });
 
   test('no-ops for unknown assistant', () => {
-    const { service, persistCalls } = createService();
+    const { service, persistCalls, bumpCalls } = createService();
     service.markAssistantInteracted('nonexistent');
     assert.equal(persistCalls.length, 0);
+    assert.equal(bumpCalls.length, 0);
   });
 });

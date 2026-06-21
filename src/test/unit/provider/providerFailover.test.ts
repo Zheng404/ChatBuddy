@@ -5,8 +5,10 @@
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveFailoverChain, HttpError } from '../../../chatbuddy/providerClient';
-import type { AssistantProfile, ChatBuddySettings, ProviderProfile } from '../../../chatbuddy/types';
+import { resolveFailoverChain, resolveModelBindingConfig, HttpError } from '../../../chatbuddy/providerClient';
+import { MAX_CONTEXT_COUNT } from '../../../chatbuddy/stateSanitizers';
+import { PROVIDER_LIMITS } from '../../../chatbuddy/constants';
+import type { AssistantProfile, ChatBuddySettings, ModelBinding, ProviderProfile } from '../../../chatbuddy/types';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -232,5 +234,85 @@ describe('HttpError', () => {
   test('500 is server error', () => {
     const error = new HttpError(500, 'Server error');
     assert.strictEqual(error.status, 500);
+  });
+});
+
+// ─── Bug 7: failover 配置应继承助手 overrides ───────────────────────
+
+describe('resolveFailoverChain — assistant overrides inheritance (Bug 7)', () => {
+  test('failover configs inherit assistant overrides for apiKey, baseUrl, model, temperature', () => {
+    const openai = createMockProvider('openai', true, ['gpt-4o']);
+    const gemini = createMockProvider('gemini', true, ['gemini-pro']);
+    const settings = createMockSettings([openai, gemini]);
+    const assistant = createMockAssistant({
+      modelRef: 'openai:gpt-4o',
+      failoverModelRefs: ['gemini:gemini-pro'],
+      overrides: {
+        apiKey: 'override-key',
+        baseUrl: 'https://override.example.com/v1',
+        model: 'override-model',
+        temperature: 0.3
+      }
+    });
+
+    const chain = resolveFailoverChain(settings, assistant);
+
+    assert.strictEqual(chain.length, 2);
+    // 主链路 resolveProviderConfig 行为
+    assert.strictEqual(chain[0].config.apiKey, 'override-key');
+    assert.strictEqual(chain[0].config.baseUrl, 'https://override.example.com/v1');
+    assert.strictEqual(chain[0].config.modelId, 'override-model');
+    assert.strictEqual(chain[0].config.temperature, 0.3);
+    // failover 也应继承 overrides（Bug 7 修复）
+    assert.strictEqual(chain[1].config.apiKey, 'override-key');
+    assert.strictEqual(chain[1].config.baseUrl, 'https://override.example.com/v1');
+    assert.strictEqual(chain[1].config.modelId, 'override-model');
+    assert.strictEqual(chain[1].config.temperature, 0.3);
+  });
+
+  test('failover configs fall back to provider config when no overrides', () => {
+    const openai = createMockProvider('openai', true, ['gpt-4o']);
+    const gemini = createMockProvider('gemini', true, ['gemini-pro']);
+    const settings = createMockSettings([openai, gemini]);
+    const assistant = createMockAssistant({
+      modelRef: 'openai:gpt-4o',
+      failoverModelRefs: ['gemini:gemini-pro']
+    });
+
+    const chain = resolveFailoverChain(settings, assistant);
+
+    assert.strictEqual(chain.length, 2);
+    // 无 overrides 时使用 provider 自身配置
+    assert.strictEqual(chain[1].config.apiKey, 'test-key');
+    assert.strictEqual(chain[1].config.baseUrl, 'https://api.test.com/v1');
+    assert.strictEqual(chain[1].config.modelId, 'gemini-pro');
+  });
+});
+
+// ─── Bug 6: resolveModelBindingConfig 的 contextCount clamp 上限 ────
+
+describe('resolveModelBindingConfig — contextCount clamp (Bug 6)', () => {
+  test('clamps contextCount to MAX_CONTEXT_COUNT (consistent with resolveProviderConfig)', () => {
+    const provider = createMockProvider('openai', true, ['gpt-4o']);
+    const settings = createMockSettings([provider]);
+    const binding: ModelBinding = { providerId: 'openai', modelId: 'gpt-4o' };
+
+    // 传入远超上限的值
+    const { config } = resolveModelBindingConfig(settings, binding, {
+      contextCount: Number.MAX_SAFE_INTEGER
+    });
+
+    // 应被 clamp 到 MAX_CONTEXT_COUNT，而非 Number.MAX_SAFE_INTEGER
+    assert.strictEqual(config.contextCount, MAX_CONTEXT_COUNT);
+  });
+
+  test('uses default context count when not specified', () => {
+    const provider = createMockProvider('openai', true, ['gpt-4o']);
+    const settings = createMockSettings([provider]);
+    const binding: ModelBinding = { providerId: 'openai', modelId: 'gpt-4o' };
+
+    const { config } = resolveModelBindingConfig(settings, binding);
+
+    assert.strictEqual(config.contextCount, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT);
   });
 });

@@ -63,13 +63,7 @@ export function getMcpJs(): string {
         if (action === 'delete') {
           var server = mcpServers[idx];
           if (!server) { return; }
-          vscode.postMessage({
-            type: 'deleteMcpServer',
-            payload: {
-              serverId: server.id,
-              serverName: server.name
-            }
-          });
+          confirmDeleteMcpServer(server);
           return;
         }
       });
@@ -138,13 +132,7 @@ export function getMcpJs(): string {
         if (action === 'delete') {
           var server = mcpServers[idx];
           if (!server) { return; }
-          vscode.postMessage({
-            type: 'deleteMcpServer',
-            payload: {
-              serverId: server.id,
-              serverName: server.name
-            }
-          });
+          confirmDeleteMcpServer(server);
           return;
         }
       });

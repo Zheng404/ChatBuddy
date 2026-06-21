@@ -14,6 +14,7 @@ import { getSessionsScript } from './sessions';
 import { getSettingsScript } from './settings';
 import { getSharedScript } from './shared';
 import { getTreeListScript } from './treeList';
+import { getDangerModalScript } from '../webviewShared';
 
 /**
  * 返回各 view 的 body HTML。
@@ -50,14 +51,18 @@ export function getSidebarBodyHtml(kind: SidebarViewKind): string {
  * 返回完整前端脚本。
  *
  * 注入 SIDEBAR_VIEW_KIND 常量（供前端判断当前 view 种类），再依次拼接：
- * - shared + treeList + contextMenu + searchBox（所有 view 共用的基础组件）
+ * - shared + dangerModal + treeList + contextMenu + searchBox（所有 view 共用的基础组件）
  * - 各 view 专用脚本（settings / assistants / sessions，均以 IIFE 自执行）
+ *
+ * 注意：dangerModal 必须在 shared 之后（依赖 window.__sb 命名空间挂载），
+ * 且在 contextMenu 之前（contextMenu 点击确认时调用 sb.openDangerModal）。
  */
 export function getSidebarScript(kind: SidebarViewKind): string {
   const header = 'var SIDEBAR_VIEW_KIND = ' + JSON.stringify(kind) + ';';
   const common =
     header + '\n' +
     getSharedScript() + '\n' +
+    getDangerModalScript() + '\n' +
     getTreeListScript() + '\n' +
     getContextMenuScript() + '\n' +
     getSearchBoxScript();

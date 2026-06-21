@@ -29,7 +29,7 @@ import type {
   RuntimeLocale,
   RuntimeStrings
 } from './types';
-import { getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, getTimeoutOptions, warn } from './utils';
+import { getLocaleFromSettings, getSendShortcutOptions, getChatTabModeOptions, getTimeoutOptions, postMessageSafely, warn } from './utils';
 
 import type {
   SettingsCenterSection,
@@ -140,6 +140,17 @@ export class SettingsCenterPanelController {
     this.postState();
   }
 
+  /**
+   * 释放资源：关闭当前打开的面板（若存在）。
+   *
+   * 面板的 `onDidDispose` 回调会清理 messageListener 并重置内部状态，
+   * 因此这里只需触发 panel.dispose() 即可级联清理所有资源。
+   * 用于扩展卸载/重载时通过 context.subscriptions 注册。
+   */
+  public dispose(): void {
+    this.panel?.dispose();
+  }
+
   // ─── 辅助方法 ─────────────────────────────────────────────────────
 
   private getLocale(): RuntimeLocale {
@@ -160,7 +171,9 @@ export class SettingsCenterPanelController {
 
   private postMessage(message: SettingsCenterOutbound): void {
     // postMessage may reject when the panel is disposed before delivery; safe to ignore
-    void this.panel?.webview.postMessage(message).then(undefined, () => {});
+    if (this.panel) {
+      postMessageSafely(this.panel.webview.postMessage(message));
+    }
   }
 
   // ─── MCP 探测 ──────────────────────────────────────────────────────
@@ -373,13 +386,23 @@ export class SettingsCenterPanelController {
     }
     const extRoot = path.resolve(__dirname, '../..');
     const candidates = ['CHANGELOG.md', 'changelog.md'];
+    let lastError: unknown;
     for (const name of candidates) {
       try {
         this.changelogMarkdownCache = fs.readFileSync(path.join(extRoot, name), 'utf-8');
         return this.changelogMarkdownCache;
       } catch (err) {
-        warn('Error reading changelog file:', err);
+        // 文件不存在是预期情况（ENOENT），不重复记录 warn；
+        // 仅缓存最后一次错误，循环结束统一处理。
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code !== 'ENOENT') {
+          lastError = err;
+        }
       }
+    }
+    // 所有候选都未找到：仅在出现真实 IO 错误时才 warn，正常缺失静默处理
+    if (lastError !== undefined) {
+      warn('Error reading changelog file:', lastError);
     }
     this.changelogMarkdownCache = '';
     return this.changelogMarkdownCache;

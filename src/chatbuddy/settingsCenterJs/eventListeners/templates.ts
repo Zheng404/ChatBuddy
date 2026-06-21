@@ -19,7 +19,21 @@ export function getTemplatesListenersJs(): string {
           if (action === 'rename') {
             vscode.postMessage({ type: 'renameTemplate', templateId: templateId, currentName: template.name || '' });
           } else if (action === 'delete') {
-            vscode.postMessage({ type: 'deleteTemplate', templateId: templateId, templateName: template.name || '' });
+            var strings = runtimeState.strings || {};
+            var message = (strings.templateDeleteConfirm || 'Are you sure you want to delete template "{name}"?').replace('{name}', template.name || '');
+            void openDangerModal({
+              message: message,
+              actionLabel: strings.deleteAction || 'Delete',
+              cancelLabel: strings.cancelAction || 'Cancel'
+            }).then(function (confirmed) {
+              if (!confirmed) { return; }
+              vscode.postMessage({
+                type: 'deleteTemplate',
+                templateId: templateId,
+                templateName: template.name || '',
+                skipConfirm: true
+              });
+            });
           }
         });
       }

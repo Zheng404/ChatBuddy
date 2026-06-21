@@ -52,7 +52,15 @@ export class CompassMigrator {
   constructor(private readonly context: CompassMigratorContext) {}
 
   public async migrateIfNeeded(): Promise<void> {
-    const marker = await readJsonFile<CompassMigrationRecord>(this.context.paths.migrationPath);
+    // marker 文件损坏（JSON 解析失败）时视为「无 marker」，触发完整迁移/校验流程。
+    // readJsonFile 在 ENOENT 时返回 undefined（合法），仅在文件损坏时抛出。
+    let marker: CompassMigrationRecord | undefined;
+    try {
+      marker = await readJsonFile<CompassMigrationRecord>(this.context.paths.migrationPath);
+    } catch (err) {
+      warn('Migration marker file is corrupted, treating as missing:', err);
+      marker = undefined;
+    }
     const hasCurrentMarker = marker?.name === 'compass' && (marker.layoutVersion ?? 1) >= COMPASS_LAYOUT_VERSION;
 
     if (hasCurrentMarker) {
@@ -160,6 +168,13 @@ export class CompassMigrator {
    * 当已有 Compass 迁移标记但快照验证失败时，尝试自修复。
    * 仅限会话文件缺失/孤儿等非致命不一致场景。
    * Settings/KV 损坏等严重问题不在此处理，仍走 SQLite 恢复或抛出异常。
+   *
+   * 修复策略：
+   * - 「Session file is missing」：索引引用了但文件不存在。`load()` 后这些会话
+   *   仍保留在 summaries 中，persist() 会重建空文件，索引保持一致
+   * - 「Found orphan session file」：磁盘存在但索引未引用。必须先调用
+   *   `adoptOrphanSessionFiles()` 将孤儿文件恢复进索引，否则 persist() 的孤儿
+   *   清理路径会直接删除这些文件造成数据丢失
    */
   private async trySelfHealCompassSnapshot(reason: string): Promise<boolean> {
     const healable = CompassMigrator.SESSION_HEALABLE_PATTERNS.some(p => reason.includes(p));
@@ -171,6 +186,15 @@ export class CompassMigrator {
       await this.context.sessionStore.load(this.context.paths);
       await this.context.kvStore.load(this.context.paths);
       await this.context.settingsStore.load(this.context.paths);
+
+      // 孤儿文件场景：先把磁盘上的孤儿会话文件恢复到索引，避免 persist() 删除数据
+      if (reason.includes('Found orphan session file')) {
+        const adopted = await this.context.sessionStore.adoptOrphanSessionFiles(this.context.paths);
+        if (adopted > 0) {
+          error(`Compass session self-heal adopted ${adopted} orphan session file(s) into the index.`);
+        }
+      }
+
       await this.persistStores();
       const snapshot = await this.validateCompassSnapshot(true);
       if (snapshot.valid) {

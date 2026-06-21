@@ -56,7 +56,8 @@ function createMockContext(overrides: Partial<ExtensionContext> = {}): Extension
       restoreAssistant: () => undefined,
       hardDeleteAssistant: async () => true,
       hardDeleteDeletedAssistants: async () => 0,
-      getAssistants: () => []
+      getAssistants: () => [],
+      setSelectedAssistant: () => undefined
     } as unknown as ExtensionContext['repository'],
     chatController: {
       openAssistantChat: () => undefined,
@@ -300,14 +301,17 @@ describe('softDeleteAssistant', () => {
   beforeEach(setupVscodeStubs);
   afterEach(restoreVscodeStubs);
 
-  test('confirms and soft deletes assistant', async () => {
+  test('confirms and soft deletes assistant; falls back to no-arg openChat when none remain', async () => {
     let softDeleteCalled = false;
     let openChatCalled = false;
+    let openChatArg: string | undefined = 'sentinel';
     let refreshed = false;
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
+        // 删除后无剩余助手 → openAssistantChat 应无参调用
+        getAssistants: () => [],
         softDeleteAssistant: (id: string) => {
           softDeleteCalled = true;
           assert.equal(id, assistant.id);
@@ -317,7 +321,7 @@ describe('softDeleteAssistant', () => {
       chatController: {
         openAssistantChat: (id?: string) => {
           openChatCalled = true;
-          assert.equal(id, assistant.id);
+          openChatArg = id;
         }
       } as unknown as ExtensionContext['chatController'],
       refreshAll: () => { refreshed = true; }
@@ -331,26 +335,58 @@ describe('softDeleteAssistant', () => {
 
     assert.equal(softDeleteCalled, true);
     assert.equal(openChatCalled, true);
+    assert.equal(openChatArg, undefined);
     assert.equal(refreshed, true);
   });
 
-  test('aborts when user cancels', async () => {
+  test('switches to next available assistant after delete', async () => {
+    let selectedId: string | undefined;
+    let openChatId: string | undefined = 'sentinel';
+    const assistant = makeAssistant({ id: 'a1' });
+    const nextAssistant = makeAssistant({ id: 'a2', name: 'Next' });
+    const ctx = createMockContext({
+      repository: {
+        getAssistantById: () => assistant,
+        // 删除后仍有一个可用助手
+        getAssistants: () => [nextAssistant],
+        setSelectedAssistant: (id: string) => { selectedId = id; },
+        softDeleteAssistant: () => ({ ...assistant, isDeleted: true })
+      } as unknown as ExtensionContext['repository'],
+      chatController: {
+        openAssistantChat: (id?: string) => { openChatId = id; }
+      } as unknown as ExtensionContext['chatController']
+    });
+
+    // 确认已前移到 webview Danger Modal，Host 端不再弹 VS Code 原生对话框
+    registerAssistantManagementCommands(ctx);
+    const handler = registeredCommands.get('chatbuddy.softDeleteAssistant')!;
+    await handler(assistant.id);
+
+    assert.equal(selectedId, 'a2');
+    assert.equal(openChatId, 'a2');
+  });
+
+  test('directly executes without host confirmation (confirmed in webview)', async () => {
+    // P0 改造：确认逻辑前移到 webview Danger Modal，Host 端命令直接执行
     let softDeleteCalled = false;
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
+        getAssistants: () => [],
         softDeleteAssistant: () => { softDeleteCalled = true; }
-      } as unknown as ExtensionContext['repository']
+      } as unknown as ExtensionContext['repository'],
+      chatController: {
+        openAssistantChat: () => { /* no-op */ }
+      } as unknown as ExtensionContext['chatController']
     });
-
-    vscode.window.showWarningMessage = async () => undefined;
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.softDeleteAssistant')!;
     await handler(assistant.id);
 
-    assert.equal(softDeleteCalled, false);
+    // Host 端不再弹确认框，直接执行删除
+    assert.equal(softDeleteCalled, true);
   });
 
   test('no-ops when id is missing', async () => {
@@ -432,7 +468,7 @@ describe('hardDeleteAssistant', () => {
   beforeEach(setupVscodeStubs);
   afterEach(restoreVscodeStubs);
 
-  test('confirms and permanently deletes assistant', async () => {
+  test('permanently deletes assistant (confirmation handled by webview)', async () => {
     let hardDeleteCalled = false;
     let disposeCalled = false;
     let openChatCalled = false;
@@ -457,8 +493,7 @@ describe('hardDeleteAssistant', () => {
       refreshAll: () => { refreshed = true; }
     });
 
-    vscode.window.showWarningMessage = async () => 'Delete Permanently';
-
+    // P0 改造：确认已前移到 webview Danger Modal，Host 端不再弹 VS Code 原生对话框
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.hardDeleteAssistant')!;
     await handler(assistant.id);
@@ -469,23 +504,28 @@ describe('hardDeleteAssistant', () => {
     assert.equal(refreshed, true);
   });
 
-  test('aborts when user cancels', async () => {
+  test('directly executes without host confirmation (confirmed in webview)', async () => {
+    // P0 改造：确认逻辑前移到 webview Danger Modal，Host 端命令直接执行
     let hardDeleteCalled = false;
     const assistant = makeAssistant();
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
         hardDeleteAssistant: async () => { hardDeleteCalled = true; }
-      } as unknown as ExtensionContext['repository']
+      } as unknown as ExtensionContext['repository'],
+      chatController: {
+        disposePanelForAssistant: () => { /* no-op */ },
+        openAssistantChat: () => { /* no-op */ }
+      } as unknown as ExtensionContext['chatController'],
+      refreshAll: () => { /* no-op */ }
     });
-
-    vscode.window.showWarningMessage = async () => undefined;
 
     registerAssistantManagementCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.hardDeleteAssistant')!;
     await handler(assistant.id);
 
-    assert.equal(hardDeleteCalled, false);
+    // Host 端不再弹确认框，直接执行删除
+    assert.equal(hardDeleteCalled, true);
   });
 });
 

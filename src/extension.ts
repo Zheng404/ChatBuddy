@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 
 import { ChatController } from './chatbuddy/chatController';
-import { getStrings, resolveLocale } from './chatbuddy/i18n';
+import { formatString, getStrings, resolveLocale } from './chatbuddy/i18n';
 import { McpRuntime } from './chatbuddy/mcpRuntime';
 import { OpenAICompatibleClient } from './chatbuddy/providerClient';
-import { warn } from './chatbuddy/utils';
+import { safeSetContext, warn } from './chatbuddy/utils';
 import { ChatStateRepository } from './chatbuddy/stateRepository';
 import { ChatBuddySettings } from './chatbuddy/types';
 
@@ -60,8 +60,9 @@ export async function activate(context: vscode.ExtensionContext) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     warn('ChatStateRepository initialization failed:', msg);
+    const initStrings = getStrings(resolveLocale(undefined, vscode.env.language));
     void vscode.window.showErrorMessage(
-      `ChatBuddy initialization failed: ${msg}. Some features may be unavailable.`
+      formatString(initStrings.initializationFailed, { msg })
     );
   }
   const providerClient = new OpenAICompatibleClient();
@@ -75,7 +76,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const getRuntimeLocale = () => resolveLocale(repository.getLocaleSetting(), vscode.env.language);
   const getRuntimeStrings = () => getStrings(getRuntimeLocale());
   const updateLocaleContext = () => {
-    void vscode.commands.executeCommand('setContext', 'chatbuddy.locale', getRuntimeLocale());
+    safeSetContext('chatbuddy.locale', getRuntimeLocale());
   };
 
   // 侧边栏 Webview View 集合（settings 阶段 1；assistants/recycleBin 阶段 2；sessions 阶段 3）
@@ -176,6 +177,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     ...commandDisposables,
+    { dispose: () => { settingsCenterPanelController.dispose(); } },
+    { dispose: () => { assistantEditorPanelController.dispose(); } },
     { dispose: () => { chatController.dispose(); } },
     // Note: mcpRuntime.dispose() and repository.close() are async;
     // they are awaited in deactivate() below rather than here.

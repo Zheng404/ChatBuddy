@@ -14,6 +14,7 @@
  *      不由此类管理（由工厂文件负责）。
  */
 import * as vscode from 'vscode';
+import { postMessageSafely } from './utils';
 
 export abstract class BaseSidebarViewProvider<TState, TMessage extends { type: string }>
   implements vscode.WebviewViewProvider
@@ -46,9 +47,7 @@ export abstract class BaseSidebarViewProvider<TState, TMessage extends { type: s
       return;
     }
     // postMessage 可能在 view 释放前投递失败，安全忽略
-    void this.view.webview
-      .postMessage({ type: 'state', payload: state })
-      .then(undefined, () => {});
+    postMessageSafely(this.view.webview.postMessage({ type: 'state', payload: state }));
   }
 
   /** 显式清空搜索框（reset / import 场景调用） */
@@ -56,9 +55,7 @@ export abstract class BaseSidebarViewProvider<TState, TMessage extends { type: s
     if (!this.view || !this.ready) {
       return;
     }
-    void this.view.webview
-      .postMessage({ type: 'clearSearch' })
-      .then(undefined, () => {});
+    postMessageSafely(this.view.webview.postMessage({ type: 'clearSearch' }));
   }
 
   public isReady(): boolean {

@@ -17,6 +17,7 @@
  * - createElement(tag, props, children) 简易 DOM 构建器（避免 innerHTML）
  * - render(container, renderFn) 渲染框架（保存/恢复 scrollTop 与焦点）
  * - debounce(fn, ms)     防抖工具
+ * - showToast(message, tone)  Toast 通知
  * - 文档加载完成后 post({type:'ready'}) 握手
  */
 export function getSharedScript(): string {
@@ -149,6 +150,29 @@ export function getSharedScript(): string {
     };
   }
 
+  /** Toast 通知 */
+  var _toastTimers = [];
+  function showToast(message, tone) {
+    tone = tone || 'info';
+    var text = String(message || '').trim();
+    if (!text) { return; }
+    var toastStack = document.getElementById('toastStack');
+    if (!toastStack) { return; }
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + (tone === 'success' || tone === 'error' ? tone : 'info');
+    toast.textContent = text;
+    toastStack.appendChild(toast);
+    while (toastStack.children.length > 4) {
+      toastStack.removeChild(toastStack.firstElementChild);
+    }
+    var timer = window.setTimeout(function() {
+      toast.remove();
+      var idx = _toastTimers.indexOf(timer);
+      if (idx !== -1) { _toastTimers.splice(idx, 1); }
+    }, 3200);
+    _toastTimers.push(timer);
+  }
+
   // 暴露到全局，供 treeList / 各 view 脚本使用
   window.__sb = {
     post: post,
@@ -159,7 +183,8 @@ export function getSharedScript(): string {
     createElement: createElement,
     render: render,
     debounce: debounce,
-    getVscodeApi: getVscodeApi
+    getVscodeApi: getVscodeApi,
+    showToast: showToast
   };
 
   // ready 握手：文档加载完成后通知 Host

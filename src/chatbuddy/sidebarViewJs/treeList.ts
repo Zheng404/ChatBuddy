@@ -8,7 +8,7 @@
  *   group: { id, name, collapsed, contextValue }
  *   item:  { id, groupId, label, description, icon, selected, contextValue, tooltip }
  *
- * opts: { indentPx, onLeafClick, onGroupToggle, onContextMenu, selectedId, minRows }
+   * opts: { indentPx, onLeafClick, onGroupToggle, onContextMenu, selectedId, minRows, emptyText, emptyIcon }
  *
  * 安全约束：所有用户可控文本（name/label/description/tooltip）用 textContent 写入，
  *          禁止 innerHTML。tooltip 用 element.title 写入。
@@ -68,6 +68,16 @@ export function getTreeListScript(): string {
       container.appendChild(sb.createElement('div', { className: 'tree-spacer' }, null));
       renderedCount++;
     }
+
+    // 无任何内容且提供了 emptyText 时，显示空状态提示
+    if (renderedCount === 0 && opts.emptyText) {
+      var emptyIcon = opts.emptyIcon || 'inbox';
+      var emptyEl = sb.createElement('div', { className: 'sidebar-empty' }, [
+        sb.createElement('span', { className: 'codicon codicon-' + emptyIcon }, null),
+        sb.createElement('span', { className: 'sidebar-empty-text', textContent: opts.emptyText }, null)
+      ]);
+      container.appendChild(emptyEl);
+    }
   }
 
   /** 构建分组行 */
@@ -80,6 +90,7 @@ export function getTreeListScript(): string {
     var ctxHandler = function (e) {
       if (!group.contextValue || typeof opts.onContextMenu !== 'function') { return; }
       e.preventDefault();
+      e.stopPropagation();
       opts.onContextMenu({ kind: 'group', id: group.id, contextValue: group.contextValue }, e.clientX, e.clientY);
     };
     var arrowIcon = group.collapsed ? 'codicon-chevron-right' : 'codicon-chevron-down';
@@ -104,6 +115,7 @@ export function getTreeListScript(): string {
     var ctxHandler = function (e) {
       if (!item.contextValue || typeof opts.onContextMenu !== 'function') { return; }
       e.preventDefault();
+      e.stopPropagation();
       opts.onContextMenu({ kind: 'item', id: item.id, contextValue: item.contextValue }, e.clientX, e.clientY);
     };
     var children = [];

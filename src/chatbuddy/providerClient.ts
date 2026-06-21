@@ -10,6 +10,7 @@
 import { getStrings, resolveLocale } from './i18n';
 import { createModelRef, getModelDisplayLabel, parseModelRef } from './modelCatalog';
 import { PROVIDER_LIMITS, TIMEOUT } from './constants';
+import { ensureSuccess } from './providerClientErrors';
 import { MAX_CONTEXT_COUNT } from './stateSanitizers';
 import {
   AssistantProfile,
@@ -54,44 +55,9 @@ export type {
   StreamHandlers
 } from './providerClientTypes';
 
-function toErrorMessage(status: number, fallback: string, locale: RuntimeLocale): string {
-  const strings = getStrings(locale);
-  if (status === 401) {
-    return strings.authFailed;
-  }
-  if (status === 403) {
-    return strings.accessDenied;
-  }
-  if (status === 429) {
-    return strings.rateLimited;
-  }
-  if (status >= 500) {
-    return strings.serviceUnavailable;
-  }
-  return fallback;
-}
-
-/** Error carrying the HTTP status code for retry logic. */
-export class HttpError extends Error {
-  public readonly status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'HttpError';
-    this.status = status;
-  }
-}
-
-async function ensureSuccess(response: Response, locale: RuntimeLocale): Promise<void> {
-  if (response.ok) {
-    return;
-  }
-  const text = await response.text();
-  const fallback =
-    locale === 'zh-CN'
-      ? `请求失败（${response.status}）：${text.slice(0, PROVIDER_LIMITS.ERROR_RESPONSE_TRUNCATE_LENGTH)}`
-      : `Request failed (${response.status}): ${text.slice(0, PROVIDER_LIMITS.ERROR_RESPONSE_TRUNCATE_LENGTH)}`;
-  throw new HttpError(response.status, toErrorMessage(response.status, fallback, locale));
-}
+// re-export HttpError 以保持 `import { HttpError } from './providerClient'` 向后兼容。
+// 实际定义已迁移至 providerClientErrors.ts，消除与 providerClientModelFetchers 的循环依赖。
+export { HttpError } from './providerClientErrors';
 
 /**
  * 根据助手配置解析提供商配置（含参数 clamp 和 override 处理）。
@@ -192,7 +158,8 @@ export function resolveModelBindingConfig(
     temperature: clamp(overrides?.temperature ?? settings.temperature, 0, 2, settings.temperature),
     topP: clamp(overrides?.topP ?? settings.topP, 0, 1, settings.topP),
     maxTokens: clamp(overrides?.maxTokens ?? settings.maxTokens, 0, PROVIDER_LIMITS.MAX_TOKENS, settings.maxTokens),
-    contextCount: clamp(overrides?.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, Number.MAX_SAFE_INTEGER, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
+    // Bug 6: 与 resolveProviderConfig 保持一致，统一使用 MAX_CONTEXT_COUNT 作为 clamp 上限
+    contextCount: clamp(overrides?.contextCount ?? PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT, 0, MAX_CONTEXT_COUNT, PROVIDER_LIMITS.DEFAULT_CONTEXT_COUNT),
     presencePenalty: clamp(
       overrides?.presencePenalty ?? settings.presencePenalty,
       -2,
@@ -403,6 +370,19 @@ export class OpenAICompatibleClient {
       (timeoutMs && timeoutMs > 0 ? timeoutMs : 0),
       SSE_READ_TIMEOUT_MS
     );
+    // Bug 4: abort 监听器只注册一次，在整个 SSE 消费结束时统一移除，
+    // 避免每次 readWithTimeout 都注册新监听器导致 signal 长期存活时累积泄漏。
+    let onAbort: (() => void) | undefined;
+    const abortPromise: Promise<never> | undefined = signal
+      ? new Promise<never>((_, reject) => {
+          if (signal.aborted) {
+            reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+            return;
+          }
+          onAbort = () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+          signal.addEventListener('abort', onAbort, { once: true });
+        })
+      : undefined;
     const readWithTimeout = () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -413,11 +393,7 @@ export class OpenAICompatibleClient {
       });
       const promises: Array<Promise<unknown>> = [reader.read(), timeoutPromise];
       // 将 abort signal 纳入竞态，确保用户取消时立即中断读取
-      if (signal) {
-        const abortPromise = new Promise<never>((_, reject) => {
-          if (signal.aborted) { reject(signal.reason ?? new DOMException('Aborted', 'AbortError')); return; }
-          signal.addEventListener('abort', () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError')), { once: true });
-        });
+      if (abortPromise) {
         promises.push(abortPromise);
       }
       return Promise.race(promises).finally(() => {
@@ -460,6 +436,10 @@ export class OpenAICompatibleClient {
       }
       onDone();
     } finally {
+      // Bug 4: 显式移除 abort 监听器，避免 signal 长期存活时泄漏
+      if (signal && onAbort) {
+        signal.removeEventListener('abort', onAbort);
+      }
       try {
         await reader.cancel();
       } catch (err) {
@@ -698,9 +678,10 @@ export function resolveFailoverChain(
       providerKind: provider?.kind ?? 'custom',
       providerName: provider?.name ?? parsed.providerId,
       apiType: provider?.apiType ?? 'chat_completions',
-      apiKey: (provider?.apiKey ?? '').trim(),
-      baseUrl: (provider?.baseUrl ?? '').trim(),
-      modelId: parsed.modelId,
+      // Bug 7: failover 配置应继承助手 overrides，与主链路 resolveProviderConfig 行为一致
+      apiKey: (assistant.overrides?.apiKey ?? provider?.apiKey ?? '').trim(),
+      baseUrl: (assistant.overrides?.baseUrl ?? provider?.baseUrl ?? '').trim(),
+      modelId: assistant.overrides?.model?.trim() || parsed.modelId,
       modelRef: ref,
       modelLabel: model ? getModelDisplayLabel(model.id, provider?.name ?? parsed.providerId) : ref,
       temperature: clamp(

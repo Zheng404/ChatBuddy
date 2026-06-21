@@ -220,6 +220,10 @@ export function getModalsJs(defaultTitleSummaryPrompt: string): string {
           closeTestModelModal();
           return;
         }
+        if (event.key === 'Escape' && dom.mcpServerModal.classList.contains('visible')) {
+          closeMcpServerModal();
+          return;
+        }
         if (event.key === 'Escape' && dom.discardChangesModal.classList.contains('visible')) {
           closeDiscardChangesModal(false);
         }

@@ -1,6 +1,6 @@
 # ChatBuddy 架构文档
 
-> 最后更新：2026-06-14
+> 最后更新：2026-06-18
 
 本文档描述 ChatBuddy VS Code 扩展的整体架构、模块分层和数据流。
 
@@ -141,6 +141,13 @@ ChatController 本身不处理业务细节，只负责：
 - 状态载荷构建（`chatControllerPayload.ts`）
 - 面板状态同步（`setActivePanelChangeCallback`）
 
+**辅助模块**：
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| MCP 操作代理 | `chatControllerMcpOperations.ts` | MCP 资源/Prompt 操作的复用逻辑 |
+| 状态缓存 | `chatControllerStateCache.ts` | 生成期 sessions 缓存（TTL 30s） |
+
 **超时机制**：`ChatGenerationService` 和 `ToolCallOrchestrator` 在发起 AI 请求时设置全局超时（默认无限制，`timeoutMs=0`，用户可在设置中心配置）。超时仅在**首次响应等待**阶段生效——首个流式 token 到达后清除全局超时计时器，后续由 `consumeSseResponse` 的 `readWithTimeout` 检测连接中断。超时触发时先 `setAbortReason('timeout')` 再 `abort()`，确保错误处理读到正确的中止原因。当 `timeoutMs` 为 0 时，跳过超时计时器创建，请求不会因超时中断。
 
 #### 3.3 提供商客户端
@@ -157,8 +164,16 @@ ChatController 本身不处理业务细节，只负责：
 | Ollama | chat_completions | 本地模型，自动模型列表获取 |
 | 自定义 | chat_completions | 任意兼容端点 |
 
-请求构建器（`providerClientRequestBuilders.ts`）负责将内部配置转换为不同 API 的请求体。
-响应解析器（`providerClientParsers.ts`）处理流式和非流式响应。
+**子模块**：
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| 类型定义 | `providerClientTypes.ts` | Provider 相关类型定义 |
+| 请求构建器 | `providerClientRequestBuilders.ts` | 将内部配置转换为不同 API 的请求体 |
+| 响应解析器 | `providerClientParsers.ts` | 处理流式和非流式响应 |
+| 模型获取器 | `providerClientModelFetchers.ts` | 从 Provider 获取可用模型列表 |
+| 媒体处理 | `providerClientMedia.ts` | 图片/文件等多媒体处理 |
+| HTTP 错误 | `providerClientErrors.ts` | `HttpError`/`ensureSuccess`/`toErrorMessage` 共享定义（消除循环依赖） |
 
 #### 3.4 MCP 运行时
 
@@ -169,6 +184,13 @@ MCP (Model Context Protocol) 客户端运行时，负责：
 - 工具发现与调用
 - 资源读取与 Prompt 获取
 - 连接清理（`pruneConnections`）
+
+**辅助模块**：
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| MCP 类型 | `mcpTypes.ts` | MCP 相关类型定义 |
+| MCP 工具函数 | `mcpUtils.ts` | MCP 操作的工具函数 |
 
 MCP 模块是 ESM-only，通过动态 `import()` 在运行时加载。
 

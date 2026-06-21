@@ -14,8 +14,7 @@ import {
   ProviderModelOption,
   ProviderModelProfile,
   ProviderProfile,
-  ProviderModelSource,
-  RuntimeStrings
+  ProviderModelSource
 } from './types';
 
 export const DEFAULT_TITLE_SUMMARY_PROMPT =
@@ -185,26 +184,6 @@ export function cloneDefaultModels(defaultModels: DefaultModelSettings): Default
     titleSummary: defaultModels.titleSummary ? { ...defaultModels.titleSummary } : undefined,
     titleSummaryPrompt: defaultModels.titleSummaryPrompt
   };
-}
-
-export function capabilityLabelSuffix(caps: ModelCapabilities | undefined, strings: RuntimeStrings): string {
-  if (!caps) {
-    return '';
-  }
-  const tags: string[] = [];
-  if (caps.vision) {
-    tags.push(strings.capabilityVision);
-  }
-  if (caps.reasoning) {
-    tags.push(strings.capabilityReasoning);
-  }
-  if (caps.tools) {
-    tags.push(strings.capabilityTools);
-  }
-  if (caps.webSearch) {
-    tags.push(strings.capabilityWebSearch);
-  }
-  return tags.length ? ' [' + tags.join(', ') + ']' : '';
 }
 
 /**

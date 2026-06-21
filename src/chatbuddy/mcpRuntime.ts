@@ -327,7 +327,8 @@ export class McpRuntime {
     settings: ChatBuddySettings,
     assistant: AssistantProfile,
     boundName: string,
-    argsText: string
+    argsText: string,
+    signal?: AbortSignal
   ): Promise<string> {
     const bindings = await this.listToolBindings(settings, assistant);
     const binding = bindings.find(
@@ -343,15 +344,19 @@ export class McpRuntime {
     const connection = await this.getConnection(server);
     this.touchConnection(server.id);
     const parsedArgs = this.parseToolArguments(argsText);
-    const timeout = Math.max(1000, server.timeoutMs || 30000);
-    const result = await connection.client.callTool(
-      {
-        name: binding.toolName,
-        arguments: parsedArgs
-      },
-      {
-        timeout
-      }
+    const timeout = this.resolveServerTimeout(server);
+    // Bug 2: 通过 AbortSignal 实现可中断的工具调用
+    const result = await this.raceWithAbort(
+      connection.client.callTool(
+        {
+          name: binding.toolName,
+          arguments: parsedArgs
+        },
+        {
+          timeout
+        }
+      ),
+      signal
     );
     return stringifyToolResult(result);
   }
@@ -421,7 +426,8 @@ export class McpRuntime {
     const server = this.getAssistantServer(settings, assistant, serverId);
     const connection = await this.getConnection(server);
     this.touchConnection(serverId);
-    const result = await connection.client.readResource({ uri }, { timeout: server.timeoutMs });
+    // Bug 8: 统一超时兜底，避免 timeoutMs=0 时无超时挂起
+    const result = await connection.client.readResource({ uri }, { timeout: this.resolveServerTimeout(server) });
     return stringifyResourceContents(result.contents ?? []);
   }
 
@@ -493,16 +499,54 @@ export class McpRuntime {
     const server = this.getAssistantServer(settings, assistant, serverId);
     const connection = await this.getConnection(server);
     this.touchConnection(serverId);
+    // Bug 8: 统一超时兜底，避免 timeoutMs=0 时无超时挂起
     const result = await connection.client.getPrompt(
       {
         name,
         arguments: args
       },
       {
-        timeout: server.timeoutMs
+        timeout: this.resolveServerTimeout(server)
       }
     );
     return stringifyPromptMessages(result.messages ?? []);
+  }
+
+  /**
+   * 解析 MCP 服务器的调用超时（Bug 8）。
+   *
+   * 统一为 callBoundTool / readResource / getPrompt 提供兜底：
+   * - timeoutMs 为 0 或 falsy 时回退到默认连接超时（30s）
+   * - 下限 1000ms，避免极小值导致误触发
+   */
+  private resolveServerTimeout(server: McpServerProfile): number {
+    return Math.max(1000, server.timeoutMs || McpRuntime.CONNECTION_TIMEOUT_MS);
+  }
+
+  /**
+   * 用 AbortSignal 包装一个 promise，signal abort 时立即拒绝（Bug 2）。
+   *
+   * MCP transport 层取消能力不一致（stdio/SSE/HTTP），此处通过 Promise.race 提供统一的
+   * 可中断语义封装。无论 promise 是否真正取消，调用方都能快速感知用户中断。
+   * 注意：监听器在 finally 中显式移除，避免 signal 长期存活时泄漏。
+   */
+  private raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) {
+      return promise;
+    }
+    if (signal.aborted) {
+      return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    }
+    let onAbort: (() => void) | undefined;
+    const abortPromise = new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    return Promise.race([promise, abortPromise]).finally(() => {
+      if (onAbort) {
+        signal.removeEventListener('abort', onAbort);
+      }
+    });
   }
 
   private async getConnection(server: McpServerProfile): Promise<ManagedConnection> {

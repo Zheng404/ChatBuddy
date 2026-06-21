@@ -49,6 +49,7 @@ export type SettingsCenterMessage =
       payload: {
         providerId: string;
         enabled: boolean;
+        skipConfirm?: boolean;
       };
     }
   | {
@@ -70,12 +71,12 @@ export type SettingsCenterMessage =
       type: 'fetchModels';
       payload: ProviderProfile;
     }
-  | { type: 'reset' }
+  | { type: 'reset'; skipConfirm?: boolean }
   | { type: 'exportData' }
-  | { type: 'importData' }
-  | { type: 'importLegacyData' }
+  | { type: 'importData'; skipConfirm?: boolean }
+  | { type: 'importLegacyData'; skipConfirm?: boolean }
   | { type: 'selectiveExport'; payload: { categories: string[] } }
-  | { type: 'deleteTemplate'; templateId: string; templateName: string }
+  | { type: 'deleteTemplate'; templateId: string; templateName: string; skipConfirm?: boolean }
   | { type: 'renameTemplate'; templateId: string; name?: string; currentName?: string }
   | { type: 'saveMcpServers'; payload: McpServerProfile[] | { servers: McpServerProfile[]; groups?: import('./types').McpServerGroup[]; maxToolRounds?: number } }
   | { type: 'saveMcpToolRounds'; payload: McpToolRoundsPayload }
@@ -86,6 +87,7 @@ export type SettingsCenterMessage =
       payload: {
         serverId: string;
         serverName: string;
+        skipConfirm?: boolean;
       };
     }
   | { type: 'browseBackupDir' }

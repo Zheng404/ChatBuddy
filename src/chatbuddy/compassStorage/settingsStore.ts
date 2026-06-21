@@ -9,8 +9,8 @@
  */
 import { ChatBuddySettings, PersistedStateLite, ProviderModelProfile, ProviderProfile } from '../types';
 import { createInitialState } from '../stateSanitizers';
-import { warn } from '../utils';
-import { readJsonFile, readTextFile, removeFileIfExists, writeJsonAtomic, writeTextAtomic, createPrePersistSnapshot, restoreFromSnapshot } from './io';
+import { warn, error } from '../utils';
+import { readJsonFileSafe, readTextFile, removeFileIfExists, writeJsonAtomic, writeTextAtomic, createPrePersistSnapshot, restoreFromSnapshot } from './io';
 import { COMPASS_LAYOUT_VERSION, CompassPaths } from './paths';
 import {
   StructuredSettingsDefaultModelsFile,
@@ -69,6 +69,26 @@ function normalizeProviderApiKeys(raw: unknown): Record<string, string> {
     result[normalizedProviderId] = normalizedApiKey;
   }
   return result;
+}
+
+/**
+ * 比较两个 `Record<string, string>` 是否在键集合与对应值上等价（与键顺序无关）。
+ *
+ * 不能用 `JSON.stringify(a) !== JSON.stringify(b)` 直接比较——对象键的枚举顺序
+ * 不同会导致无意义的 dirty 判定，触发不必要的持久化写入。
+ */
+function providerApiKeysEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function cloneProviderModel(model: ProviderModelProfile): ProviderModelProfile {
@@ -380,13 +400,13 @@ export class CompassSettingsStore {
   public async load(paths: CompassPaths): Promise<void> {
     const [core, ui, settingsGeneral, settingsModelConfig, settingsDefaultModels, settingsMcp, structuredCommit] =
       await Promise.all([
-      readJsonFile<StructuredStateCoreFile>(paths.stateCorePath),
-      readJsonFile<StructuredUiSelectionFile>(paths.uiSelectionPath),
-      readJsonFile<StructuredSettingsGeneralFile>(paths.settingsGeneralPath),
-      readJsonFile<StructuredSettingsModelConfigFile>(paths.settingsModelConfigPath),
-      readJsonFile<StructuredSettingsDefaultModelsFile>(paths.settingsDefaultModelsPath),
-      readJsonFile<StructuredSettingsMcpFile>(paths.settingsMcpPath),
-      readJsonFile<StructuredStateCommitFile>(paths.structuredStateCommitPath)
+      readJsonFileSafe<StructuredStateCoreFile>(paths.stateCorePath),
+      readJsonFileSafe<StructuredUiSelectionFile>(paths.uiSelectionPath),
+      readJsonFileSafe<StructuredSettingsGeneralFile>(paths.settingsGeneralPath),
+      readJsonFileSafe<StructuredSettingsModelConfigFile>(paths.settingsModelConfigPath),
+      readJsonFileSafe<StructuredSettingsDefaultModelsFile>(paths.settingsDefaultModelsPath),
+      readJsonFileSafe<StructuredSettingsMcpFile>(paths.settingsMcpPath),
+      readJsonFileSafe<StructuredStateCommitFile>(paths.structuredStateCommitPath)
     ]);
 
     this.core = isStructuredStateCoreFile(core) ? core : undefined;
@@ -403,7 +423,7 @@ export class CompassSettingsStore {
 
     // 并行执行：一致性校验 + 非结构化文件读取（互不依赖）
     const nonStructuredPromise = Promise.all([
-      readJsonFile<Record<string, unknown>>(paths.providerApiKeysPath),
+      readJsonFileSafe<Record<string, unknown>>(paths.providerApiKeysPath),
       readTextFile(paths.legacyStatePath),
       readTextFile(paths.legacyProviderApiKeysPath)
     ]);
@@ -423,6 +443,9 @@ export class CompassSettingsStore {
   }
 
   public async persist(paths: CompassPaths): Promise<void> {
+    // 跟踪各阶段写入结果，只有全部成功才清除 dirty 标志
+    // 任何阶段失败都保留 dirty，让下次 enqueuePersist 自动重试，避免数据丢失
+    let structuredWriteOk = false;
     const document = this.getStructuredStateDocument();
     if (document) {
       const commit: StructuredStateCommitFile = {
@@ -442,7 +465,6 @@ export class CompassSettingsStore {
         { filePath: paths.settingsMcpPath, data: document.settingsMcp }
       ];
 
-      let structuredWriteOk = false;
       try {
         // 写入前快照：备份当前 state.core.json，用于崩溃恢复
         await createPrePersistSnapshot(paths.metaPath, paths.stateCorePath, commit.generation);
@@ -460,8 +482,9 @@ export class CompassSettingsStore {
         }
         structuredWriteOk = true;
       } catch (writeError) {
-        console.warn('[Compass] One or more structured state files failed to write, skipping commit file:', writeError);
+        // 写入失败：保留 dirty 标志（structuredWriteOk 保持 false），让下次 persist 重试
         // 不 return — 继续写入 API keys，避免结构化文件写入失败导致 API keys 丢失
+        error('[Compass] One or more structured state files failed to write, skipping commit file:', writeError);
       }
       // 仅在结构化文件全部写入成功时写 commit 标记
       if (structuredWriteOk) {
@@ -469,10 +492,10 @@ export class CompassSettingsStore {
         this.structuredCommit = cloneStructuredStateCommit(commit);
       }
       // 无论成功失败，都尝试清除写入标记（成功时不影响，失败时允许下次重试）
-      await removeFileIfExists(paths.structuredStateWritingMarkerPath).catch(() => {});
+      await removeFileIfExists(paths.structuredStateWritingMarkerPath).catch((err) => warn('Failed to remove writing marker:', err));
       await removeFileIfExists(paths.legacyStatePath);
       this.legacyStatePayload = undefined;
-      this.dirty = false;
+      // 注意：不在此处清除 dirty，统一在函数末尾根据全部写入结果决定
     } else {
       await Promise.all([
         removeFileIfExists(paths.stateCorePath),
@@ -489,10 +512,13 @@ export class CompassSettingsStore {
       } else {
         await removeFileIfExists(paths.legacyStatePath);
       }
-      this.dirty = false;
+      structuredWriteOk = true;
+      // 注意：不在此处清除 dirty，统一在函数末尾根据全部写入结果决定
+      // 上述任意 await 抛错都会跳出函数，dirty 保持 true，下次 persist 会重试
     }
 
     // API keys 独立写入，不受结构化文件写入结果影响
+    let apiKeyWriteOk = false;
     try {
       if (Object.keys(this.providerApiKeys).length) {
         await writeJsonAtomic(paths.providerApiKeysPath, this.providerApiKeys);
@@ -506,8 +532,16 @@ export class CompassSettingsStore {
           await removeFileIfExists(paths.legacyProviderApiKeysPath);
         }
       }
+      apiKeyWriteOk = true;
     } catch (apiKeyError) {
-      console.warn('[Compass] Failed to write API keys file:', apiKeyError);
+      // API keys 写入失败：保留 dirty 标志，下次 persist 会重试
+      error('[Compass] Failed to write API keys file:', apiKeyError);
+    }
+
+    // 只有结构化文件和 API keys 都写入成功，才清除 dirty 标志
+    // 任一阶段失败都保留 dirty，让下次 enqueuePersist 自动重试，避免静默数据丢失
+    if (structuredWriteOk && apiKeyWriteOk) {
+      this.dirty = false;
     }
   }
 
@@ -528,7 +562,8 @@ export class CompassSettingsStore {
     }
 
     // 检查写入标记 — 崩溃导致 persist 中断的确凿证据
-    const writingMarker = await readJsonFile<{ generation?: number; startedAt?: string }>(paths.structuredStateWritingMarkerPath);
+    // writing marker 损坏时视为无标记（让 migrator 校验流程处理），但记录 error 日志
+    const writingMarker = await readJsonFileSafe<{ generation?: number; startedAt?: string }>(paths.structuredStateWritingMarkerPath);
     if (!writingMarker) {
       // 无写入标记：不修复，可能是首次迁移中断或外部损坏，
       // 让 CompassMigrator 的现有校验流程（如 SQLite 回退）处理
@@ -575,7 +610,7 @@ export class CompassSettingsStore {
     }
 
     // 清理写入标记
-    await removeFileIfExists(paths.structuredStateWritingMarkerPath).catch(() => {});
+    await removeFileIfExists(paths.structuredStateWritingMarkerPath).catch((err) => warn('Failed to remove writing marker:', err));
   }
 
   public hasStructuredState(): boolean {
@@ -646,8 +681,9 @@ export class CompassSettingsStore {
 
   public setProviderApiKeys(providerApiKeys: Record<string, string>): void {
     const normalized = normalizeProviderApiKeys(providerApiKeys);
-    // 仅在 keys 实际变更时标记脏，避免 session-only persist 不必要地写入 settings
-    if (JSON.stringify(this.providerApiKeys) !== JSON.stringify(normalized)) {
+    // 仅在 keys 实际变更时标记脏，避免 session-only persist 不必要地写入 settings。
+    // 比较与键顺序无关（见 providerApiKeysEqual）。
+    if (!providerApiKeysEqual(this.providerApiKeys, normalized)) {
       this.providerApiKeys = normalized;
       this.legacyProviderApiKeysPayload = undefined;
       this.dirty = true;
@@ -920,7 +956,7 @@ export class CompassSettingsStore {
       const parsed = parseJsonObject(value);
       if (parsed) {
         const normalized = normalizeProviderApiKeys(parsed);
-        if (JSON.stringify(this.providerApiKeys) !== JSON.stringify(normalized)) {
+        if (!providerApiKeysEqual(this.providerApiKeys, normalized)) {
           this.providerApiKeys = normalized;
           this.dirty = true;
         }

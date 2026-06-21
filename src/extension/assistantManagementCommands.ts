@@ -37,16 +37,16 @@ export function registerAssistantManagementCommands(ctx: ExtensionContext): vsco
     }),
     vscode.commands.registerCommand('chatbuddy.softDeleteAssistant', async (assistantId?: string) => {
       if (!assistantId) { return; }
-      const assistant = repository.getAssistantById(assistantId);
-      const assistantName = assistant?.name ?? assistantId;
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmDeleteAssistant, { name: assistantName }),
-        { modal: true },
-        strings().deleteAction
-      );
-      if (confirm !== strings().deleteAction) { return; }
+      // 前端 webview 已通过 Danger Modal 确认（A 类：侧边栏右键触发）
       repository.softDeleteAssistant(assistantId);
-      chatController.openAssistantChat(assistantId);
+      const remaining = repository.getAssistants().filter((a) => !a.isDeleted);
+      const nextId = remaining[0]?.id;
+      if (nextId) {
+        repository.setSelectedAssistant(nextId);
+        chatController.openAssistantChat(nextId);
+      } else {
+        chatController.openAssistantChat();
+      }
       refreshAll();
     }),
     vscode.commands.registerCommand('chatbuddy.restoreAssistant', (assistantId?: string) => {
@@ -58,14 +58,7 @@ export function registerAssistantManagementCommands(ctx: ExtensionContext): vsco
     }),
     vscode.commands.registerCommand('chatbuddy.hardDeleteAssistant', async (assistantId?: string) => {
       if (!assistantId) { return; }
-      const assistant = repository.getAssistantById(assistantId);
-      const assistantName = assistant?.name ?? assistantId;
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmHardDeleteAssistant, { name: assistantName }),
-        { modal: true },
-        strings().hardDeleteAction
-      );
-      if (confirm !== strings().hardDeleteAction) { return; }
+      // 前端 webview 已通过 Danger Modal 确认（A 类：侧边栏右键触发）
       chatController.disposePanelForAssistant(assistantId);
       await repository.hardDeleteAssistant(assistantId);
       chatController.openAssistantChat();

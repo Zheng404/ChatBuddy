@@ -76,21 +76,21 @@ export function getChatBodyHtml(): string {
       </footer>
     </div>
 ${TOAST_CONTAINER_HTML}
-    <div class="raw-modal-overlay" id="rawModalOverlay">
-      <div class="raw-modal">
-        <div class="raw-modal-header">
-          <span class="raw-modal-title" id="rawModalTitle"></span>
-          <button class="raw-modal-close" id="rawModalClose" type="button"><span class="codicon codicon-close"></span></button>
+    <div class="modal-backdrop" id="rawModalOverlay">
+      <div class="modal-card modal-card-wide">
+        <div class="modal-header">
+          <span class="modal-title" id="rawModalTitle"></span>
+          <button class="modal-close" id="rawModalClose" type="button"><span class="codicon codicon-close"></span></button>
         </div>
-        <div class="raw-modal-body" id="rawModalBody"></div>
+        <div class="modal-body" id="rawModalBody"></div>
       </div>
     </div>
-    <div class="raw-modal-overlay" id="toolContinuationOverlay">
-      <div class="raw-modal" style="width:min(520px,90%);max-height:none;">
-        <div class="raw-modal-header">
-          <span class="raw-modal-title" id="toolContinuationTitle"></span>
+    <div class="modal-backdrop" id="toolContinuationOverlay">
+      <div class="modal-card">
+        <div class="modal-header">
+          <span class="modal-title" id="toolContinuationTitle"></span>
         </div>
-        <div class="raw-modal-body">
+        <div class="modal-body">
           <div class="confirm-copy" id="toolContinuationDescription"></div>
           <div class="confirm-actions">
             <button class="btn-secondary" id="toolContinuationCancelBtn" type="button"></button>

@@ -120,12 +120,6 @@ export function getSettingsCenterProviderCss(): string {
         font-size: 11px;
       }
 
-      .pill {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-pill);
-        padding: 1px 8px;
-      }
-
       .provider-empty {
         display: none;
         min-width: 0;
@@ -136,6 +130,9 @@ export function getSettingsCenterProviderCss(): string {
         gap: 10px;
         color: var(--muted);
         text-align: center;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        background: color-mix(in srgb, var(--bg) 96%, white 4%);
       }
 
       .provider-empty.visible {
@@ -143,7 +140,7 @@ export function getSettingsCenterProviderCss(): string {
       }
 
       .provider-empty .codicon {
-        font-size: 32px;
+        font-size: 24px;
         opacity: 0.4;
       }
 
@@ -342,31 +339,6 @@ export function getSettingsCenterProviderCss(): string {
         align-items: center;
       }
 
-      .cap-pill {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-pill);
-        padding: 0 6px;
-        font-size: 10px;
-        line-height: 16px;
-        color: var(--fg);
-        cursor: pointer;
-        user-select: none;
-      }
-
-      .cap-pill:hover {
-        opacity: 0.75;
-      }
-
-      .cap-pill.active {
-      }
-
-      .cap-pill.active.cap-vision { border-color: var(--color-info); color: var(--color-info); }
-      .cap-pill.active.cap-reasoning { border-color: var(--color-purple); color: var(--color-purple); }
-      .cap-pill.active.cap-websearch { border-color: var(--color-info); color: var(--color-info); }
-      .cap-pill.active.cap-tools { border-color: #f59e0b; color: #f59e0b; }
-      .cap-pill.active.cap-json { border-color: #10b981; color: #10b981; }
-      .cap-pill.active.cap-parallel { border-color: #8b5cf6; color: #8b5cf6; }
-
       .selected-model-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -402,54 +374,15 @@ export function getSettingsCenterProviderCss(): string {
         font-size: 11px;
       }
 
-      .kind-pill {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-pill);
-        padding: 0 6px;
-        font-size: 10px;
-        line-height: 18px;
-        color: var(--muted);
-        margin-left: 6px;
-      }
-
-      .kind-pill.kind-chat {
-        border-color: color-mix(in srgb, var(--color-success) 50%, var(--border) 50%);
-        color: var(--color-success);
-      }
-
-      .kind-pill.kind-image {
-        border-color: color-mix(in srgb, var(--color-info) 50%, var(--border) 50%);
-        color: var(--color-info);
-      }
-
-      .kind-pill.kind-video {
-        border-color: color-mix(in srgb, #a855f7 50%, var(--border) 50%);
-        color: #a855f7;
-      }
-
-      .kind-pill.kind-audio {
-        border-color: color-mix(in srgb, var(--color-warning) 50%, var(--border) 50%);
-        color: var(--color-warning);
-      }
-
-      .kind-pill.kind-embedding {
-        border-color: color-mix(in srgb, #06b6d4 50%, var(--border) 50%);
-        color: #06b6d4;
-      }
-
-      .kind-pill.kind-rerank {
-        border-color: color-mix(in srgb, #ec4899 50%, var(--border) 50%);
-        color: #ec4899;
-      }
-
       .model-empty {
-        border: 1px dashed var(--border);
-        border-radius: var(--radius-lg);
-        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        padding: 16px;
         color: var(--muted);
         font-size: 12px;
         line-height: 1.55;
-        background: color-mix(in srgb, var(--bg) 98%, white 2%);
+        background: color-mix(in srgb, var(--bg) 96%, white 4%);
+        text-align: center;
       }
 
       .capability-checks {

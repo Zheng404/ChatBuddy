@@ -7,7 +7,7 @@
 import { DEFAULT_GROUP_ID, DELETED_GROUP_ID } from './constants';
 import { getDefaultAssistantModelRef, resolveDefaultAssistantName } from './stateHelpers';
 import { cloneAssistant, cloneGroup } from './stateClone';
-import { sanitizeAssistantName, sanitizeGroupName } from './security';
+import { sanitizeAssistantName, sanitizeAssistantNote, sanitizeGroupName } from './security';
 import { clamp, createId, nowTs } from './utils';
 import {
   AssistantGroup,
@@ -24,6 +24,8 @@ type AssistantServiceContext = {
   storage: ChatStorage;
   storageReady: () => boolean;
   persistLater: () => void;
+  /** 同步递增版本号，立即失效 getState() 缓存，避免返回旧数据 */
+  bumpVersion: () => void;
   isWritableGroup: (groupId: string) => boolean;
   defaultAssistantSystemPrompt: string;
   getSelectedAssistantId: () => string | undefined;
@@ -47,6 +49,7 @@ export class AssistantStateService {
     this.context.setSelectedAssistantId(assistant.id);
     assistant.lastInteractedAt = nowTs();
     assistant.updatedAt = nowTs();
+    this.context.bumpVersion();
     this.context.persistLater();
   }
 
@@ -65,6 +68,7 @@ export class AssistantStateService {
       updatedAt: timestamp
     };
     state.groups.push(group);
+    this.context.bumpVersion();
     this.context.persistLater();
     return cloneGroup(group);
   }
@@ -81,6 +85,7 @@ export class AssistantStateService {
     }
     group.name = normalized;
     group.updatedAt = nowTs();
+    this.context.bumpVersion();
     this.context.persistLater();
     return true;
   }
@@ -102,6 +107,7 @@ export class AssistantStateService {
       }
     }
     this.context.trackDeletedGroup?.(groupId);
+    this.context.bumpVersion();
     this.context.persistLater();
     return true;
   }
@@ -114,7 +120,8 @@ export class AssistantStateService {
       typeof input.groupId === 'string' && this.context.isWritableGroup(input.groupId) ? input.groupId : DEFAULT_GROUP_ID;
     const defaultAssistantName = resolveDefaultAssistantName(settings.locale);
     const sanitizedName = sanitizeAssistantName(input.name) || defaultAssistantName;
-    const sanitizedNote = input.note ? sanitizeAssistantName(input.note) : '';
+    // note 是描述性文本，使用更宽松的 sanitizer（更长字符上限），避免与 name 共用同一限制
+    const sanitizedNote = input.note ? sanitizeAssistantNote(input.note) : '';
     const assistant: AssistantProfile = {
       id: createId('assistant'),
       name: sanitizedName,
@@ -141,6 +148,7 @@ export class AssistantStateService {
     };
     state.assistants.push(assistant);
     this.context.setSelectedAssistantId(assistant.id);
+    this.context.bumpVersion();
     this.context.persistLater();
     return cloneAssistant(assistant);
   }
@@ -159,7 +167,7 @@ export class AssistantStateService {
       }
     }
     if (typeof patch.note === 'string') {
-      assistant.note = sanitizeAssistantName(patch.note);
+      assistant.note = sanitizeAssistantNote(patch.note);
     }
     if (typeof patch.avatar === 'string') {
       const normalizedAvatar = patch.avatar.trim();
@@ -232,6 +240,7 @@ export class AssistantStateService {
       assistant.failoverModelRefs = patch.failoverModelRefs.length > 0 ? [...patch.failoverModelRefs] : undefined;
     }
     assistant.updatedAt = nowTs();
+    this.context.bumpVersion();
     this.context.persistLater();
     return cloneAssistant(assistant);
   }
@@ -244,6 +253,7 @@ export class AssistantStateService {
     }
     assistant.pinned = !assistant.pinned;
     assistant.updatedAt = nowTs();
+    this.context.bumpVersion();
     this.context.persistLater();
     return cloneAssistant(assistant);
   }
@@ -262,6 +272,7 @@ export class AssistantStateService {
     assistant.updatedAt = nowTs();
     // 软删除后保持选中状态（由调用方决定是否切换）
     // selectedAssistantId 保持不变
+    this.context.bumpVersion();
     this.context.persistLater();
     return cloneAssistant(assistant);
   }
@@ -282,6 +293,7 @@ export class AssistantStateService {
     assistant.originalGroupId = undefined;
     assistant.updatedAt = nowTs();
     this.context.setSelectedAssistantId(assistant.id);
+    this.context.bumpVersion();
     this.context.persistLater();
     return cloneAssistant(assistant);
   }
@@ -304,6 +316,7 @@ export class AssistantStateService {
       this.context.setSelectedAssistantId(next?.id);
     }
     this.context.trackDeletedAssistant?.(assistantId);
+    this.context.bumpVersion();
     this.context.persistLater();
     return true;
   }
@@ -332,6 +345,7 @@ export class AssistantStateService {
     for (const assistantId of deletedAssistantIds) {
       this.context.trackDeletedAssistant?.(assistantId);
     }
+    this.context.bumpVersion();
     this.context.persistLater();
     return deletedAssistantIds.length;
   }
@@ -344,6 +358,7 @@ export class AssistantStateService {
     }
     assistant.streaming = enabled;
     assistant.updatedAt = nowTs();
+    this.context.bumpVersion();
     this.context.persistLater();
   }
 
@@ -355,6 +370,8 @@ export class AssistantStateService {
     }
     assistant.lastInteractedAt = nowTs();
     assistant.updatedAt = nowTs();
+    // 即使 persist=false，状态已修改，必须同步 bump 以失效 getState() 缓存
+    this.context.bumpVersion();
     if (persist) {
       this.context.persistLater();
     }

@@ -14,7 +14,7 @@ export function getWebviewChatMarkdownCss(): string {
       .code-block-wrapper pre {
         background: var(--code-bg);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 10px;
         overflow-x: auto;
         margin: 0;
@@ -49,10 +49,10 @@ export function getWebviewChatMarkdownCss(): string {
         border: none;
         cursor: pointer;
         padding: 4px;
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         color: var(--color-text-subtle);
         opacity: 0;
-        transition: opacity 0.15s, color 0.15s;
+        transition: opacity var(--duration-normal), color var(--duration-normal);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -93,7 +93,7 @@ export function getWebviewChatMarkdownCss(): string {
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
         background: var(--code-bg);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         padding: 6px 8px;
         margin: 8px 0;
         overflow-x: auto;
@@ -108,7 +108,7 @@ export function getWebviewChatMarkdownCss(): string {
         margin: 10px 0 0;
         background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 12px;
         overflow-x: auto;
         text-align: center;
@@ -127,7 +127,7 @@ export function getWebviewChatMarkdownCss(): string {
         margin: 10px 0 0;
         overflow-x: auto;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--bg) 94%, var(--fg) 6%);
       }
 
@@ -208,7 +208,7 @@ export function getWebviewChatMarkdownCss(): string {
         margin-top: 3px;
         flex-shrink: 0;
         border: 1px solid var(--border);
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
         position: relative;
       }

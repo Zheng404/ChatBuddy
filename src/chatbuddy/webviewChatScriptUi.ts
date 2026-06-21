@@ -551,6 +551,7 @@ export function getChatUiScript(): string {
             }
           } catch (e) {
             // 保险：MCP 健康指示器渲染失败不应阻塞 composer 其余渲染
+            console.debug('[ChatBuddy] MCP health chip render failed:', e);
             try {
               dom.mcpHealthChip.classList.remove('visible');
               dom.mcpHealthChip.textContent = '';

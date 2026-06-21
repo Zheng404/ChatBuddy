@@ -299,12 +299,15 @@ export function getModelConfigModalsJs(): string {
           var key = templateKeys[i];
           var t = PROVIDER_TEMPLATES[key];
           var apiLabel = t.apiType === 'responses' ? 'responses' : t.apiType === 'gemini' ? 'gemini' : 'chat/completions';
+          // 描述走 i18n：key 形如 providerTemplateOpenaiDescription
+          var descKey = 'providerTemplate' + key.charAt(0).toUpperCase() + key.slice(1) + 'Description';
+          var description = strings[descKey] || '';
           html += '<div class="provider-template-card" data-template-key="' + escapeHtml(key) + '" tabindex="0">'
             + '<div class="provider-template-card-info">'
             + '<div class="provider-template-card-header">'
             + '<span class="provider-template-card-name">' + escapeHtml(t.name) + '</span>'
             + '</div>'
-            + '<div class="provider-template-card-description">' + escapeHtml(t.baseUrl || '') + '</div>'
+            + '<div class="provider-template-card-description">' + escapeHtml(description) + '</div>'
             + '</div>'
             + '<div class="provider-template-card-preview">'
             + '<span class="pill">' + escapeHtml(t.kind) + '</span>'

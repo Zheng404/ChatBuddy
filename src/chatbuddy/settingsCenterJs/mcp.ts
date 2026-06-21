@@ -304,7 +304,37 @@ export function getMcpJs(): string {
       function deleteMcpGroup(groupId) {
         var group = mcpGroups.find((g) => g.id === groupId);
         if (!group) { return; }
-        vscode.postMessage({ type: 'requestDeleteMcpGroup', payload: { groupId: groupId, groupName: group.name } });
+        var strings = runtimeState.strings || {};
+        var message = (strings.mcpDeleteGroupConfirm || 'Delete group "{name}"?').replace('{name}', group.name);
+        void openDangerModal({
+          message: message,
+          actionLabel: strings.deleteAction || 'Delete',
+          cancelLabel: strings.cancelAction || 'Cancel'
+        }).then(function (confirmed) {
+          if (!confirmed) { return; }
+          vscode.postMessage({ type: 'requestDeleteMcpGroup', payload: { groupId: groupId, groupName: group.name } });
+        });
+      }
+
+      function confirmDeleteMcpServer(server) {
+        if (!server) { return; }
+        var strings = runtimeState.strings || {};
+        var message = (strings.mcpDeleteConfirm || 'Delete this server?');
+        void openDangerModal({
+          message: message,
+          actionLabel: strings.mcpDeleteServerAction || strings.deleteAction || 'Delete',
+          cancelLabel: strings.cancelAction || 'Cancel'
+        }).then(function (confirmed) {
+          if (!confirmed) { return; }
+          vscode.postMessage({
+            type: 'deleteMcpServer',
+            payload: {
+              serverId: server.id,
+              serverName: server.name,
+              skipConfirm: true
+            }
+          });
+        });
       }
 
       function doDeleteMcpGroup(groupId) {

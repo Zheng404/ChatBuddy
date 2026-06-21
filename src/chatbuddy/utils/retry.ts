@@ -36,11 +36,15 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
     return Promise.reject(new DOMException('Aborted', 'AbortError'));
   }
   return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
     const onAbort = () => {
       clearTimeout(timer);
       reject(new DOMException('Aborted', 'AbortError'));
     };
+    const timer = setTimeout(() => {
+      // Bug 4: 正常 resolve 时显式移除监听器，避免 signal 长期存活时累积泄漏
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
     signal.addEventListener('abort', onAbort, { once: true });
   });
 }

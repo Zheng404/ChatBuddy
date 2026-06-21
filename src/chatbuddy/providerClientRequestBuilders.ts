@@ -51,7 +51,8 @@ export function createHeaders(provider: ProviderConnectionInput, json = true): R
   }
   if (provider.apiKey.trim()) {
     if (isGeminiProvider(provider)) {
-      headers.Authorization = `Bearer ${provider.apiKey.trim()}`;
+      // Gemini 原生 API 仅使用 x-goog-api-key 鉴权，同时发送 Authorization 头
+      // 会导致部分网关（含 Google 官方）因鉴权方式冲突而拒绝请求。
       headers['x-goog-api-key'] = provider.apiKey.trim();
     } else {
       headers.Authorization = `Bearer ${provider.apiKey.trim()}`;

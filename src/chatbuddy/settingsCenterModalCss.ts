@@ -146,7 +146,7 @@ export function getSettingsCenterModalCss(): string {
         padding: 12px 14px;
         background: transparent;
         cursor: pointer;
-        transition: background 0.15s, border-color 0.15s;
+        transition: background var(--duration-normal), border-color var(--duration-normal);
         outline: none;
         display: flex;
         align-items: center;

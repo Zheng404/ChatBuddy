@@ -80,7 +80,7 @@ export function toTransportLabel(transport: McpServerProfile['transport']): stri
       return 'HTTP';
     case 'sse':
       return 'SSE';
-    default:
+    case 'stdio':
       return 'stdio';
   }
 }

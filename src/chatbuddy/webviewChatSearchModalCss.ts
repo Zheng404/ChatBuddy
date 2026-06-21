@@ -1,8 +1,10 @@
 /**
  * 聊天面板搜索与模态框样式。
  *
- * 包含：search-bar、search-highlight、raw-modal、raw-reasoning-block、confirm。
+ * 包含：search-bar、search-highlight、modal、raw-reasoning-block、confirm。
  */
+import { SHARED_MODAL_STYLE } from './webviewModalTheme';
+
 export function getWebviewChatSearchModalCss(): string {
   return `
       .search-bar {
@@ -25,23 +27,23 @@ export function getWebviewChatSearchModalCss(): string {
 
       .search-input {
         flex: 1;
-        background: var(--vscode-inputBackground);
+        background: var(--input-bg);
         color: var(--fg);
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        padding: 3px 8px;
+        border: 1px solid var(--input-border);
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
         font-size: 13px;
         outline: none;
         font-family: var(--font-sans);
       }
 
       .search-input:focus {
-        border-color: var(--vscode-focusBorder);
+        border-color: var(--accent);
       }
 
       .search-count {
         font-size: 11px;
-        color: var(--color-text-subtle);
+        color: var(--muted);
         min-width: 40px;
         text-align: center;
         font-family: var(--font-sans);
@@ -52,21 +54,22 @@ export function getWebviewChatSearchModalCss(): string {
         border: none;
         cursor: pointer;
         padding: 2px 4px;
-        border-radius: 3px;
-        color: var(--color-text-subtle);
+        border-radius: var(--radius-sm);
+        color: var(--muted);
         display: flex;
         align-items: center;
+        transition: background var(--duration-normal) ease, color var(--duration-normal) ease;
       }
 
       .search-nav-btn:hover {
-        background: var(--color-bg-hover);
+        background: var(--panel-bg-strong);
         color: var(--fg);
       }
 
       mark.search-highlight {
         background: #f0c04080;
         color: inherit;
-        border-radius: 2px;
+        border-radius: var(--radius-sm);
         padding: 0 1px;
       }
 
@@ -75,19 +78,12 @@ export function getWebviewChatSearchModalCss(): string {
         color: #000;
       }
 
-      .raw-modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:1000 }
-      .raw-modal-overlay.visible { display:flex }
-      .raw-modal { width:min(800px,90%);max-height:80vh;border:1px solid var(--border);border-radius:12px;background:var(--bg);display:flex;flex-direction:column;overflow:hidden }
-      .raw-modal-header { display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--hover) }
-      .raw-modal-title { font-weight:600;font-size:14px }
-      .raw-modal-close { border:0;background:transparent;color:var(--fg);width:28px;height:28px;padding:0;cursor:pointer;border-radius:6px;display:flex;align-items:center;justify-content:center }
-      .raw-modal-close:hover { background:var(--toolbar-hover) }
-      .raw-modal-body { padding:16px;overflow-y:auto;flex:1;min-height:0 }
-      .raw-modal-body pre { white-space:pre-wrap;word-break:break-word;font-family:"Cascadia Code","JetBrains Mono",monospace;font-size:13px;line-height:1.6;color:var(--fg);margin:0 }
-      .raw-reasoning-block { margin:0 0 12px;border:1px solid var(--border);border-radius:8px;background:var(--code-bg);overflow:hidden }
+${SHARED_MODAL_STYLE}
+
+      .raw-reasoning-block { margin:0 0 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--code-bg);overflow:hidden }
       .raw-reasoning-block summary { cursor:pointer;user-select:none;list-style:none;padding:6px 10px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;font-family:"Cascadia Code","JetBrains Mono",monospace }
       .raw-reasoning-block summary::-webkit-details-marker { display:none }
-      .raw-reasoning-block summary .chevron-icon { display:inline-flex;transition:transform .15s ease;font-size:14px }
+      .raw-reasoning-block summary .chevron-icon { display:inline-flex;transition:transform var(--duration-normal) ease;font-size:14px }
       .raw-reasoning-block[open] summary .chevron-icon { transform:rotate(90deg) }
       .raw-reasoning-block pre { margin:0;padding:8px 10px;border-top:1px solid var(--border);white-space:pre-wrap;word-break:break-word;font-family:"Cascadia Code","JetBrains Mono",monospace;font-size:13px;line-height:1.6;color:var(--muted) }
       .confirm-copy { color: var(--muted); font-size: 13px; line-height: 1.7; white-space: pre-wrap }

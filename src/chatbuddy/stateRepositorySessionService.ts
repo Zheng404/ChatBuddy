@@ -24,6 +24,8 @@ type SessionServiceContext = {
   storage: ChatStorage;
   storageReady: () => boolean;
   persistLater: () => void;
+  /** 同步递增版本号，立即失效 getState() 缓存，避免返回旧数据 */
+  bumpVersion: () => void;
   ensureStorageReady: () => void;
   getSelectedAssistantId: () => string | undefined;
   markAssistantInteracted: (assistantId: string, persist?: boolean) => void;
@@ -135,6 +137,7 @@ export class SessionStateService {
     this.context.setSelectedSessionIds(selectedSessionIds);
     assistant.lastInteractedAt = timestamp;
     assistant.updatedAt = timestamp;
+    this.context.bumpVersion();
     this.context.persistLater();
     return cloneSession(session);
   }
@@ -151,6 +154,7 @@ export class SessionStateService {
     selectedSessionIds[assistantId] = sessionId;
     this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
   }
 
@@ -172,6 +176,7 @@ export class SessionStateService {
       return;
     }
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
   }
 
@@ -193,6 +198,7 @@ export class SessionStateService {
       return;
     }
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
   }
 
@@ -213,6 +219,7 @@ export class SessionStateService {
     }
     this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
   }
 
@@ -228,6 +235,7 @@ export class SessionStateService {
     delete selectedSessionIds[assistantId];
     this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
     return removed;
   }
@@ -243,6 +251,7 @@ export class SessionStateService {
     selectedSessionIds[assistantId] = sessionId;
     this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
     const next = this.getSelectedSession(assistantId);
     if (!next || next.id !== sessionId) {
@@ -268,6 +277,7 @@ export class SessionStateService {
     this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
     if (persist) {
+      this.context.bumpVersion();
       this.context.persistLater();
     }
     const next = this.getSelectedSession(assistantId);
@@ -290,6 +300,7 @@ export class SessionStateService {
     selectedSessionIds[assistantId] = sessionId;
     this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
     const next = this.getSelectedSession(assistantId);
     return next && next.id === sessionId ? cloneSession(next) : undefined;
@@ -309,6 +320,7 @@ export class SessionStateService {
     selectedSessionIds[assistantId] = sessionId;
     this.context.setSelectedSessionIds(selectedSessionIds);
     this.context.markAssistantInteracted(assistantId, false);
+    this.context.bumpVersion();
     this.context.persistLater();
     const next = this.getSelectedSession(assistantId);
     return next && next.id === sessionId ? cloneSession(next) : undefined;
@@ -365,6 +377,7 @@ export class SessionStateService {
 
   public setSessionPanelCollapsed(collapsed: boolean): void {
     this.context.setSessionPanelCollapsed(collapsed);
+    this.context.bumpVersion();
     this.context.persistLater();
   }
 }

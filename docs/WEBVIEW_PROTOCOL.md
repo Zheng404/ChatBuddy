@@ -1,6 +1,6 @@
 # ChatBuddy WebView 通信协议
 
-> 最后更新：2026-06-14
+> 最后更新：2026-06-18
 
 本文档描述 ChatBuddy 中 Extension Host 与 WebView 之间的双向消息协议。
 

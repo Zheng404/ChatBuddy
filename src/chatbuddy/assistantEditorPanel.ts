@@ -15,7 +15,7 @@ import { ChatStateRepository, UpdateAssistantInput } from './stateRepository';
 import type { AssistantProfile, RuntimeStrings } from './types';
 import { getCodiconStyleText } from './codicon';
 import { getStrings, resolveLocale } from './i18n';
-import { getNonce, buildCsp } from './utils';
+import { getNonce, buildCsp, postMessageSafely, warn } from './utils';
 
 import type {
   AssistantEditorMessage,
@@ -54,6 +54,17 @@ export class AssistantEditorPanelController {
     this.postState();
   }
 
+  /**
+   * 释放资源：关闭当前打开的面板（若存在）。
+   *
+   * 面板的 `onDidDispose` 回调会清理 messageListener 并重置内部状态，
+   * 因此这里只需触发 panel.dispose() 即可级联清理所有资源。
+   * 用于扩展卸载/重载时通过 context.subscriptions 注册。
+   */
+  public dispose(): void {
+    this.panel?.dispose();
+  }
+
   private ensurePanel(): void {
     const strings = this.getStrings();
     if (!this.panel) {
@@ -68,56 +79,16 @@ export class AssistantEditorPanelController {
       );
       this.panel.iconPath = getPanelIconPath('account');
       this.panel.webview.html = this.getHtml(this.panel.webview);
-      const messageListener = this.panel.webview.onDidReceiveMessage(async (message: AssistantEditorMessage) => {
-        if (message.type === 'ready') {
-          this.postState();
-          return;
-        }
-        if (message.type === 'pickAvatar') {
-          const selected = await this.pickAvatar(message.currentAvatar);
-          if (!selected || !this.panel) {
-            return;
+      const messageListener = this.panel.webview.onDidReceiveMessage((message: AssistantEditorMessage) => {
+        // listener 本身保持同步：onDidReceiveMessage 不会自动捕获 async 函数的 rejection，
+        // 因此把异步逻辑放到独立方法中，在外层显式 catch 以避免未处理 rejection。
+        this.handlePanelMessage(message).catch((err) => {
+          const name = err instanceof Error ? err.name : '';
+          // 忽略用户主动取消（如 pickAvatar 的 QuickPick）和 abort，仅记录真实错误
+          if (name !== 'Canceled' && name !== 'AbortError') {
+            warn('Assistant editor message error:', err);
           }
-          // postMessage may reject when the panel is disposed before delivery; safe to ignore
-          void this.panel.webview.postMessage({
-            type: 'avatarPicked',
-            payload: {
-              icon: selected
-            }
-          }).then(undefined, () => {});
-          return;
-        }
-        if (message.type === 'save') {
-          const current = this.getCurrentAssistant();
-          if (!current) {
-            return;
-          }
-          const patch = toUpdatePayload(message.payload, current);
-          if (this.creatingAssistantDraft) {
-            const createdAssistantId = this.onCreate(patch);
-            if (!createdAssistantId) {
-              return;
-            }
-            this.editingAssistantId = createdAssistantId;
-            this.creatingAssistantDraft = undefined;
-            this.postState(this.getStrings().assistantSaved);
-            return;
-          }
-          if (!this.editingAssistantId) {
-            return;
-          }
-          this.onSave(this.editingAssistantId, patch);
-          this.postState(this.getStrings().assistantSaved);
-          return;
-        }
-        if (message.type === 'saveAsTemplate') {
-          const current = this.getCurrentAssistant();
-          if (!current) {
-            return;
-          }
-          this.repository.saveAsTemplate(current.id, message.name, message.description);
-          this.postState(this.getStrings().templateSaved || 'Template saved');
-        }
+        });
       });
       this.panel.onDidDispose(() => {
         messageListener.dispose();
@@ -128,6 +99,76 @@ export class AssistantEditorPanelController {
       return;
     }
     this.panel.reveal(vscode.ViewColumn.One);
+  }
+
+  /**
+   * 处理 WebView 入站消息（异步）。
+   *
+   * 由 `onDidReceiveMessage` 同步 listener 调用，错误由调用方 catch。
+   * 提取为独立方法以便统一错误处理，避免 async listener 导致的未处理 rejection。
+   */
+  private async handlePanelMessage(message: AssistantEditorMessage): Promise<void> {
+    if (message.type === 'ready') {
+      this.postState();
+      return;
+    }
+    if (message.type === 'pickAvatar') {
+      const selected = await this.pickAvatar(message.currentAvatar);
+      if (!selected || !this.panel) {
+        return;
+      }
+      // postMessage may reject when the panel is disposed before delivery; safe to ignore
+      postMessageSafely(this.panel.webview.postMessage({
+        type: 'avatarPicked',
+        payload: {
+          icon: selected
+        }
+      }));
+      return;
+    }
+    if (message.type === 'save') {
+      const current = this.getCurrentAssistant();
+      if (!current) {
+        return;
+      }
+      const patch = toUpdatePayload(message.payload, current);
+      if (this.creatingAssistantDraft) {
+        const createdAssistantId = this.onCreate(patch);
+        if (!createdAssistantId) {
+          return;
+        }
+        this.editingAssistantId = createdAssistantId;
+        this.creatingAssistantDraft = undefined;
+        this.postState(this.getStrings().assistantSaved, 'success');
+        return;
+      }
+      if (!this.editingAssistantId) {
+        return;
+      }
+      this.onSave(this.editingAssistantId, patch);
+      this.postState(this.getStrings().assistantSaved, 'success');
+      return;
+    }
+    if (message.type === 'saveAsTemplate') {
+      const current = this.getCurrentAssistant();
+      if (!current) {
+        return;
+      }
+      const strings = this.getStrings();
+      // 草稿助手（尚未落库）无法保存为模板：stateRepository.saveAsTemplate 仅能基于
+      // 已存在的助手 ID 创建模板，草稿 ID 'assistant-draft' 不在 state.assistants 中，
+      // 会静默返回 undefined，因此需要显式拦截并提示用户。
+      if (current.id === 'assistant-draft') {
+        this.postState(strings.templateSaveFailed || 'Failed to save template', 'error');
+        return;
+      }
+      const created = this.repository.saveAsTemplate(current.id, message.name, message.description);
+      if (!created) {
+        this.postState(strings.templateSaveFailed || 'Failed to save template', 'error');
+        return;
+      }
+      this.postState(strings.templateSaved || 'Template saved', 'success');
+    }
   }
 
   private getEditingAssistant(): AssistantProfile | undefined {
@@ -221,7 +262,7 @@ export class AssistantEditorPanelController {
     ];
   }
 
-  private postState(notice?: string): void {
+  private postState(notice?: string, noticeTone?: 'success' | 'error'): void {
     if (!this.panel) {
       return;
     }
@@ -245,10 +286,11 @@ export class AssistantEditorPanelController {
         enabled: server.enabled,
         transport: server.transport
       })),
-      notice
+      notice,
+      noticeTone
     };
     // postMessage may reject when the panel is disposed before delivery; safe to ignore
-    void this.panel.webview.postMessage({ type: 'state', payload }).then(undefined, () => {});
+    postMessageSafely(this.panel.webview.postMessage({ type: 'state', payload }));
   }
 
   private getHtml(webview: vscode.Webview): string {

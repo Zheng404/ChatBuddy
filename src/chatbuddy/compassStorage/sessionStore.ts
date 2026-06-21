@@ -9,14 +9,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ChatMessage, ChatSessionDetail, ChatSessionSummary, ChatToolRound } from '../types';
-import { LRUCache, nowTs, warn } from '../utils';
+import { LRUCache, nowTs, warn, error } from '../utils';
 import {
   appendTextFile,
   ensureDir,
   fileExists,
   listFilesRecursively,
   readBase64File,
-  readJsonFile,
+  readJsonFileSafe,
   readTextFile,
   removeEmptyDirectoriesRecursively,
   removeFileIfExists,
@@ -42,6 +42,16 @@ import {
 
 /** 内存中保留的最大会话数量（LRU 淘汰） */
 const MAX_SESSIONS_IN_MEMORY = 50;
+
+/**
+ * 原子追加的字节阈值。超过此阈值的追加写入会降级为全量重写，
+ * 避免多 IDE 并发追加时 JSONL 行交错损坏会话文件。
+ *
+ * POSIX 保证不超过 PIPE_BUF 字节的写入在管道/常规文件上是原子的。
+ * macOS 的 PIPE_BUF 为 512 字节，Linux 为 4096 字节。运行时按平台取值，
+ * 确保 macOS 多 IDE 共享存储场景下的安全性。
+ */
+const ATOMIC_APPEND_THRESHOLD = process.platform === 'darwin' ? 512 : 4096;
 
 function parseToolRounds(raw: unknown): ChatToolRound[] | undefined {
   if (typeof raw !== 'string' || !raw.trim()) {
@@ -98,22 +108,32 @@ export class CompassSessionStore {
   private indexDirty = false;
   /** 倒排搜索索引：token -> session IDs */
   private readonly searchIndex = new Map<string, Set<string>>();
+  /**
+   * 已检测到损坏 JSONL 行的会话文件路径集合。
+   *
+   * `readSessionMessages` 发现无法解析的行时会将文件路径加入此集合，
+   * `validateSnapshot` 会据此返回校验失败，让 migrator/用户感知数据损坏。
+   * 损坏行的原始内容会被保留到 `{filePath}.corrupt` sidecar 文件以便人工恢复。
+   */
+  private readonly corruptedSessionFiles = new Set<string>();
 
   public async load(paths: CompassPaths): Promise<void> {
-    // 保存完整的内存状态快照（包括 summaries 和 messages）
-    // 防止其他 IDE 触发 reload 时丢失本地新生成但未 persist 的会话
-    const savedSummaries = new Map(this.sessionSummaries);
-    const savedMessages = new Map(this.sessionMessages.entries());
-    const savedAppends = new Map(this.pendingAppends);
-    const savedRewrites = new Set(this.pendingRewrites);
+    // 修复竞态窗口：先异步读取磁盘数据到临时结构，磁盘数据就绪后再操作内存。
+    //
+    // 原实现先 clear() 内存再 await 磁盘读取，在两者之间的异步窗口内，对已存在会话的
+    // 写操作（appendMessage / updateLastAssistantMessage / renameSession / deleteMessage 等）
+    // 会因 sessionExists() 返回 false 而失败，导致数据丢失。
+    //
+    // 新实现将所有异步 I/O 前置到 clear 之前。由于 JavaScript 单线程模型，clear 之后到
+    // rebuildSearchIndex 之间是同步原子执行的（无 await），不会有任何并发写操作插入。
+    // load 期间（await 磁盘读取时）的所有写操作会正常工作，结果在后续快照中被完整捕获。
+    const diskSummaries = new Map<string, SessionSummaryInternal>();
+    const diskMessages = new Map<string, ChatMessage[]>();
 
-    this.sessionSummaries.clear();
-    this.sessionMessages.clear();
-    this.pendingAppends.clear();
-    this.pendingRewrites.clear();
-    this.indexDirty = false;
-
-    const indexPayload = await readJsonFile<CompassIndexFile>(paths.indexPath);
+    // index 文件损坏（JSON 解析失败）时降级为空 index，保持 load() 继续工作。
+    // migrator 的 validateSnapshot 会独立检测 index 损坏并触发恢复流程。
+    // readJsonFileSafe 会在损坏时记录 error 日志，避免静默降级。
+    const indexPayload = await readJsonFileSafe<CompassIndexFile>(paths.indexPath);
     const sessions = Array.isArray(indexPayload?.sessions) ? indexPayload.sessions : [];
 
     for (const rawSummary of sessions) {
@@ -126,34 +146,30 @@ export class CompassSessionStore {
       const hydratedMessages = await this.hydrateImages(messages, paths);
       summary.messageCount = hydratedMessages.length;
       summary.preview = buildPreview(hydratedMessages);
-      this.sessionSummaries.set(summary.id, summary);
-      this.sessionMessages.set(summary.id, hydratedMessages);
+      diskSummaries.set(summary.id, summary);
+      diskMessages.set(summary.id, hydratedMessages);
     }
 
-    // 捕获异步磁盘读取期间新增的 pending 数据（流式生成等场景）
-    // 这些数据在 save 快照之后、clear 之后才写入，不在 savedAppends/savedRewrites 中
+    // 磁盘数据就绪后，保存完整的内存状态快照（包括 summaries 和 messages）。
+    // 此刻内存中包含 load 前的数据 + load 期间（await 磁盘读取时）的所有写操作结果。
+    // 防止其他 IDE 触发 reload 时丢失本地新生成但未 persist 的会话。
+    const savedSummaries = new Map(this.sessionSummaries);
+    const savedMessages = new Map(this.sessionMessages.entries());
+    const savedAppends = new Map(this.pendingAppends);
+    const savedRewrites = new Set(this.pendingRewrites);
 
-    // 捕获异步 I/O 期间新创建的会话（不在 savedSummaries 中，也不在磁盘上）
-    // 这些会话已在 maps 中（insertSession 写入 cleared maps），但 restore 逻辑只遍历 savedSummaries
-    for (const [sid, summary] of this.sessionSummaries) {
-      if (!savedSummaries.has(sid)) {
-        savedSummaries.set(sid, summary);
-        savedMessages.set(sid, this.sessionMessages.get(sid) ?? []);
-        savedRewrites.add(sid);
-      }
-    }
-
-    for (const [sid, msgs] of this.pendingAppends) {
-      const existing = savedAppends.get(sid) ?? [];
-      existing.push(...msgs);
-      savedAppends.set(sid, existing);
-    }
-    for (const sid of this.pendingRewrites) {
-      savedRewrites.add(sid);
-    }
-    // 清除 interim 数据（将在下方 restore 逻辑中重新合并）
+    // 以下 clear + fill + merge 全部同步执行，不会有并发写操作插入
+    this.sessionSummaries.clear();
+    this.sessionMessages.clear();
     this.pendingAppends.clear();
     this.pendingRewrites.clear();
+    this.indexDirty = false;
+
+    // 用磁盘数据填充内存
+    for (const [sessionId, summary] of diskSummaries) {
+      this.sessionSummaries.set(sessionId, summary);
+      this.sessionMessages.set(sessionId, diskMessages.get(sessionId) ?? []);
+    }
 
     // 恢复内存中独有但磁盘上不存在的数据（新生成未 persist 的会话）
     // 以及合并已存在会话的本地元数据变更（如标题重命名）和未持久化的消息
@@ -176,8 +192,8 @@ export class CompassSessionStore {
           this.pendingAppends.delete(sessionId);
         }
 
-        // 修复：当会话标记为 pendingRewrites 时，appendMessage 不会写入 pendingAppends，
-        // 导致异步磁盘读取期间（load 清空 maps 后、磁盘数据加载前）到达的消息丢失。
+        // 当会话因本地元数据更新被标记为 pendingRewrites 时，appendMessage 不会写入
+        // pendingAppends，导致本地新增的消息可能不在 pendingAppends 中。
         // 此处将磁盘消息与 reload 前的内存消息合并（按 ID 去重），确保不丢失数据。
         if (this.pendingRewrites.has(sessionId) && !savedAppends.has(sessionId)) {
           const savedMsgs = savedMessages.get(sessionId);
@@ -275,9 +291,9 @@ export class CompassSessionStore {
             sessionId
           );
           const content = messagesForPersist.map((message) => JSON.stringify(message)).join('\n');
-          // 共享存储模式下，追加超过 PIPE_BUF（4096 字节）的内容不保证原子性。
+          // 共享存储模式下，追加超过 PIPE_BUF（macOS 512 / Linux 4096 字节）的内容不保证原子性。
           // 降级为全量重写，避免多 IDE 并发追加导致 JSONL 行交错。
-          if (Buffer.byteLength(content, 'utf-8') > 4096) {
+          if (Buffer.byteLength(content, 'utf-8') > ATOMIC_APPEND_THRESHOLD) {
             // 降级：将所有消息（现有 + 新追加）全量重写
             const messages = (this.sessionMessages.get(sessionId) ?? []).map((message) =>
               normalizeMessageInput(message, nowTs())
@@ -310,7 +326,8 @@ export class CompassSessionStore {
 
     // 读取磁盘 index，发现其他 IDE 创建但本 IDE 未知的会话
     // 这些会话的文件必须保留，否则会造成数据丢失
-    const diskIndex = await readJsonFile<CompassIndexFile>(paths.indexPath).catch(() => undefined);
+    // readJsonFileSafe 在损坏时降级为 undefined 并记录 error 日志（避免静默吞错）
+    const diskIndex = await readJsonFileSafe<CompassIndexFile>(paths.indexPath);
     if (diskIndex?.sessions && Array.isArray(diskIndex.sessions)) {
       for (const rawSummary of diskIndex.sessions) {
         const summary = normalizeSummary(rawSummary, nowTs());
@@ -413,7 +430,96 @@ export class CompassSessionStore {
       }
     }
 
+    // 额外保障：即使 validateSessionFile 漏检，load() 期间发现的损坏行
+    //（记录在 corruptedSessionFiles 中）也应让快照校验失败。
+    // 损坏行的原始内容已保留到 {file}.corrupt sidecar 文件，用户可人工恢复。
+    if (this.corruptedSessionFiles.size > 0) {
+      const fileList = [...this.corruptedSessionFiles].sort().join(', ');
+      return {
+        valid: false,
+        reason: `Session files contain malformed JSONL lines (corrupt sidecar files written for recovery): ${fileList}`
+      };
+    }
+
     return { valid: true };
+  }
+
+  /**
+   * 扫描磁盘上未被索引引用的孤儿会话文件（`sessions/{assistantId}/{sessionId}.jsonl`），
+   * 尝试解析其中的消息并重新加入 `sessionSummaries`。
+   *
+   * 用于 migrator 自修复场景：当索引与磁盘会话文件出现不一致（如其他 IDE 写入会话
+   * 但索引尚未同步，或索引损坏丢失部分条目）时，优先保留磁盘上的真实数据，再让
+   * `persist()` 重建索引，避免触发 `persist()` 的孤儿清理路径直接删除这些文件。
+   *
+   * - 路径层级不符合 `sessions/{assistantId}/{sessionId}.jsonl` 的文件会被忽略
+   * - 已知 sessionId 跳过（即使 assistantId 不同，避免重复 adoption 造成歧义）
+   * - 消息全部解析失败的孤儿文件被跳过（保留在磁盘上，留待人工处理）
+   * - 返回成功恢复的会话数量
+   */
+  public async adoptOrphanSessionFiles(paths: CompassPaths): Promise<number> {
+    let sessionFiles: string[] = [];
+    try {
+      sessionFiles = await listFilesRecursively(paths.sessionsPath, '.jsonl');
+    } catch (err) {
+      warn('Error listing session files for orphan adoption:', err);
+      return 0;
+    }
+
+    let adopted = 0;
+    for (const sessionFilePath of sessionFiles) {
+      const relativePath = path.relative(paths.sessionsPath, sessionFilePath);
+      // 期望相对路径形如 `{assistantId}/{sessionId}.jsonl`
+      const parts = relativePath.split(path.sep);
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        continue;
+      }
+      const assistantId = parts[0];
+      const fileName = parts[1];
+      if (!fileName.endsWith('.jsonl')) {
+        continue;
+      }
+      const sessionId = fileName.slice(0, -'.jsonl'.length);
+      if (!sessionId) {
+        continue;
+      }
+
+      // 已在索引中（或本轮已 adopt）的会话，跳过避免重复
+      if (this.sessionSummaries.has(sessionId)) {
+        continue;
+      }
+
+      const messages = await this.readSessionMessages(sessionFilePath);
+      if (messages.length === 0) {
+        // 无法解析出任何有效消息，保留磁盘文件但暂不 adoption
+        warn(`Skipping orphan session file with no valid messages: ${sessionFilePath}`);
+        continue;
+      }
+
+      const firstTs = messages[0]?.timestamp ?? nowTs();
+      const lastTs = messages[messages.length - 1]?.timestamp ?? firstTs;
+      const summary: SessionSummaryInternal = {
+        id: sessionId,
+        assistantId,
+        // 标题丢失，让 UI 通过 titleSource='default' 走默认逻辑（取首条用户消息）
+        title: '',
+        titleSource: 'default',
+        createdAt: firstTs,
+        updatedAt: lastTs,
+        messageCount: messages.length,
+        preview: buildPreview(messages)
+      };
+      this.sessionSummaries.set(sessionId, summary);
+      this.sessionMessages.set(sessionId, messages);
+      for (const message of messages) {
+        this.indexMessage(sessionId, message);
+      }
+      // 标记为完整重写，确保 persist 阶段重新写出文件并纳入 expectedSessionFiles
+      this.pendingRewrites.add(sessionId);
+      this.indexDirty = true;
+      adopted += 1;
+    }
+    return adopted;
   }
 
   public listSessionsByAssistant(assistantId: string): ChatSessionSummary[] {
@@ -888,6 +994,8 @@ export class CompassSessionStore {
     this.pendingAppends.clear();
     this.pendingRewrites.clear();
     this.searchIndex.clear();
+    // 导入新数据后，旧的损坏标记不再适用（新会话集合可能完全不同）
+    this.corruptedSessionFiles.clear();
     this.indexDirty = true;
     for (const session of sessions) {
       this.insertSession(session);
@@ -1033,6 +1141,8 @@ export class CompassSessionStore {
     }
 
     const messages: ChatMessage[] = [];
+    /** 收集本次加载发现的损坏行，用于写入 sidecar 恢复文件 */
+    const corruptedLines: Array<{ lineIndex: number; line: string; error: string }> = [];
     let lineIndex = 0;
     const lines = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
     for (const line of lines) {
@@ -1040,14 +1150,57 @@ export class CompassSessionStore {
       try {
         const parsed = JSON.parse(line) as unknown;
         if (!parsed || typeof parsed !== 'object') {
-          continue;
+          // 非对象行视为损坏（JSON 合法但结构错误），同样需要恢复
+          throw new Error(`Line ${lineIndex} parsed to a non-object value`);
         }
         messages.push(normalizeMessageInput(parsed as ChatMessage, nowTs()));
       } catch (parseError) {
-        console.warn(`[Compass] Skipping malformed JSONL line ${lineIndex}: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+        const reason = parseError instanceof Error ? parseError.message : String(parseError);
+        // 截断原始行内容，避免单行过长导致日志爆炸（保留前 200 字符用于诊断）
+        const linePreview = line.length > 200 ? `${line.slice(0, 200)}…(+${line.length - 200} chars)` : line;
+        // 升级为 error 级别日志（含完整上下文：文件路径、行号、原始行预览、错误信息）
+        error(
+          `[Compass] Malformed JSONL line in session file: ${filePath}\n` +
+            `  line ${lineIndex}: ${reason}\n` +
+            `  content preview: ${linePreview}`
+        );
+        corruptedLines.push({ lineIndex, line, error: reason });
       }
     }
+
+    // 发现损坏行：保留原始内容到 sidecar 文件以便人工恢复，并标记文件需要校验失败
+    if (corruptedLines.length > 0) {
+      this.corruptedSessionFiles.add(filePath);
+      await this.persistCorruptedLines(filePath, corruptedLines).catch((writeErr) => {
+        // sidecar 写入失败不应影响主加载流程，但仍需记录以便诊断
+        error(`[Compass] Failed to write corrupt-line sidecar for ${filePath}:`, writeErr);
+      });
+    } else {
+      // 文件已恢复正常（如人工修复后），清理标记
+      this.corruptedSessionFiles.delete(filePath);
+    }
     return messages;
+  }
+
+  /**
+   * 将损坏的 JSONL 行写入 sidecar 文件 `{filePath}.corrupt`，便于人工恢复。
+   *
+   * 每行格式为 JSON 对象：`{lineIndex, line, error, discoveredAt}`。
+   * 采用覆盖模式，反映「最近一次加载时发现的损坏行」，避免重复加载导致无限增长。
+   */
+  private async persistCorruptedLines(
+    filePath: string,
+    corruptedLines: Array<{ lineIndex: number; line: string; error: string }>
+  ): Promise<void> {
+    const sidecarPath = `${filePath}.corrupt`;
+    const discoveredAt = new Date().toISOString();
+    const payload = corruptedLines.map((entry) => ({
+      lineIndex: entry.lineIndex,
+      line: entry.line,
+      error: entry.error,
+      discoveredAt
+    }));
+    await writeJsonAtomic(sidecarPath, payload);
   }
 
   private async validateSessionFile(filePath: string): Promise<CompassValidationResult> {

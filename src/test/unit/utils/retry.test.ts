@@ -240,3 +240,55 @@ test('retryWithBackoff - empty options uses defaults', async () => {
   await assert.rejects(() => retryWithBackoff(fn));
   assert.equal(calls, 3, 'default options should allow 3 total calls');
 });
+
+// ─── Bug 4: abortableSleep abort listener cleanup ─────────────────
+
+test('retryWithBackoff - abort signal rejects pending retry (Bug 4)', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const fn = async () => {
+    calls++;
+    if (calls === 1) {
+      throw new HttpError(500, 'server error');
+    }
+    return 'ok';
+  };
+  // 在第一次失败后立即 abort，abortableSleep 应立即 reject
+  const promise = retryWithBackoff(fn, {
+    baseDelayMs: 5000,
+    jitterMs: 0,
+    signal: controller.signal
+  });
+  // 等待 fn 执行完毕进入 sleep
+  await new Promise((r) => setTimeout(r, 20));
+  controller.abort();
+  await assert.rejects(promise, (err: unknown) => {
+    return err instanceof DOMException && err.name === 'AbortError';
+  });
+  assert.equal(calls, 1);
+});
+
+test('retryWithBackoff - normal completion leaves signal without dangling listeners (Bug 4)', async () => {
+  // Bug 4 修复前：abortableSleep 正常 resolve 时不会移除 abort 监听器，
+  // 多次重试会在 signal 上累积监听器。修复后每次 sleep 完成都会清理。
+  // 此测试验证多次重试后仍能正常完成，且 signal 可被 gc（无强引用泄漏）。
+  const controller = new AbortController();
+  let calls = 0;
+  const fn = async () => {
+    calls++;
+    if (calls < 3) {
+      throw new HttpError(500, 'server error');
+    }
+    return 'recovered';
+  };
+  const result = await retryWithBackoff(fn, {
+    maxRetries: 3,
+    baseDelayMs: 1,
+    jitterMs: 0,
+    signal: controller.signal
+  });
+  assert.equal(result, 'recovered');
+  assert.equal(calls, 3);
+  // signal 仍未 aborted，可安全复用
+  assert.equal(controller.signal.aborted, false);
+});

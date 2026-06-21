@@ -538,8 +538,9 @@ export function getChatMarkdownRendererScript(args: {
       }
 
       /**
-       * Sanitize SVG output from Mermaid to prevent XSS.
-       * Strips <script>, <iframe>, <object>, <embed> tags and on* event handlers.
+       * Sanitize SVG output from Mermaid to prevent XSS and CSS data exfiltration.
+       * Strips <script>, <iframe>, <object>, <embed>, <foreignObject>, <style> tags,
+       * on* event handlers, style attributes, and external url()/javascript: references.
        */
       function sanitizeSvg(svg) {
         // 使用 DOMParser 在 SVG 命名空间下解析，避免命名空间丢失
@@ -550,7 +551,8 @@ export function getChatMarkdownRendererScript(args: {
           // 解析失败或非 SVG，返回安全占位符而非原始内容以防止 XSS
           return '<div class="mermaid-error">SVG render failed</div>';
         }
-        var dangerous = root.querySelectorAll('script, iframe, object, embed, foreignObject');
+        // 移除危险标签：脚本、嵌入对象、外部内容命名空间，以及 <style>（防止 CSS @import/url() 数据外泄与 UI 欺骗）
+        var dangerous = root.querySelectorAll('script, iframe, object, embed, foreignObject, style');
         for (var i = 0; i < dangerous.length; i++) { dangerous[i].remove(); }
         // Only remove <use> elements with external references (not internal #id refs)
         var useElements = root.querySelectorAll('use');
@@ -561,14 +563,21 @@ export function getChatMarkdownRendererScript(args: {
           }
         }
         var all = root.querySelectorAll('*');
+        // 正则匹配外部 url() 引用：url( 后面（可选引号/空格）不是 # 开头（# 为内部引用，合法）
+        var externalUrlRe = /url\\(\\s*['"]?\\s*(?!#)/i;
         for (var j = 0; j < all.length; j++) {
           var attrs = all[j].attributes;
           for (var k = attrs.length - 1; k >= 0; k--) {
             var name = attrs[k].name.toLowerCase();
-            var value = String(attrs[k].value || '').trim().toLowerCase();
+            var rawValue = String(attrs[k].value || '');
+            var value = rawValue.trim().toLowerCase();
+            // 移除：事件处理器、style 属性、javascript:/data: href、外部 url()、@import
             if (name.indexOf('on') === 0 ||
+                name === 'style' ||
                 ((name === 'href' || name === 'xlink:href') && value.indexOf('javascript:') === 0) ||
-                (name === 'href' && value.indexOf('data:') === 0)) {
+                (name === 'href' && value.indexOf('data:') === 0) ||
+                externalUrlRe.test(rawValue) ||
+                value.indexOf('@import') !== -1) {
               all[j].removeAttribute(attrs[k].name);
             }
           }

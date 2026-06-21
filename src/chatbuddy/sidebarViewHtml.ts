@@ -16,6 +16,7 @@ import { buildCsp, getNonce } from './utils/csp';
 import { getCodiconStyleText } from './codicon';
 import { getSidebarStyles } from './sidebarViewStyles';
 import { getSidebarBodyHtml, getSidebarScript } from './sidebarViewJs';
+import { TOAST_CONTAINER_HTML } from './webviewShared';
 import type { SidebarViewKind } from './sidebarViewTypes';
 
 /**
@@ -42,6 +43,7 @@ export function buildSidebarHtml(kind: SidebarViewKind, webview: vscode.Webview)
   </head>
   <body data-view="${kind}">
     ${body}
+    ${TOAST_CONTAINER_HTML}
     <script nonce="${nonce}">
       ${script}
     </script>

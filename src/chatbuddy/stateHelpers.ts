@@ -8,13 +8,11 @@ import { createModelRef, dedupeModels, parseModelRef } from './modelCatalog';
 import type { StructuredStateDocument } from './compassStorage';
 import { COMPASS_LAYOUT_VERSION } from './compassStorage';
 import { cloneProvider } from './stateClone';
-import { PersistedStateLiteSchema } from './schemas';
 import { warn } from './utils';
 import type {
   ChatBuddySettings,
   ModelBinding,
   PersistedState,
-  PersistedStateLite,
   ProviderKind,
   ProviderProfile
 } from './types';
@@ -156,31 +154,6 @@ export function parseProviderApiKeysSecret(raw: string | undefined): Record<stri
   }
 }
 
-export function parseProviderApiKeysStore(raw: string | undefined): Record<string, string> {
-  return parseProviderApiKeysSecret(raw);
-}
-
-export function parsePersistedStateLiteStore(raw: string | undefined): PersistedStateLite | Record<string, unknown> | undefined {
-  if (!raw) {
-    return undefined;
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
-      return undefined;
-    }
-    const result = PersistedStateLiteSchema.safeParse(parsed);
-    if (!result.success) {
-      warn('Persisted state validation failed:', result.error.message);
-      return parsed as Record<string, unknown>;
-    }
-    return result.data as unknown as PersistedStateLite;
-  } catch (err) {
-    warn('Error parsing persisted state:', err);
-    return undefined;
-  }
-}
-
 // ─── Import helpers ──────────────────────────────────────────────────────────
 
 const LEGACY_BACKUP_SCHEMA = 'chatbuddy.backup';
@@ -244,6 +217,72 @@ function looksLikeStructuredStateDocument(value: unknown): value is StructuredSt
   );
 }
 
+/**
+ * 对 `StructuredStateDocument` 进行深度 shape 校验。
+ *
+ * `looksLikeStructuredStateDocument` 仅校验顶层字段是否为对象，
+ * 无法发现「字段存在但类型错误」的损坏情况——后续 `.map()` 会在运行时抛出
+ * 难以追踪的异常。此函数在解包层补齐关键嵌套字段（数组/对象）的校验，
+ * 失败时抛出包含具体字段路径的清晰错误，便于上层定位损坏来源。
+ */
+function assertStructuredStateDocumentShape(document: unknown): void {
+  if (!isRecord(document)) {
+    throw new Error('structuredState is not an object');
+  }
+  const core = document.core;
+  if (!isRecord(core)) {
+    throw new Error('structuredState.core is missing or not an object');
+  }
+  if (!Array.isArray(core.groups)) {
+    throw new Error('structuredState.core.groups is missing or not an array');
+  }
+  if (!Array.isArray(core.assistants)) {
+    throw new Error('structuredState.core.assistants is missing or not an array');
+  }
+  if (core.templates !== undefined && !Array.isArray(core.templates)) {
+    throw new Error('structuredState.core.templates must be an array when present');
+  }
+
+  const ui = document.ui;
+  if (!isRecord(ui)) {
+    throw new Error('structuredState.ui is missing or not an object');
+  }
+  if (!isRecord(ui.selectedSessionIdByAssistant)) {
+    throw new Error('structuredState.ui.selectedSessionIdByAssistant is missing or not an object');
+  }
+  if (!Array.isArray(ui.collapsedGroupIds)) {
+    throw new Error('structuredState.ui.collapsedGroupIds is missing or not an array');
+  }
+
+  if (!isRecord(document.settingsGeneral)) {
+    throw new Error('structuredState.settingsGeneral is missing or not an object');
+  }
+
+  const modelConfig = document.settingsModelConfig;
+  if (!isRecord(modelConfig)) {
+    throw new Error('structuredState.settingsModelConfig is missing or not an object');
+  }
+  if (!Array.isArray(modelConfig.providers)) {
+    throw new Error('structuredState.settingsModelConfig.providers is missing or not an array');
+  }
+
+  const defaultModels = document.settingsDefaultModels;
+  if (!isRecord(defaultModels)) {
+    throw new Error('structuredState.settingsDefaultModels is missing or not an object');
+  }
+  if (!isRecord(defaultModels.defaultModels)) {
+    throw new Error('structuredState.settingsDefaultModels.defaultModels is missing or not an object');
+  }
+
+  const settingsMcp = document.settingsMcp;
+  if (!isRecord(settingsMcp)) {
+    throw new Error('structuredState.settingsMcp is missing or not an object');
+  }
+  if (!isRecord(settingsMcp.mcp)) {
+    throw new Error('structuredState.settingsMcp.mcp is missing or not an object');
+  }
+}
+
 export type ImportedCompassStorageBackup = {
   structuredState: StructuredStateDocument;
   providerApiKeys: Record<string, string>;
@@ -275,6 +314,10 @@ export function unwrapImportedStorageBackup(input: unknown): ImportedCompassStor
   ) {
     return undefined;
   }
+  // structuredState 已通过顶层 shape 检查，此处对关键字段进行深度校验。
+  // 若结构损坏，抛出包含具体字段路径的错误，避免后续 `.map()` 抛出难追踪的异常；
+  // 上层 import 流程应捕获并将失败原因反馈给用户。
+  assertStructuredStateDocumentShape(storage.structuredState);
   return {
     structuredState: storage.structuredState,
     providerApiKeys: normalizeTrimmedStringMap(storage.providerApiKeys),

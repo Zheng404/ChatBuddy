@@ -444,17 +444,17 @@ export type WebviewInboundMessage =
   | { type: 'createSession' }
   | { type: 'selectSession'; sessionId: string }
   | { type: 'renameSession'; sessionId: string; title: string }
-  | { type: 'deleteSession'; sessionId: string }
+  | { type: 'deleteSession'; sessionId: string; confirmed?: boolean }
   | { type: 'setSessionTempModel'; modelRef: string }
   | { type: 'setSessionTempParams'; params: SessionTempParams }
   | { type: 'clearSessionTempParams' }
   | { type: 'toggleSessionPanel' }
-  | { type: 'regenerateReply' }
-  | { type: 'regenerateFromMessage'; messageId: string }
+  | { type: 'regenerateReply'; confirmed?: boolean }
+  | { type: 'regenerateFromMessage'; messageId: string; confirmed?: boolean }
   | { type: 'copyMessage'; messageId: string }
-  | { type: 'deleteMessage'; messageId: string }
+  | { type: 'deleteMessage'; messageId: string; confirmed?: boolean }
   | { type: 'editMessage'; messageId: string; newContent: string; regenerate?: boolean }
-  | { type: 'clearSession' }
+  | { type: 'clearSession'; confirmed?: boolean }
   | { type: 'setStreaming'; enabled: boolean }
   | { type: 'sendMessage'; content: string; images?: Array<{ base64: string; mimeType: string }>; files?: Array<{ name: string; content: string; language?: string }> }
   | { type: 'continueToolCalls' }

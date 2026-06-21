@@ -92,6 +92,47 @@ export function getModelConfigActionsJs(): string {
         });
       }
 
+      /**
+       * 统一处理 Provider 启用/禁用切换。
+       * 禁用时先在 webview 内弹 Danger Modal 确认，避免 Host 端 VS Code 原生弹窗。
+       * 确认后发送 toggleProviderEnabled 消息（带 skipConfirm=true）。
+       * 用户取消时恢复 checkbox 状态。
+       */
+      async function handleProviderEnabledToggle(provider, checkboxEl) {
+        if (!provider) { return; }
+        var nextEnabled = !!checkboxEl.checked;
+        if (!nextEnabled) {
+          var strings = runtimeState.strings || {};
+          var message = (strings.confirmDisableProvider || '').replace('{name}', provider.name || provider.id);
+          var confirmed = await openDangerModal({
+            message: message,
+            actionLabel: strings.disableProviderAction || 'Disable',
+            cancelLabel: strings.cancelAction || 'Cancel'
+          });
+          if (!confirmed) {
+            checkboxEl.checked = true;
+            return;
+          }
+        }
+        provider.enabled = nextEnabled;
+        if (persistedProvidersById[provider.id]) {
+          persistedProvidersById[provider.id].enabled = provider.enabled;
+          reconcileProviderDirty(provider.id);
+          vscode.postMessage({
+            type: 'toggleProviderEnabled',
+            payload: {
+              providerId: provider.id,
+              enabled: provider.enabled,
+              skipConfirm: true
+            }
+          });
+        } else {
+          reconcileProviderDirty(provider.id);
+          scheduleProviderAutosave(provider.id, 0);
+        }
+        renderAll();
+      }
+
       function discardProviderChanges(providerId) {
         if (!providerId) {
           return;

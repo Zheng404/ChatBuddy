@@ -190,7 +190,10 @@ export function getChatEventScript(): string {
           if (top < 8) { top = btnRect.bottom + 6; }
           dom.tempParamsPopup.style.left = left + 'px';
           dom.tempParamsPopup.style.top = top + 'px';
-        } catch (err) {}
+        } catch (err) {
+          // 弹窗定位失败不阻塞核心功能，记录 debug 日志便于排查
+          console.debug('[ChatBuddy] temp params popup positioning failed:', err);
+        }
       }
 
       dom.tempParamsBtn.addEventListener('click', (e) => {
@@ -283,7 +286,7 @@ export function getChatEventScript(): string {
         vscode.postMessage({ type: 'sendMessage', content, images, files });
       });
 
-      dom.clearBtn.addEventListener('click', () => {
+      dom.clearBtn.addEventListener('click', async () => {
         if (editingMessageId) {
           clearMessageEditState(true);
           clearPendingImages();
@@ -298,7 +301,14 @@ export function getChatEventScript(): string {
         if (!current.length) {
           return;
         }
-        vscode.postMessage({ type: 'clearSession' });
+        // 前端 Danger Modal 确认后再发送（A 类：webview 内触发）
+        const confirmed = await openDangerModal({
+          message: state.strings.confirmClearSession || '',
+          actionLabel: state.strings.clearAction || 'Clear',
+          cancelLabel: state.strings.cancelAction || 'Cancel'
+        });
+        if (!confirmed) { return; }
+        vscode.postMessage({ type: 'clearSession', confirmed: true });
       });
 
       dom.composerInput.addEventListener('paste', (event) => {
@@ -387,7 +397,7 @@ export function getChatEventScript(): string {
         document.body.classList.remove('resizing');
       });
 
-      dom.messagesInner.addEventListener('click', (event) => {
+      dom.messagesInner.addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof Element)) {
           return;
@@ -408,14 +418,47 @@ export function getChatEventScript(): string {
           return;
         }
         if (action === 'regenerate-reply') {
-          vscode.postMessage({ type: 'regenerateReply' });
+          // 前端 Danger Modal 确认后再发送（A 类：webview 内触发）
+          const lastUserIndex = (function () {
+            const msgs = state.selectedSession?.messages ?? [];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'user') { return i; }
+            }
+            return -1;
+          })();
+          const removedReplyCount = lastUserIndex >= 0
+            ? Math.max(0, (state.selectedSession?.messages?.length ?? 0) - lastUserIndex - 1)
+            : 0;
+          const replyMsg = (state.strings.confirmRegenerateReply || '').replace('{count}', String(removedReplyCount));
+          const confirmed = await openDangerModal({
+            message: replyMsg,
+            actionLabel: state.strings.regenerateReplyAction || 'Regenerate',
+            cancelLabel: state.strings.cancelAction || 'Cancel'
+          });
+          if (!confirmed) { return; }
+          vscode.postMessage({ type: 'regenerateReply', confirmed: true });
           return;
         }
         if (!messageId) {
           return;
         }
         if (action === 'regenerate-from') {
-          vscode.postMessage({ type: 'regenerateFromMessage', messageId });
+          // 前端 Danger Modal 确认后再发送（A 类：webview 内触发）
+          const msgs = state.selectedSession?.messages ?? [];
+          const targetIdx = msgs.findIndex((m) => m.id === messageId);
+          let userIdx = -1;
+          for (let i = targetIdx; i >= 0; i--) {
+            if (msgs[i].role === 'user') { userIdx = i; break; }
+          }
+          const removedCount = userIdx >= 0 ? Math.max(0, msgs.length - userIdx - 1) : 0;
+          const fromMsg = (state.strings.confirmRegenerateFromMessage || '').replace('{count}', String(removedCount));
+          const confirmed = await openDangerModal({
+            message: fromMsg,
+            actionLabel: state.strings.regenerateFromMessageAction || 'Regenerate',
+            cancelLabel: state.strings.cancelAction || 'Cancel'
+          });
+          if (!confirmed) { return; }
+          vscode.postMessage({ type: 'regenerateFromMessage', messageId, confirmed: true });
           return;
         }
         if (action === 'copy-message') {
@@ -435,7 +478,14 @@ export function getChatEventScript(): string {
           return;
         }
         if (action === 'delete-message') {
-          vscode.postMessage({ type: 'deleteMessage', messageId });
+          // 前端 Danger Modal 确认后再发送（A 类：webview 内触发）
+          const confirmed = await openDangerModal({
+            message: state.strings.confirmDeleteMessage || '',
+            actionLabel: state.strings.deleteAction || 'Delete',
+            cancelLabel: state.strings.cancelAction || 'Cancel'
+          });
+          if (!confirmed) { return; }
+          vscode.postMessage({ type: 'deleteMessage', messageId, confirmed: true });
           return;
         }
         if (action === 'view-raw') {

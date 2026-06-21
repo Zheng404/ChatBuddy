@@ -27,7 +27,7 @@ import {
 import { ChatStorage } from './chatStorage';
 import { cloneAssistant, cloneGroup, cloneMcpServer, cloneMcpSettings, cloneProvider, cloneTemplate } from './stateClone';
 import { unwrapImportedState, unwrapImportedStorageBackup } from './stateHelpers';
-import { sanitizeAssistantName } from './security';
+import { sanitizeAssistantName, sanitizeAssistantNote } from './security';
 import { createInitialState, sanitizeSettings } from './stateSanitizers';
 import { AssistantStateService } from './stateRepositoryAssistantService';
 import { createId, nowTs, warn } from './utils';
@@ -123,6 +123,7 @@ export class ChatStateRepository {
     persistLater: () => {
       this.schedulePersist();
     },
+    bumpVersion: () => this.bump(),
     isWritableGroup: (groupId) => this.isWritableGroup(groupId),
     defaultAssistantSystemPrompt: DEFAULT_ASSISTANT_SYSTEM_PROMPT,
     getSelectedAssistantId: () => this.getUiSelectedAssistantId(),
@@ -137,6 +138,7 @@ export class ChatStateRepository {
     persistLater: () => {
       this.schedulePersist();
     },
+    bumpVersion: () => this.bump(),
     ensureStorageReady: () => this.ensureStorageReady(),
     getSelectedAssistantId: () => this.getSelectedAssistantId(),
     markAssistantInteracted: (assistantId, persist) => this.assistantStateService.markAssistantInteracted(assistantId, persist),
@@ -176,11 +178,19 @@ export class ChatStateRepository {
 
   // ─── UI state helpers（直接读写 this.state，存入 Compass 文件夹）────────────
 
-  /** 标记 UI 状态迁移为已完成（UI 状态已存入 Compass，无需从 globalState 迁移） */
-  private markUiStateMigrationDone(): void {
+  /**
+   * 标记 UI 状态迁移为已完成（UI 状态已存入 Compass，无需从 globalState 迁移）。
+   * 等待 globalState 写入完成并捕获异常，避免静默失败导致下次启动重复迁移。
+   */
+  private async markUiStateMigrationDone(): Promise<void> {
     const hasMigrated = this.context.globalState.get<boolean>('chatbuddy.ui.migrated');
     if (!hasMigrated) {
-      void this.context.globalState.update('chatbuddy.ui.migrated', true);
+      try {
+        await this.context.globalState.update('chatbuddy.ui.migrated', true);
+      } catch (err) {
+        // globalState 写入失败不应阻断启动，仅记录日志
+        warn('Error marking UI state migration done:', err);
+      }
     }
   }
 
@@ -229,7 +239,7 @@ export class ChatStateRepository {
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
 
-    this.markUiStateMigrationDone();
+    await this.markUiStateMigrationDone();
 
     const isFirstUse = this.state.assistants.length === 0 && !this.storage.hasAnySession();
     if (isFirstUse) {
@@ -430,7 +440,8 @@ export class ChatStateRepository {
     const template: AssistantTemplate = {
       id: createId('tpl'),
       name: sanitizedName,
-      description: description ? sanitizeAssistantName(description) : undefined,
+      // description 是描述性文本，使用更宽松的 sanitizer（与 assistant.note 一致）
+      description: description ? sanitizeAssistantNote(description) : undefined,
       avatar: assistant.avatar,
       systemPrompt: assistant.systemPrompt,
       greeting: assistant.greeting,
@@ -447,6 +458,7 @@ export class ChatStateRepository {
       updatedAt: timestamp
     };
     this.state.templates.push(template);
+    this.bump();
     this.schedulePersist();
     return cloneTemplate(template);
   }
@@ -495,6 +507,7 @@ export class ChatStateRepository {
       return false;
     }
     this.state.templates.splice(index, 1);
+    this.bump();
     this.schedulePersist();
     return true;
   }
@@ -512,6 +525,7 @@ export class ChatStateRepository {
     }
     template.name = sanitizeAssistantName(name) || template.name;
     template.updatedAt = nowTs();
+    this.bump();
     this.schedulePersist();
     return true;
   }
@@ -523,6 +537,7 @@ export class ChatStateRepository {
   public async resetState(): Promise<void> {
     this.state = createInitialState();
     this.providerApiKeys = {};
+    this.bump();
     if (this.storageReady) {
       this.storage.replaceAllSessions([], false);
       this.storage.replaceAllKv({}, false);
@@ -580,12 +595,13 @@ export class ChatStateRepository {
       result.providerApiKeys = { ...this.providerApiKeys };
     }
     if (categories.includes('mcp')) {
-      result.mcp = { ...settings.mcp };
+      result.mcp = cloneMcpSettings(settings.mcp);
     }
     if (categories.includes('assistants')) {
-      result.assistants = state.assistants.map((a) => ({ ...a }));
-      result.groups = state.groups.map((g) => ({ ...g }));
-      result.templates = state.templates?.map((t) => ({ ...t })) ?? [];
+      // 使用深拷贝避免 enabledMcpServerIds / failoverModelRefs 等数组与内存状态共享引用
+      result.assistants = state.assistants.map(cloneAssistant);
+      result.groups = state.groups.map(cloneGroup);
+      result.templates = state.templates?.map(cloneTemplate) ?? [];
     }
     if (categories.includes('settings')) {
       const { providers: _p, mcp: _m, ...rest } = settings;
@@ -644,6 +660,7 @@ export class ChatStateRepository {
     this.storage.replaceAllKv(storageBackup?.kv ?? {}, false);
     normalizeLocalizedDefaultTitles(this.storage, this.state.settings.locale);
     normalizeTitleSourceConsistency(this.storage, this.state.settings.locale);
+    this.bump();
     await this.persistenceService.persistSecrets();
     await this.persistenceService.persist();
   }
@@ -921,7 +938,7 @@ export class ChatStateRepository {
    * @returns 被删除的会话数量
    */
   public async clearSessionsForAssistant(assistantId: string): Promise<number> {
-    return await this.sessionStateService.clearSessionsForAssistant(assistantId);
+    return this.sessionStateService.clearSessionsForAssistant(assistantId);
   }
 
   /**

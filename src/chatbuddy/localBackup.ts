@@ -88,7 +88,9 @@ export async function listLocalBackups(directory: string): Promise<BackupFileEnt
 /**
  * 从备份文件名解析时间戳。
  * 文件名格式: chatbuddy-backup-YYYYMMDD-HHMMSS.zip
- * 返回 ISO 8601 字符串，解析失败返回 undefined。
+ * 返回带 UTC 后缀的 ISO 8601 字符串（如 `2024-06-21T06:30:00.000Z`），
+ * 保证后续 `new Date(...).getTime()` 解析不受宿主时区影响。
+ * 解析失败返回 undefined。
  */
 function parseBackupTimestampFromFileName(fileName: string): string | undefined {
   // 去掉扩展名: .zip
@@ -148,6 +150,12 @@ export async function restoreLocalBackup(
 
 /**
  * Clean expired backups based on maxCount and maxAgeDays settings.
+ *
+ * 边界语义（与 `sanitizeLocalBackupSettings` 对齐，UI label 也已声明）：
+ *   - `maxCount === 0` 表示「不限制份数」，跳过按数量清理（保留全部）
+ *   - `maxAgeDays === 0` 表示「不限制年龄」，跳过按年龄清理（保留全部）
+ * 因此 `0` 不会被解释为「删除全部」，请勿将其视为「保留 0 份」。
+ *
  * Returns the number of deleted files.
  */
 export async function cleanExpiredBackups(
@@ -163,7 +171,7 @@ export async function cleanExpiredBackups(
   const now = Date.now();
   const toDelete = new Set<string>();
 
-  // Clean by age (days)
+  // Clean by age (days). 0 = 不限制（保留全部）
   if (maxAgeDays > 0) {
     const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
     for (const backup of backups) {
@@ -174,7 +182,7 @@ export async function cleanExpiredBackups(
     }
   }
 
-  // Clean by count (keep only maxCount newest)
+  // Clean by count (keep only maxCount newest). 0 = 不限制（保留全部）
   if (maxCount > 0 && backups.length > maxCount) {
     for (let i = maxCount; i < backups.length; i++) {
       toDelete.add(backups[i].fileName);
@@ -315,12 +323,16 @@ function buildTimestampedFileName(): string {
 }
 
 /**
- * 将本地时间 Date 对象转为与文件名一致的 ISO 8601 字符串（保留本地时区信息）。
- * 避免使用 toISOString() 导致 UTC 偏移不一致。
+ * 将按本地时间分量构造的 Date 转换为 ISO 8601 UTC 字符串（带 `Z` 后缀）。
+ *
+ * 备份文件名用本地时间分量生成（见 `buildTimestampedFileName`），但消费方
+ * （`cleanExpiredBackups`、`hasRecentBackup`）通过 `new Date(createdAt).getTime()`
+ * 计算时间差。若返回无时区后缀的字符串，不同引擎对「无时区 ISO 字符串」的
+ * 解析规则不一致（ES 规范：date-only 走 UTC，date-time 走本地时间），容易引入
+ * 时区偏移。改用 `toISOString()` 输出绝对时间点，确保跨时区、跨引擎一致。
  */
 function localDateToTimestamp(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return date.toISOString();
 }
 
 async function ensureDirectory(directory: string): Promise<void> {

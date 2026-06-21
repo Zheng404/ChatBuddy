@@ -8,39 +8,139 @@ The format is based on Keep a Changelog, but kept intentionally simple for this 
 
 ### English
 
+#### Added
+
+- WebView lazy loading: Mermaid (~28KB) and KaTeX (~288KB) libraries load on-demand only when content contains diagrams or math formulas.
+- CI coverage gate via Node.js native `--experimental-test-coverage` (40% lines, 40% functions, 30% branches threshold).
+- LRUCache utility class for efficient memory management.
+- Stream delta push: send incremental updates instead of full state for better streaming performance.
+- Lazy image loading: hydrate images on demand instead of at load time.
+- Inverted search index for session content: O(n·m) → O(1) lookup.
+- 4 Architecture Decision Records (Compass storage, WebView templates, Test runner, Layered architecture).
+- Benchmark suite for state clone, search, and utils (`npm run benchmark`).
+- `getState(deep)` parameter and `getStateShallow()` for read-only access with 90-95% allocation reduction.
+- BaseSidebarViewProvider abstract base class with ready handshake and state push.
+- Custom in-webview context menu component.
+- Inline search box component for sidebar views.
+- Tree list component for sidebar views.
+
 #### Changed
 
+- **BREAKING**: Removed cross-IDE shared storage sync feature. Extension now uses default VS Code globalStorage exclusively. SQLite migration support retained until v0.5.0.
+- **BREAKING**: Removed backup encryption feature (AES-256-GCM) to simplify backup pipeline.
 - Request timeout default changed from 300s to unlimited (no timeout). Added "No Limit" option to the timeout settings dropdown.
+- Migrated ESLint to v9 flat config.
+- Reorganized test directory into modular structure (unit/chat/, unit/provider/, etc.).
+- Upgraded dependencies: zod 4.4.3, katex 0.17.0, mermaid 11.15.0, typescript 5.8.0.
+- Converted mammoth and JSZip to dynamic imports to reduce activation memory.
+- Refactored `sendMessage()` from 417 lines into 10 focused private methods.
+- Replaced 29 unsafe `innerHTML` assignments with `textContent`/DOM API.
+- Added `warn()` logging to 67 empty catch blocks across 22 files.
+- Implemented LRU cache for session messages (MAX_SESSIONS_IN_MEMORY = 50).
+- Switched read-only callers to shallow clone (90-95% allocation reduction).
+- Migrated all sidebar views (settings, assistants, recycle bin, sessions) from native TreeView to WebviewViewProvider.
+- Replaced native `view/item/context` context menus with custom in-webview context menus.
+- Unified command handlers to an id-based signature invoked via `{type:'invokeCommand', command, args}`.
+- Extracted `HttpError`/`ensureSuccess`/`toErrorMessage` into `providerClientErrors.ts`, eliminating the circular dependency and duplicate definitions between `providerClient.ts` and `providerClientModelFetchers.ts`. Unified error-response truncation length (160 → 500 via `PROVIDER_LIMITS`).
+- Replaced the broken `c8` coverage tool with Node.js native `--experimental-test-coverage`; removed `c8` from devDependencies.
+- Removed dead code: `parseProviderApiKeysStore`, `parsePersistedStateLiteStore` (stateHelpers.ts), `capabilityLabelSuffix` (modelCatalog.ts), and the entire `utils/guard.ts` module (`isString`/`isObject`/`isNumber`/`isBoolean`/`isNonEmptyArray` — 0 business usage).
+- Extracted `truncateFileContent()` static helper in `ChatController`, eliminating duplicated size/line truncation logic between document-parsing and plain-text file paths in `selectFiles`.
+- Extracted legacy SQLite migration helpers (`parseToolRounds`/`parseImages`/`mapLegacyMessageRow`) into `compassStorage/sessionStoreLegacy.ts`, decoupling them from the `CompassSessionStore` runtime state.
+- Introduced `postMessageSafely()` helper in `utils/error.ts`; replaced 10 repetitive `.then(undefined, () => {})` webview postMessage swallowers across 6 files with the explicit helper.
+- Added `console.debug` logging to 2 silent catch blocks in WebView scripts (`webviewChatScriptEvents.ts` popup positioning, `webviewChatScriptUi.ts` MCP health chip render) for debuggability without breaking defensive fallbacks.
+- Added 3 preventive ESLint rules (`switch-exhaustiveness-check`, `await-thenable`, `no-return-await`) with zero new warnings after fixing the 3 missing switch cases and 1 redundant `return await` they surfaced.
+- Added `warn()` logging to 5 silent `.catch(() => {})` file-cleanup swallowers (image deletion, snapshot rotation, writing-marker removal, disk-index re-read) for disk-issue debuggability.
+- Refactored `handleSettingsMessage` from a 571-line if-else chain (complexity 118) into a switch + 15 extracted handler functions (complexity 60). Behavior unchanged.
+- Refactored `routeChatControllerWebviewMessage` by extracting 3 complex cases (deleteSession/setSessionTempModel/selectSession) into dedicated functions, reducing complexity 64 → 50.
+- Added ESLint `complexity` (threshold 40) and `max-depth` (threshold 5) guardrail rules flagging 6 inherent-complexity hotspots as known tech-debt markers.
 
 #### Fixed
 
 - Compass storage self-heal: automatically rebuilds session index when session files are missing or orphaned, without falling back to SQLite recovery.
 - Settings center pane order now matches navigation tab order.
 - Added missing Templates entry to the settings sidebar view.
+- Fixed 7 npm audit vulnerabilities (mermaid, fast-uri, tmp, qs, uuid, brace-expansion).
+- Fixed file descriptor leak in localBackup.ts (add try/finally for fd.close()).
+- Fixed timeoutMs sanitization bug: clamp(0, 5000, 300000, fallback) returned 5000 not fallback, causing unlimited timeout to reset to 30s.
+- Fixed benchmark test no-async-promise-executor warning.
+- Fixed `persist` silently dropping concurrent updates (persistDirty flag).
+- Fixed regenerate message count off-by-one.
 
-#### Refactored
+#### Performance
 
-- Migrated all sidebar views (settings, assistants, recycle bin, sessions) from native TreeView to WebviewViewProvider for greater layout and animation flexibility.
-- Replaced native `view/item/context` context menus with custom in-webview context menus.
-- Unified command handlers to an id-based signature invoked via `{type:'invokeCommand', command, args}`.
+- Optimized deep clone with shallow access mode (90-95% allocation reduction).
+- Streaming delta push for incremental updates.
+- Lazy image loading for faster initial render.
+- Inverted search index for O(1) session content lookup.
+- WebView library lazy loading (Mermaid + KaTeX).
 
 ### 中文
 
+#### 新增
+
+- WebView 懒加载：Mermaid (~28KB) 和 KaTeX (~288KB) 仅在内容包含图表或数学公式时按需加载。
+- CI 覆盖率门禁改用 Node.js 原生 `--experimental-test-coverage`（40% 行覆盖、40% 函数覆盖、30% 分支覆盖阈值）。
+- LRUCache 工具类，用于高效内存管理。
+- 流式增量推送：发送增量更新而非完整状态，提升流式性能。
+- 懒加载图片：按需加载图片而非初始加载时全部加载。
+- 会话内容倒排搜索索引：O(n·m) → O(1) 查找。
+- 4 个架构决策记录（ADR）：Compass 存储、WebView 模板、测试运行器、分层架构。
+- 状态克隆、搜索和工具函数基准测试套件（`npm run benchmark`）。
+- `getState(deep)` 参数和 `getStateShallow()` 只读访问，减少 90-95% 内存分配。
+- BaseSidebarViewProvider 抽象基类，带 ready 握手和状态推送。
+- Webview 内自定义右键菜单组件。
+- 侧边栏视图内联搜索框组件。
+- 侧边栏视图树形列表组件。
+
 #### 变更
 
+- **破坏性变更**：移除跨 IDE 共享存储同步功能。扩展现在仅使用默认 VS Code globalStorage。SQLite 迁移支持保留至 v0.5.0。
+- **破坏性变更**：移除备份加密功能（AES-256-GCM），简化备份流程。
 - 请求超时默认值从 300 秒改为无限制。超时设置下拉列表新增"无限制"选项。
+- ESLint 迁移到 v9 平铺配置。
+- 测试目录重组为模块化结构（unit/chat/、unit/provider/ 等）。
+- 依赖升级：zod 4.4.3、katex 0.17.0、mermaid 11.15.0、typescript 5.8.0。
+- mammoth 和 JSZip 改为动态导入，减少激活内存占用。
+- `sendMessage()` 从 417 行重构为 10 个聚焦的私有方法。
+- 29 个不安全的 `innerHTML` 赋值改为 `textContent`/DOM API。
+- 67 个空 catch 块添加 `warn()` 日志。
+- 会话消息 LRU 缓存（MAX_SESSIONS_IN_MEMORY = 50）。
+- 只读调用者改用浅克隆（减少 90-95% 内存分配）。
+- 侧边栏全部 view（设置、助手、回收站、会话）从原生 TreeView 迁移为 WebviewViewProvider。
+- 原生 `view/item/context` 右键菜单改为 Webview 内自定义右键菜单。
+- 命令 handler 统一改为 id-based 签名，通过 `{type:'invokeCommand', command, args}` 消息触发。
+- 将 `HttpError`/`ensureSuccess`/`toErrorMessage` 提取到 `providerClientErrors.ts`，消除 `providerClient.ts` 与 `providerClientModelFetchers.ts` 之间的循环依赖和重复定义；统一错误响应截断长度（160 → 500，使用 `PROVIDER_LIMITS`）。
+- 用 Node.js 原生 `--experimental-test-coverage` 替换损坏的 `c8` 覆盖率工具；从 devDependencies 移除 `c8`。
+- 清理死代码：`parseProviderApiKeysStore`、`parsePersistedStateLiteStore`（stateHelpers.ts）、`capabilityLabelSuffix`（modelCatalog.ts），以及整个 `utils/guard.ts` 模块（`isString`/`isObject`/`isNumber`/`isBoolean`/`isNonEmptyArray`，0 业务使用）。
+- 提取 `truncateFileContent()` 静态方法到 `ChatController`，消除 `selectFiles` 中文档解析与纯文本两条路径的重复截断逻辑。
+- 将遗留 SQLite 迁移辅助函数（`parseToolRounds`/`parseImages`/`mapLegacyMessageRow`）提取到 `compassStorage/sessionStoreLegacy.ts`，使其与 `CompassSessionStore` 运行时状态解耦。
+- 新增 `postMessageSafely()` 辅助函数（utils/error.ts）；将 6 个文件中 10 处重复的 `.then(undefined, () => {})` webview 投递吞错替换为该显式 helper。
+- 为 WebView 脚本中 2 处静默 catch 块添加 `console.debug` 日志（`webviewChatScriptEvents.ts` 弹窗定位、`webviewChatScriptUi.ts` MCP 健康芯片渲染），提升可调试性且不破坏防御性兜底。
+- 新增 3 条预防性 ESLint 规则（`switch-exhaustiveness-check`、`await-thenable`、`no-return-await`），修复其发现的 3 处 switch 遗漏 case 和 1 处多余 `return await` 后实现零新增告警。
+- 为 5 处静默 `.catch(() => {})` 文件清理吞错添加 `warn()` 日志（图片删除、快照轮转、写入标记清理、磁盘索引重读），便于排查磁盘问题。
+- 将 `handleSettingsMessage` 从 571 行 if-else 链（圈复杂度 118）重构为 switch + 15 个提取的处理函数（圈复杂度 60），行为完全不变。
+- 将 `routeChatControllerWebviewMessage` 的 3 个复杂 case（deleteSession/setSessionTempModel/selectSession）提取为独立函数，圈复杂度 64 → 50。
+- 新增 ESLint `complexity`（阈值 40）和 `max-depth`（阈值 5）护栏规则，标记 6 个固有复杂度热点作为已知技术债。
 
 #### 修复
 
 - Compass 存储自愈：会话文件缺失或孤立时自动重建索引，无需回退到 SQLite 恢复。
 - 设置中心面板顺序与导航标签页顺序对齐。
 - 补全设置侧边栏视图中缺失的模板入口。
+- 修复 7 个 npm 审计漏洞（mermaid、fast-uri、tmp、qs、uuid、brace-expansion）。
+- 修复 localBackup.ts 文件描述符泄漏（添加 try/finally 确保 fd.close()）。
+- 修复 timeoutMs 钳制 bug：clamp(0, 5000, 300000, fallback) 返回 5000 而非 fallback，导致无限制超时重置为 30 秒。
+- 修复 benchmark 测试 no-async-promise-executor 警告。
+- 修复 `persist` 静默丢弃并发更新（persistDirty 标志）。
+- 修复 regenerate 消息计数 off-by-one 错误。
 
-#### 重构
+#### 性能
 
-- 侧边栏全部 view（设置、助手、回收站、会话）从原生 TreeView 迁移为 WebviewViewProvider，获得更高的自定义布局/动画自由度。
-- 原生 `view/item/context` 右键菜单改为 Webview 内自定义右键菜单。
-- 命令 handler 统一改为 id-based 签名，通过 `{type:'invokeCommand', command, args}` 消息触发。
+- 优化深度克隆，添加浅访问模式（减少 90-95% 内存分配）。
+- 流式增量推送，提升流式性能。
+- 懒加载图片，加快初始渲染。
+- 倒排搜索索引，实现 O(1) 会话内容查找。
+- WebView 库懒加载（Mermaid + KaTeX）。
 
 ## [0.3.5] - 2026-05-11
 

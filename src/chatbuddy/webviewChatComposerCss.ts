@@ -21,7 +21,7 @@ export function getWebviewChatComposerCss(): string {
 
       .composer-box {
         border: 1px solid var(--input-border);
-        border-radius: 14px;
+        border-radius: var(--radius-xl);
         background: var(--input-bg);
         overflow: hidden;
       }
@@ -47,15 +47,21 @@ export function getWebviewChatComposerCss(): string {
         transform: translate(-50%, -50%);
         width: 80px;
         height: 4px;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         background: var(--border);
         pointer-events: none;
-        transition: all 0.3s ease;
+        transition: all var(--duration-slow) ease;
       }
 
       .composer-toolbar.generating::before {
-        background: linear-gradient(90deg, var(--border), var(--accent), var(--border));
+        background: linear-gradient(
+          90deg,
+          var(--accent),
+          var(--vscode-button-foreground),
+          var(--accent)
+        );
         background-size: 200% 100%;
+        box-shadow: 0 0 12px 2px var(--accent);
         animation: tb-sweep 1.4s linear infinite;
       }
 
@@ -90,7 +96,8 @@ export function getWebviewChatComposerCss(): string {
         color: var(--muted);
         cursor: pointer;
         padding: 6px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
+        transition: background var(--duration-normal) ease, color var(--duration-normal) ease;
       }
 
       .composer-toolbar .action-btn-icon:hover {
@@ -108,11 +115,13 @@ export function getWebviewChatComposerCss(): string {
         max-height: 340px;
         height: 130px;
         padding: 14px 14px 10px;
-        border: 0;
+        border: 1px solid var(--input-border);
+        border-radius: var(--radius-md);
         outline: none;
         resize: none;
         background: transparent;
         color: var(--input-fg);
+        transition: border-color var(--duration-normal) ease;
       }
 
       body.resizing,
@@ -145,9 +154,10 @@ export function getWebviewChatComposerCss(): string {
         gap: 6px;
         padding: 4px 9px;
         border: 1px solid var(--border);
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 11px;
         color: var(--muted);
+        transition: background var(--duration-normal) ease, border-color var(--duration-normal) ease;
       }
 
       .send-group {
@@ -165,7 +175,8 @@ export function getWebviewChatComposerCss(): string {
         color: var(--muted);
         cursor: pointer;
         padding: 6px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
+        transition: background var(--duration-normal) ease, color var(--duration-normal) ease;
       }
 
       .send-group .btn-icon:hover {
@@ -179,19 +190,9 @@ export function getWebviewChatComposerCss(): string {
 
       .send-group .btn-primary,
       .send-group .btn-stop {
-        border-radius: 10px;
+        border-radius: var(--radius-md);
         padding: 8px 12px;
         gap: 8px;
-      }
-
-      .send-group .btn-stop {
-        border-color: transparent;
-        background: #be1100;
-        color: #fff;
-      }
-
-      .send-group .btn-stop:hover {
-        background: #991a0a;
       }
 
       .toggle {
@@ -220,7 +221,7 @@ export function getWebviewChatComposerCss(): string {
         max-width: 320px;
         flex-shrink: 1;
         border: 1px solid var(--input-border);
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         background: var(--input-bg);
         color: var(--input-fg);
         padding: 4px 8px;
@@ -240,6 +241,9 @@ export function getWebviewChatComposerCss(): string {
         gap: 4px;
         font-size: 11px;
         cursor: default;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-pill);
+        padding: 1px 8px;
       }
 
       .mcp-health-chip.visible {
@@ -247,15 +251,18 @@ export function getWebviewChatComposerCss(): string {
       }
 
       .mcp-health-chip.status-ok {
-        color: var(--vscode-testing-iconPassed, #16a34a);
+        border-color: color-mix(in srgb, var(--color-success) 50%, var(--border) 50%);
+        color: var(--color-success);
       }
 
       .mcp-health-chip.status-warn {
-        color: var(--vscode-editorWarning-foreground, #facc15);
+        border-color: color-mix(in srgb, var(--color-warning) 50%, var(--border) 50%);
+        color: var(--color-warning);
       }
 
       .mcp-health-chip.status-error {
-        color: var(--vscode-errorForeground, #dc2626);
+        border-color: color-mix(in srgb, var(--color-error) 50%, var(--border) 50%);
+        color: var(--color-error);
       }
 
       .temp-params-toggle {
@@ -276,7 +283,7 @@ export function getWebviewChatComposerCss(): string {
         position: fixed;
         background: var(--bg);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         padding: 10px 12px;
         min-width: 240px;
         z-index: 9999;
@@ -291,11 +298,11 @@ export function getWebviewChatComposerCss(): string {
         align-items: center;
         justify-content: space-between;
         margin-bottom: 8px;
-        font-weight: 600;
-        font-size: 11px;
+        font-weight: 700;
+        font-size: 12px;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--fg);
+        letter-spacing: 0.08em;
+        color: var(--muted);
       }
 
       .temp-params-popup-body {
@@ -324,12 +331,12 @@ export function getWebviewChatComposerCss(): string {
         font-size: 12px;
         background: var(--input-bg);
         color: var(--input-fg);
-        border: 1px solid var(--border);
-        border-radius: 3px;
+        border: 1px solid var(--input-border);
+        border-radius: var(--radius-md);
         outline: none;
       }
       .temp-params-field input:focus {
-        border-color: var(--focus-border);
+        border-color: var(--accent);
       }
 
       .image-preview-bar {
@@ -354,7 +361,7 @@ export function getWebviewChatComposerCss(): string {
         width: 60px;
         height: 60px;
         object-fit: cover;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         border: 1px solid var(--border);
       }
 
@@ -364,7 +371,7 @@ export function getWebviewChatComposerCss(): string {
         right: -4px;
         width: 18px;
         height: 18px;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         border: none;
         background: var(--fg);
         color: var(--bg);
@@ -396,7 +403,7 @@ export function getWebviewChatComposerCss(): string {
         align-items: center;
         gap: 8px;
         padding: 4px 10px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         background: color-mix(in srgb, var(--input-bg) 92%, var(--fg) 8%);
         border: 1px solid var(--border);
         font-size: 12px;
@@ -414,7 +421,7 @@ export function getWebviewChatComposerCss(): string {
         flex-shrink: 0;
         width: 18px;
         height: 18px;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         border: none;
         background: var(--fg);
         color: var(--bg);

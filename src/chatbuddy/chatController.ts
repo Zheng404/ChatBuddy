@@ -40,7 +40,7 @@ import {
   WebviewInboundMessage,
   WebviewOutboundMessage
 } from './types';
-import { getLocaleFromSettings, warn } from './utils';
+import { getLocaleFromSettings, postMessageSafely, safeSetContext, warn } from './utils';
 import { STREAM_STATE_POST_INTERVAL_MS, STREAM_FULL_STATE_POST_INTERVAL_MS } from './streamAccumulator';
 import { ChatStateCache } from './chatControllerStateCache';
 import {
@@ -133,7 +133,7 @@ export class ChatController {
         // Either service can independently end generation (tool result processing vs. stream completion),
         // so both paths need to clear the flag.
         this._isGenerating = generating;
-        void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
+        safeSetContext('chatBuddyIsGenerating', generating);
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -158,7 +158,7 @@ export class ChatController {
       // Intentional duplicate: see comment above in toolOrchestrator setIsGenerating.
       setIsGenerating: (generating) => {
         this._isGenerating = generating;
-        void vscode.commands.executeCommand('setContext', 'chatBuddyIsGenerating', generating);
+        safeSetContext('chatBuddyIsGenerating', generating);
       },
       getAbortController: () => this.abortController,
       setAbortController: (controller) => {
@@ -458,7 +458,7 @@ export class ChatController {
         repository: this.repository,
         getLocale: () => this.getLocale(),
         hasPendingToolContinuation: Boolean(this.pendingToolContinuation),
-        isGenerating: this._isGenerating,
+        isGenerating: () => this._isGenerating,
         handleReady: (targetContext) => this.handlePanelReady(targetContext),
         postError: (errorMessage, targetContext) => this.postError(errorMessage, targetContext),
         postState: (errorMessage, targetContext) => this.postState(errorMessage, targetContext),
@@ -469,12 +469,12 @@ export class ChatController {
         setStreamingEnabled: (enabled) => {
           this.streamingEnabled = enabled;
         },
-        regenerateReply: (targetContext) => this.regenerateReply(targetContext),
-        regenerateFromMessage: (messageId, targetContext) => this.regenerateFromMessage(messageId, targetContext),
+        regenerateReply: (targetContext, confirmed) => this.regenerateReply(targetContext, confirmed),
+        regenerateFromMessage: (messageId, targetContext, confirmed) => this.regenerateFromMessage(messageId, targetContext, confirmed),
         copyMessage: (messageId) => this.copyMessage(messageId),
-        deleteMessage: (messageId) => this.deleteMessage(messageId),
+        deleteMessage: (messageId, confirmed) => this.deleteMessage(messageId, confirmed),
         editMessage: (messageId, newContent, regenerate) => this.editMessage(messageId, newContent, regenerate),
-        clearSession: () => this.clearSession(),
+        clearSession: (confirmed) => this.clearSession(confirmed),
         sendMessage: (content, images, files, targetContext) => this.sendMessage(content, images, files, targetContext),
         selectFiles: (targetContext) => this.selectFiles(targetContext),
         selectImages: (targetContext) => this.selectImages(targetContext),
@@ -552,7 +552,9 @@ export class ChatController {
 
   private postMessage(message: WebviewOutboundMessage, context?: PanelMessageContext): void {
     const targetPanel = context?.panel ?? this.panelManager.getActivePanel();
-    void targetPanel?.webview.postMessage(message).then(undefined, () => {});
+    if (targetPanel) {
+      postMessageSafely(targetPanel.webview.postMessage(message));
+    }
   }
 
   private postError(message: string, context?: PanelMessageContext): void {
@@ -562,12 +564,21 @@ export class ChatController {
   private postStreamDelta(content: string, reasoning: string | undefined, context?: PanelMessageContext): void {
     const targetPanel = this.getStateTargetPanel(context);
     if (!targetPanel) { return; }
-    const assistant = this.repository.getSelectedAssistant();
-    const session = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
+    // 多面板模式下，优先使用生成上下文中绑定的 sessionId 定位目标消息，
+    // 避免切换面板触发 setSelectedAssistant 后 stream delta 定位到错误会话（Bug 1）
+    const boundSessionId = context?.sessionId;
+    let session: ReturnType<ChatStateRepository['getSelectedSession']>;
+    if (boundSessionId) {
+      session = this.repository.getSessionById(boundSessionId);
+    } else {
+      const assistant = this.repository.getSelectedAssistant();
+      session = assistant ? this.repository.getSelectedSession(assistant.id) : undefined;
+    }
     const lastMessage = session?.messages?.[session.messages.length - 1];
     if (!lastMessage || lastMessage.role !== 'assistant') { return; }
 
-    targetPanel.webview.postMessage({
+    // postMessage may reject when the panel is disposed mid-stream; safe to ignore
+    postMessageSafely(targetPanel.webview.postMessage({
       type: 'streamDelta',
       payload: {
         messageId: lastMessage.id,
@@ -575,7 +586,7 @@ export class ChatController {
         reasoning,
         modelLabel: lastMessage.model || ''
       }
-    });
+    }));
   }
 
   private resolveEffectiveProviderConfig(settings: ChatBuddySettings, assistant: AssistantProfile, sessionId?: string) {
@@ -702,30 +713,31 @@ export class ChatController {
   /**
    * 重新生成当前会话的最后一条助手回复。
    * @param context - 可选的面板消息上下文
+   * @param confirmed - 前端 webview 是否已确认（A 类）。命令面板路径不传，保留 Host 端确认（B 类）
    * @returns Promise，生成完成后 resolve
    */
-  public async regenerateReply(context?: PanelMessageContext): Promise<void> {
-    await this.generationService.regenerateReply(context);
+  public async regenerateReply(context?: PanelMessageContext, confirmed?: boolean): Promise<void> {
+    await this.generationService.regenerateReply(context, confirmed);
   }
 
-  private async regenerateFromMessage(messageId: string, context?: PanelMessageContext): Promise<void> {
-    await this.generationService.regenerateFromMessage(messageId, context);
+  private async regenerateFromMessage(messageId: string, context?: PanelMessageContext, confirmed?: boolean): Promise<void> {
+    await this.generationService.regenerateFromMessage(messageId, context, confirmed);
   }
 
   private async copyMessage(messageId: string): Promise<void> {
     await this.generationService.copyMessage(messageId);
   }
 
-  private async deleteMessage(messageId: string): Promise<void> {
-    await this.generationService.deleteMessage(messageId);
+  private async deleteMessage(messageId: string, confirmed?: boolean): Promise<void> {
+    await this.generationService.deleteMessage(messageId, confirmed);
   }
 
   private async editMessage(messageId: string, newContent: string, regenerate?: boolean): Promise<void> {
     await this.generationService.editMessage(messageId, newContent, regenerate);
   }
 
-  private async clearSession(): Promise<void> {
-    await this.generationService.clearSession();
+  private async clearSession(confirmed?: boolean): Promise<void> {
+    await this.generationService.clearSession(confirmed);
   }
 
   private async confirmDangerousAction(message: string, actionLabel: string): Promise<boolean> {
@@ -741,6 +753,22 @@ export class ChatController {
 
   private static readonly DOCUMENT_EXTENSIONS = new Set(['pdf', 'docx', 'pptx']);
   private static readonly MAX_PPTX_SLIDES = 100;
+  /**
+   * 图片大小上限（20 MB）。
+   * 与主流多模态 Provider（OpenAI / Gemini / Anthropic）的图片上传上限基本对齐，
+   * 防止把超大图片直接转 base64 灌入上下文，造成 token 溢出或请求超时。
+   */
+  private static readonly MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
+
+  /** 将字节数格式化为人类可读的字符串（如 20 MB、1 KB）。 */
+  private static formatBytes(bytes: number): string {
+    if (bytes <= 0) { return '0 B'; }
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, exponent);
+    const rounded = exponent === 0 ? value.toFixed(0) : value.toFixed(0);
+    return `${rounded} ${units[exponent]}`;
+  }
 
   /** Check if file content appears to be binary by scanning for NULL bytes. */
   private static isBinaryContent(bytes: Uint8Array): boolean {
@@ -840,6 +868,30 @@ export class ChatController {
     return undefined;
   }
 
+  /**
+   * Truncate file content when it exceeds size or line limits.
+   * Shared by document-parsing and plain-text file paths in selectFiles.
+   */
+  private static truncateFileContent(
+    content: string,
+    maxSize: number,
+    maxLines: number,
+    name: string,
+    strings: ReturnType<typeof getStrings>
+  ): string {
+    if (content.length <= maxSize) {
+      return content;
+    }
+    const truncationHint = strings.fileTooLarge
+      ? strings.fileTooLarge.replace(/{name}/g, name)
+      : 'truncated';
+    const lines = content.split('\n');
+    if (lines.length > maxLines) {
+      return lines.slice(0, maxLines).join('\n') + '\n// ... (' + truncationHint + ')';
+    }
+    return content.substring(0, maxSize) + '\n// ... (' + truncationHint + ')';
+  }
+
   private async selectFiles(context?: PanelMessageContext): Promise<void> {
     const locale = this.getLocale();
     const strings = getStrings(locale);
@@ -882,6 +934,13 @@ export class ChatController {
           // Image files → base64 image channel
           if (ChatController.IMAGE_EXTENSIONS.has(ext)) {
             const mimeType = ChatController.IMAGE_MIME_MAP[ext] || 'image/png';
+            if (raw.byteLength > ChatController.MAX_IMAGE_SIZE_BYTES) {
+              const msg = (strings.imageTooLarge || 'Image too large: {name}')
+                .replace('{name}', name)
+                .replace('{size}', ChatController.formatBytes(ChatController.MAX_IMAGE_SIZE_BYTES));
+              this.postMessage({ type: 'toast', message: msg, tone: 'error' }, context);
+              continue;
+            }
             const base64 = Buffer.from(raw).toString('base64');
             images.push({ base64, mimeType });
             continue;
@@ -891,19 +950,14 @@ export class ChatController {
           if (ChatController.DOCUMENT_EXTENSIONS.has(ext)) {
             const parsed = await ChatController.parseDocumentContent(ext, Buffer.from(raw), name);
             if (parsed !== undefined) {
-              let finalContent = parsed;
-              if (parsed.length > maxSize) {
-                const lines = parsed.split('\n');
-                if (lines.length > maxLines) {
-                  finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
-                } else {
-                  finalContent = parsed.substring(0, maxSize) + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
-                }
-              }
-              files.push({ name, content: finalContent });
+              files.push({ name, content: ChatController.truncateFileContent(parsed, maxSize, maxLines, name, strings) });
               continue;
             }
-            // Parsing failed → fall through to binary rejection
+            // 解析失败时给出准确提示，避免 fallthrough 到「不支持二进制文件」误导用户
+            const msg = (strings.documentParseFailed || 'Failed to parse document: {name}')
+              .replace('{name}', name);
+            this.postMessage({ type: 'toast', message: msg, tone: 'error' }, context);
+            continue;
           }
 
           // Binary files → reject with toast
@@ -916,16 +970,7 @@ export class ChatController {
 
           // Text files → read as UTF-8 with truncation
           const content = Buffer.from(raw).toString('utf-8');
-          let finalContent = content;
-          if (content.length > maxSize) {
-            const lines = content.split('\n');
-            if (lines.length > maxLines) {
-              finalContent = lines.slice(0, maxLines).join('\n') + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
-            } else {
-              finalContent = content.substring(0, maxSize) + '\n// ... (' + (strings.fileTooLarge ? strings.fileTooLarge.replace(/{name}/g, name) : 'truncated') + ')';
-            }
-          }
-          files.push({ name, content: finalContent });
+          files.push({ name, content: ChatController.truncateFileContent(content, maxSize, maxLines, name, strings) });
         } catch (err) {
           warn('Error reading selected file:', err);
         }
@@ -942,6 +987,8 @@ export class ChatController {
   }
 
   private async selectImages(context?: PanelMessageContext): Promise<void> {
+    const locale = this.getLocale();
+    const strings = getStrings(locale);
     const assistant = this.repository.getSelectedAssistant();
     if (!assistant || assistant.isDeleted) {
       return;
@@ -963,6 +1010,14 @@ export class ChatController {
       for (const uri of uris) {
         try {
           const raw = await vscode.workspace.fs.readFile(uri);
+          const name = uri.path.split('/').pop() || uri.path;
+          if (raw.byteLength > ChatController.MAX_IMAGE_SIZE_BYTES) {
+            const msg = (strings.imageTooLarge || 'Image too large: {name}')
+              .replace('{name}', name)
+              .replace('{size}', ChatController.formatBytes(ChatController.MAX_IMAGE_SIZE_BYTES));
+            this.postMessage({ type: 'toast', message: msg, tone: 'error' }, context);
+            continue;
+          }
           const ext = uri.path.split('.').pop()?.toLowerCase() || '';
           const mimeType = ChatController.IMAGE_MIME_MAP[ext] || 'image/png';
           const base64 = Buffer.from(raw).toString('base64');

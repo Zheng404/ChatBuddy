@@ -199,13 +199,13 @@ export function getAssistantEditorHtmlBody(): string {
       </div>
 
     </div>
-    <div class="raw-modal-overlay" id="saveAsTemplateOverlay">
-      <div class="raw-modal" style="width:min(520px,90%);max-height:none;">
-        <div class="raw-modal-header">
-          <span class="raw-modal-title" id="saveAsTemplateTitle"></span>
-          <button class="raw-modal-close" id="saveAsTemplateClose" type="button"><span class="codicon codicon-close"></span></button>
+    <div class="modal-backdrop" id="saveAsTemplateOverlay">
+      <div class="modal-card">
+        <div class="modal-header">
+          <span class="modal-title" id="saveAsTemplateTitle"></span>
+          <button class="modal-close" id="saveAsTemplateClose" type="button"><span class="codicon codicon-close"></span></button>
         </div>
-        <div class="raw-modal-body">
+        <div class="modal-body">
           <div class="save-template-field">
             <label for="saveAsTemplateName" id="saveAsTemplateNameLabel"></label>
             <input type="text" id="saveAsTemplateName" />
@@ -582,7 +582,9 @@ ${getHtmlEscaperScript()}
         state = message.payload;
         renderAll();
         if (state.notice) {
-          const tone = state.notice === state.strings.assistantSaved ? 'success' : 'error';
+          // tone 由 Host 端依据操作结果显式传递，避免前端通过字符串比较误判
+          // （例如 templateSaved 不等于 assistantSaved 被误判为 error）。
+          var tone = state.noticeTone === 'error' ? 'error' : 'success';
           if (state.notice !== lastToastNotice) {
             showToast(state.notice, tone);
           }

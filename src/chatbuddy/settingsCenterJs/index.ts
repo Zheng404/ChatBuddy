@@ -17,13 +17,15 @@ import { getAboutJs } from './about';
 import { getStateSyncJs } from './stateSync';
 import { getMessageHandlerJs } from './messageHandler';
 import { getEventListenersJs } from './eventListeners';
+import { getDangerModalScript } from '../webviewShared';
 
 /**
  * Composes all JS fragments into a single webview script block.
- * Order matters: shared vars → utils → modelConfig state/actions → sections → renderers → modals → state → handlers → events → ready signal.
+ * Order matters: dangerModal → shared vars → utils → modelConfig state/actions → sections → renderers → modals → state → handlers → events → ready signal.
  */
 export function getSettingsCenterJs(toastScript: string, defaultTitleSummaryPrompt: string): string {
   return [
+    getDangerModalScript(),
     getSharedJs(),
     getSharedUtilsJs(toastScript),
     getModelConfigStateJs(),

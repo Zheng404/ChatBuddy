@@ -132,14 +132,7 @@ export function registerAssistantTreeCommands(ctx: ExtensionContext): vscode.Dis
         void vscode.window.showWarningMessage(strings().groupDeleteBlocked);
         return;
       }
-      const group = repository.getGroups().find((g) => g.id === groupId);
-      const groupName = group?.name ?? groupId;
-      const confirm = await vscode.window.showWarningMessage(
-        formatString(strings().confirmDeleteGroup, { name: groupName }),
-        { modal: true },
-        strings().deleteAction
-      );
-      if (confirm !== strings().deleteAction) { return; }
+      // 前端 webview 已通过 Danger Modal 确认（A 类：侧边栏右键触发）
       repository.deleteGroup(groupId);
       refreshAll();
     })

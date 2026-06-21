@@ -217,6 +217,11 @@ export function getSettingsCenterMcpCss(): string {
         padding: 12px 12px 12px 36px;
         font-size: 12px;
         color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        background: color-mix(in srgb, var(--bg) 96%, white 4%);
+        text-align: center;
+        margin: 4px 0;
       }
 
       .mcp-server-in-group {

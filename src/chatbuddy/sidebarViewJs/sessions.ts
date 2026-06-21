@@ -51,7 +51,12 @@ export function getSessionsScript(): string {
     return [aid, s.id];
   }
 
-  /** 根据节点 contextValue 构造右键菜单项 */
+  /**
+   * 根据节点 contextValue 构造右键菜单项。
+   *
+   * 危险操作（deleteSession）携带 confirm 字段，由 contextMenu 组件在点击前
+   * 先弹 Danger Modal 确认（A 类：webview 内触发）。
+   */
   function getMenuItems(node) {
     var items = [];
     var s = (lastState && lastState.strings) || {};
@@ -61,7 +66,17 @@ export function getSessionsScript(): string {
 
     items.push({ label: s.rename || 'Rename', icon: 'edit', command: 'chatbuddy.renameSession', args: buildSessionArgs(session) });
     items.push({ separator: true });
-    items.push({ label: s.delete || 'Delete', icon: 'trash', command: 'chatbuddy.deleteSession', args: buildSessionArgs(session) });
+    items.push({
+      label: s.delete || 'Delete',
+      icon: 'trash',
+      command: 'chatbuddy.deleteSession',
+      args: buildSessionArgs(session),
+      confirm: {
+        message: (s.confirmDeleteSession || 'Delete session "{title}"?').replace('{title}', session.title || ''),
+        actionLabel: s.deleteAction || 'Delete',
+        cancelLabel: s.cancelAction || 'Cancel'
+      }
+    });
     items.push({ label: s.exportSessionAction || 'Export Session', icon: 'export', command: 'chatbuddy.exportSession', args: buildSessionArgs(session) });
     return items;
   }
@@ -106,6 +121,8 @@ export function getSessionsScript(): string {
 
     sb.renderTreeList(listEl, groups, items, {
       minRows: state.minRows || 0,
+      emptyText: (state.strings && state.strings.sessionsEmpty) || 'No sessions yet',
+      emptyIcon: 'comment-discussion',
       onLeafClick: function (id) {
         // openSessionChat 接受 (assistantId, sessionId)
         var aid = state.selectedAssistant ? state.selectedAssistant.id : '';

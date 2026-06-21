@@ -54,19 +54,12 @@ export function getAssistantsScript(): string {
     return null;
   }
 
-  /** 构造助手命令参数（{ kind:'assistant', assistant:{id,name} }） */
-  function buildAssistantArgs(a) {
-    return [{ kind: 'assistant', assistant: { id: a.id, name: a.name } }];
-  }
-
-  /** 构造分组命令参数（{ kind:'group', group:{id,name,createdAt,updatedAt} }） */
-  function buildGroupArgs(g) {
-    return [{ kind: 'group', group: { id: g.id, name: g.name, createdAt: g.createdAt, updatedAt: g.updatedAt } }];
-  }
-
   /**
    * 根据节点 contextValue 构造右键菜单项。
    * node: { kind:'item'|'group', id, contextValue }
+   *
+   * 危险操作（softDelete / hardDelete / deleteGroup）携带 confirm 字段，
+   * 由 contextMenu 组件在点击前先弹 Danger Modal 确认（A 类：webview 内触发）。
    */
   function getMenuItems(node) {
     var items = [];
@@ -76,29 +69,69 @@ export function getAssistantsScript(): string {
       var a = findAssistant(node.id);
       if (!a) { return items; }
       if (a.contextValue === 'chatbuddy.assistant.deleted') {
-        items.push({ label: s.restoreAssistant || 'Restore', icon: 'history', command: 'chatbuddy.restoreAssistant', args: buildAssistantArgs(a) });
+        items.push({ label: s.restoreAssistant || 'Restore', icon: 'history', command: 'chatbuddy.restoreAssistant', args: [a.id] });
         items.push({ separator: true });
-        items.push({ label: s.hardDeleteAssistant || 'Delete Permanently', icon: 'trash', command: 'chatbuddy.hardDeleteAssistant', args: buildAssistantArgs(a) });
+        items.push({
+          label: s.hardDeleteAssistant || 'Delete Permanently',
+          icon: 'trash',
+          command: 'chatbuddy.hardDeleteAssistant',
+          args: [a.id],
+          confirm: {
+            message: (s.confirmHardDeleteAssistant || 'Delete "{name}" permanently?').replace('{name}', a.name || a.id),
+            actionLabel: s.hardDeleteAction || 'Delete',
+            cancelLabel: s.cancelAction || 'Cancel'
+          }
+        });
       } else if (a.contextValue === 'chatbuddy.assistant.pinned') {
-        items.push({ label: s.unpinAssistant || 'Unpin', icon: 'pinned', command: 'chatbuddy.unpinAssistant', args: buildAssistantArgs(a) });
-        items.push({ label: s.editAssistant || 'Edit', icon: 'edit', command: 'chatbuddy.editAssistant', args: buildAssistantArgs(a) });
+        items.push({ label: s.unpinAssistant || 'Unpin', icon: 'pinned', command: 'chatbuddy.unpinAssistant', args: [a.id] });
+        items.push({ label: s.editAssistant || 'Edit', icon: 'edit', command: 'chatbuddy.editAssistant', args: [a.id] });
         items.push({ separator: true });
-        items.push({ label: s.deleteAssistant || 'Delete', icon: 'trash', command: 'chatbuddy.softDeleteAssistant', args: buildAssistantArgs(a) });
+        items.push({
+          label: s.deleteAssistant || 'Delete',
+          icon: 'trash',
+          command: 'chatbuddy.softDeleteAssistant',
+          args: [a.id],
+          confirm: {
+            message: (s.confirmDeleteAssistant || 'Delete "{name}"?').replace('{name}', a.name || a.id),
+            actionLabel: s.deleteAction || 'Delete',
+            cancelLabel: s.cancelAction || 'Cancel'
+          }
+        });
       } else {
         // active
-        items.push({ label: s.pinAssistant || 'Pin', icon: 'pin', command: 'chatbuddy.pinAssistant', args: buildAssistantArgs(a) });
-        items.push({ label: s.editAssistant || 'Edit', icon: 'edit', command: 'chatbuddy.editAssistant', args: buildAssistantArgs(a) });
+        items.push({ label: s.pinAssistant || 'Pin', icon: 'pin', command: 'chatbuddy.pinAssistant', args: [a.id] });
+        items.push({ label: s.editAssistant || 'Edit', icon: 'edit', command: 'chatbuddy.editAssistant', args: [a.id] });
         items.push({ separator: true });
-        items.push({ label: s.deleteAssistant || 'Delete', icon: 'trash', command: 'chatbuddy.softDeleteAssistant', args: buildAssistantArgs(a) });
+        items.push({
+          label: s.deleteAssistant || 'Delete',
+          icon: 'trash',
+          command: 'chatbuddy.softDeleteAssistant',
+          args: [a.id],
+          confirm: {
+            message: (s.confirmDeleteAssistant || 'Delete "{name}"?').replace('{name}', a.name || a.id),
+            actionLabel: s.deleteAction || 'Delete',
+            cancelLabel: s.cancelAction || 'Cancel'
+          }
+        });
       }
     } else if (node.kind === 'group') {
       var g = findGroup(node.id);
       if (!g) { return items; }
-      items.push({ label: s.rename || 'Rename', icon: 'edit', command: 'chatbuddy.renameGroup', args: buildGroupArgs(g) });
+      items.push({ label: s.rename || 'Rename', icon: 'edit', command: 'chatbuddy.renameGroup', args: [g.id] });
       // 默认分组（系统分组）不可删除
       if (g.contextValue === 'chatbuddy.group.custom') {
         items.push({ separator: true });
-        items.push({ label: s.delete || 'Delete', icon: 'trash', command: 'chatbuddy.deleteGroup', args: buildGroupArgs(g) });
+        items.push({
+          label: s.delete || 'Delete',
+          icon: 'trash',
+          command: 'chatbuddy.deleteGroup',
+          args: [g.id],
+          confirm: {
+            message: (s.confirmDeleteGroup || 'Delete group "{name}"?').replace('{name}', g.displayName || g.name || g.id),
+            actionLabel: s.deleteAction || 'Delete',
+            cancelLabel: s.cancelAction || 'Cancel'
+          }
+        });
       }
     }
     return items;
@@ -151,6 +184,8 @@ export function getAssistantsScript(): string {
 
     sb.renderTreeList(listEl, groups, items, {
       minRows: state.mode === 'recycle' ? (state.minRecycleRows || 4) : 0,
+      emptyText: (state.strings && state.strings.sidebarEmpty) || 'No assistants in this group',
+      emptyIcon: 'account',
       onLeafClick: function (id) {
         // openAssistantChat 接受 string id
         sb.post({ type: 'invokeCommand', command: 'chatbuddy.openAssistantChat', args: [id] });

@@ -39,6 +39,13 @@ export type GenerationAbortReason = 'manual' | 'timeout';
 export type ToolOrchestratorPanelContext = {
   panel: vscode.WebviewPanel;
   assistantId?: string;
+  /**
+   * 生成开始时绑定的目标会话 ID。
+   *
+   * 多面板模式下，切换面板会触发 `setSelectedAssistant`，导致 repository 当前选中会话变化。
+   * 若不绑定，stream delta 会定位到切换后选中会话的末尾消息，而非实际生成目标（Bug 1）。
+   */
+  sessionId?: string;
 };
 
 export type BuiltProviderTools = {
@@ -204,6 +211,36 @@ export class ToolCallOrchestrator {
       return mergeReasoningParts(providerResult.reasoning, split.reasoning) || '';
     };
 
+    // Bug 1: 为每次 provider 模型请求设置独立请求超时。
+    // 工具执行耗时不再挤占模型响应的超时预算（原 continuePendingToolCalls 全局超时会在
+    // 工具轮次执行过程中提前触发 abort）。此处只覆盖单次 providerClient.chat，
+    // 最终流式响应由 streamFinalResponse 的 FINAL_STREAM_TIMEOUT_MS 保护。
+    const chatNextRound = async (): Promise<ProviderChatResult> => {
+      let chatTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      if (pending.providerConfig.timeoutMs > 0) {
+        chatTimeoutHandle = setTimeout(() => {
+          this.deps.setAbortReason('timeout');
+          this.deps.getAbortController()?.abort();
+        }, pending.providerConfig.timeoutMs);
+      }
+      try {
+        return await this.deps.providerClient.chat(
+          pending.providerMessages,
+          pending.providerConfig,
+          pending.locale,
+          this.deps.getAbortController()?.signal,
+          {
+            tools: pending.providerTools.tools,
+            toolRounds: pending.toolRounds
+          }
+        );
+      } finally {
+        if (chatTimeoutHandle) {
+          clearTimeout(chatTimeoutHandle);
+        }
+      }
+    };
+
     while ((result.toolCalls?.length ?? 0) > 0) {
       if (roundCount >= maxRounds) {
         pending.result = result;
@@ -229,7 +266,8 @@ export class ToolCallOrchestrator {
         pending.settings,
         pending.assistant,
         toolCalls,
-        pending.providerTools.localToolNames
+        pending.providerTools.localToolNames,
+        this.deps.getAbortController()?.signal
       );
       if (results.length === 0) {
         break;
@@ -264,16 +302,7 @@ export class ToolCallOrchestrator {
       );
       this.deps.postState(undefined, targetContext);
 
-      result = await this.deps.providerClient.chat(
-        pending.providerMessages,
-        pending.providerConfig,
-        pending.locale,
-        this.deps.getAbortController()?.signal,
-        {
-          tools: pending.providerTools.tools,
-          toolRounds: pending.toolRounds
-        }
-      );
+      result = await chatNextRound();
       pending.result = result;
     }
 
@@ -315,16 +344,17 @@ export class ToolCallOrchestrator {
     this.deps.setIsGenerating(true);
     this.deps.setAbortController(new AbortController());
     this.deps.setAbortReason(undefined);
-    const timeoutHandle = pending.providerConfig.timeoutMs > 0
-      ? setTimeout(() => {
-          this.deps.stopGeneration('timeout');
-        }, pending.providerConfig.timeoutMs)
-      : undefined;
+    // Bug 1: 不再在工具轮次开始前设置全局超时。
+    // 原实现会将工具执行耗时计入模型响应的超时预算，导致后续 providerClient.chat 误触发 abort。
+    // 现拆分为各阶段独立超时：
+    // - 工具执行：MCP server.timeoutMs + AbortSignal（Bug 2）
+    // - 每次 provider 模型请求：runToolCallingBatch 内的 chatNextRound 独立超时
+    // - 最终流式响应：streamFinalResponse 的 FINAL_STREAM_TIMEOUT_MS
 
     this.deps.postState(undefined, targetContext);
 
     try {
-      await this.runToolCallingBatch(pending, targetContext, () => clearTimeout(timeoutHandle));
+      await this.runToolCallingBatch(pending, targetContext);
     } catch (error) {
       const fallback = resolveGenerationErrorMessage(error, this.deps.getAbortReason(), strings);
       this.applyProviderResultToAssistantMessage(
@@ -341,7 +371,6 @@ export class ToolCallOrchestrator {
       this.deps.postError(fallback, targetContext);
       this.deps.postState(fallback, targetContext);
     } finally {
-      clearTimeout(timeoutHandle);
       this.deps.setIsGenerating(false);
       this.deps.setAbortController(undefined);
       this.deps.setAbortReason(undefined);
@@ -388,7 +417,8 @@ export class ToolCallOrchestrator {
     settings: ChatBuddySettings,
     assistant: AssistantProfile,
     toolCalls: ProviderToolRound['toolCalls'],
-    localToolNames: Set<string>
+    localToolNames: Set<string>,
+    signal?: AbortSignal
   ): Promise<ProviderToolRound['results']> {
     const results: ProviderToolRound['results'] = [];
     for (const toolCall of toolCalls) {
@@ -396,17 +426,23 @@ export class ToolCallOrchestrator {
         continue;
       }
       try {
+        // Bug 2: 将 AbortSignal 传入工具调用链路，支持用户中断
         const output = await this.deps.mcpRuntime.callBoundTool(
           settings,
           assistant,
           toolCall.name,
-          toolCall.argumentsText
+          toolCall.argumentsText,
+          signal
         );
         results.push({
           toolCallId: toolCall.id,
           output
         });
       } catch (error) {
+        // Bug 2: 用户中断时立即向上抛出，不再继续执行后续工具调用
+        if (signal?.aborted) {
+          throw error;
+        }
         results.push({
           toolCallId: toolCall.id,
           output: toErrorMessage(error, getStrings(this.deps.getLocale()).unknownError)
@@ -431,6 +467,25 @@ export class ToolCallOrchestrator {
       modelLabel: pending.providerConfig.modelLabel,
       toolRounds: chatToolRounds,
       context
+    };
+
+    // 最终流式响应的全局完成超时（Bug 2）：
+    // attemptProviderGeneration / continuePendingToolCalls 的超时在首 token 到达或批次返回后被清除，
+    // 此处需独立的完成超时，防止服务器通过持续发送空/keep-alive SSE 事件规避 per-read 超时。
+    // 首 token 到达后仍保留，覆盖整个流式完成阶段。
+    let completionTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    if (pending.providerConfig.timeoutMs > 0) {
+      const FINAL_STREAM_TIMEOUT_MS = Math.max(pending.providerConfig.timeoutMs, 300_000);
+      completionTimeoutHandle = setTimeout(() => {
+        this.deps.setAbortReason('timeout');
+        this.deps.getAbortController()?.abort();
+      }, FINAL_STREAM_TIMEOUT_MS);
+    }
+    const clearCompletionTimeout = () => {
+      if (completionTimeoutHandle) {
+        clearTimeout(completionTimeoutHandle);
+        completionTimeoutHandle = undefined;
+      }
     };
     const flush = buildStreamFlush(acc, params, this.deps.repository, strings, (persist) => {
       if (persist) {
@@ -489,6 +544,9 @@ export class ToolCallOrchestrator {
         true
       );
       this.deps.postState(undefined, context);
+    } finally {
+      // 无论流式成功结束还是异常中断，都清除完成超时（Bug 2）
+      clearCompletionTimeout();
     }
   }
 }

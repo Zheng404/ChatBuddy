@@ -43,22 +43,9 @@ export function getProviderEditorJs(): string {
         if (!provider) {
           return;
         }
-        provider.enabled = target.checked;
-        if (persistedProvidersById[provider.id]) {
-          persistedProvidersById[provider.id].enabled = provider.enabled;
-          reconcileProviderDirty(provider.id);
-          vscode.postMessage({
-            type: 'toggleProviderEnabled',
-            payload: {
-              providerId: provider.id,
-              enabled: provider.enabled
-            }
-          });
-        } else {
-          reconcileProviderDirty(provider.id);
-          scheduleProviderAutosave(provider.id, 0);
-        }
-        renderAll();
+        void handleProviderEnabledToggle(provider, target).catch((err) => {
+          showToast((err && err.message) || String(err), 'error');
+        });
       });
 
       dom.addProviderBtn.addEventListener('click', () => {
@@ -66,25 +53,17 @@ export function getProviderEditorJs(): string {
       });
 
       dom.deleteProviderBtn.addEventListener('click', () => {
-        void deleteProvider();
+        void deleteProvider().catch((err) => {
+          showToast((err && err.message) || String(err), 'error');
+        });
       });
 
       dom.providerEnabledCheckbox.addEventListener('change', () => {
         const provider = getEditingProvider();
         if (!provider) return;
-        provider.enabled = dom.providerEnabledCheckbox.checked;
-        if (persistedProvidersById[provider.id]) {
-          persistedProvidersById[provider.id].enabled = provider.enabled;
-          reconcileProviderDirty(provider.id);
-          vscode.postMessage({
-            type: 'toggleProviderEnabled',
-            payload: { providerId: provider.id, enabled: provider.enabled }
-          });
-        } else {
-          reconcileProviderDirty(provider.id);
-          scheduleProviderAutosave(provider.id, 0);
-        }
-        renderAll();
+        void handleProviderEnabledToggle(provider, dom.providerEnabledCheckbox).catch((err) => {
+          showToast((err && err.message) || String(err), 'error');
+        });
       });
 
       dom.providerName.addEventListener('input', () => {

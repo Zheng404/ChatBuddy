@@ -36,7 +36,8 @@ export function getContextMenuScript(): string {
 
   /**
    * 显示右键菜单。
-   * items: Array<{ id?, label?, icon?, command?, args?, separator?, enabled? }>
+   * items: Array<{ id?, label?, icon?, command?, args?, separator?, enabled?, confirm? }>
+   *   - confirm: { message, actionLabel, cancelLabel? }  点击前先弹 Danger Modal 确认
    * x, y:  屏幕坐标（clientX / clientY）
    */
   function showContextMenu(items, x, y) {
@@ -70,6 +71,23 @@ export function getContextMenuScript(): string {
       if (!disabled) {
         (function (captured) {
           el.addEventListener('click', function () {
+            // 危险操作先弹 Danger Modal 确认（A 类：webview 内触发）
+            if (captured.confirm && sb.openDangerModal) {
+              hideContextMenu();
+              void sb.openDangerModal({
+                message: captured.confirm.message || '',
+                actionLabel: captured.confirm.actionLabel || (captured.label || 'OK'),
+                cancelLabel: captured.confirm.cancelLabel || ''
+              }).then(function (ok) {
+                if (!ok) { return; }
+                sb.post({
+                  type: 'invokeCommand',
+                  command: captured.command,
+                  args: captured.args || []
+                });
+              });
+              return;
+            }
             sb.post({
               type: 'invokeCommand',
               command: captured.command,

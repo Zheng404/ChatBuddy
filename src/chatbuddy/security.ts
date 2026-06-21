@@ -46,40 +46,49 @@ export function isValidModelName(modelName: string): boolean {
 }
 
 /**
- * 限制字符串长度
- * @param input - 输入字符串
- * @param maxLength - 最大长度
- * @param suffix - 超长时的后缀（默认为 '...'）
- * @returns 限制长度后的字符串
- */
-function truncateString(input: string, maxLength: number, suffix: string = '...'): string {
-  if (!input || typeof input !== 'string') {
-    return '';
-  }
-
-  if (maxLength <= suffix.length) {
-    return input.slice(0, maxLength);
-  }
-
-  if (input.length <= maxLength) {
-    return input;
-  }
-
-  return input.slice(0, maxLength - suffix.length) + suffix;
-}
-
-/**
  * 验证并清理助手名称
  * @param name - 助手名称
  * @returns 清理后的名称
  */
 export function sanitizeAssistantName(name: string): string {
-  if (!name || typeof name !== 'string') {
+  return sanitizeFreeText(name, 100);
+}
+
+/**
+ * 验证并清理助手备注（note）。
+ *
+ * 与名称共享不可见字符过滤逻辑，但允许更长的字符上限（500），
+ * 因为 note 用于描述性文本，语义上需要比名称更宽松的容量。
+ * @param note - 助手备注
+ * @returns 清理后的备注
+ */
+export function sanitizeAssistantNote(note: string): string {
+  return sanitizeFreeText(note, 500);
+}
+
+/**
+ * 验证并清理分组名称
+ * @param name - 分组名称
+ * @returns 清理后的名称
+ */
+export function sanitizeGroupName(name: string): string {
+  return sanitizeAssistantName(name);
+}
+
+/**
+ * 自由文本清理的共享实现：去除首尾空白、限制长度，并过滤掉
+ * 各类不可见 / 控制字符（ASCII 控制字符、零宽字符、双向控制、
+ * BOM、格式字符、软连字符、Tag 字符），防止显示混乱或注入攻击。
+ */
+function sanitizeFreeText(input: string, maxLength: number): string {
+  if (!input || typeof input !== 'string') {
     return '';
   }
 
-  let sanitized = name.trim();
-  sanitized = truncateString(sanitized, 100, '');
+  let sanitized = input.trim();
+  if (sanitized.length > maxLength) {
+    sanitized = sanitized.slice(0, maxLength);
+  }
   sanitized = Array.from(sanitized)
     .filter((char) => {
       const code = char.codePointAt(0)!;
@@ -102,13 +111,4 @@ export function sanitizeAssistantName(name: string): string {
     .join('');
 
   return sanitized;
-}
-
-/**
- * 验证并清理分组名称
- * @param name - 分组名称
- * @returns 清理后的名称
- */
-export function sanitizeGroupName(name: string): string {
-  return sanitizeAssistantName(name);
 }

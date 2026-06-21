@@ -114,11 +114,14 @@ export function getModelConfigJs(): string {
           .join('');
       }
 
+      // Provider templates. Descriptions are sourced from i18n at render time
+      // (key providerTemplate<CapitalizedKey>Description) to avoid hardcoded locale strings.
+      /** @type {Record<string, {kind: string; name: string; baseUrl: string; apiType: string}>} */
       var PROVIDER_TEMPLATES = {
-        openai: { kind: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiType: 'responses', description: 'GPT-4o, o1, o3 等模型，支持结构化输出和内置工具' },
-        gemini: { kind: 'gemini', name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiType: 'gemini', description: 'Gemini Pro, Gemini Flash 等模型' },
-        openrouter: { kind: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', apiType: 'chat_completions', description: '聚合多家提供商的统一 API 网关' },
-        ollama: { kind: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', apiType: 'chat_completions', description: '本地运行开源模型，如 Llama、Mistral' }
+        openai: { kind: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiType: 'responses' },
+        gemini: { kind: 'gemini', name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiType: 'gemini' },
+        openrouter: { kind: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', apiType: 'chat_completions' },
+        ollama: { kind: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', apiType: 'chat_completions' }
       };
 `;
 }

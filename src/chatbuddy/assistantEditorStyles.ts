@@ -3,14 +3,15 @@
  *
  * 从 assistantEditorPanel 的 getHtml 方法中提取的 CSS。
  */
-import { SHARED_WEBVIEW_BASE } from './webviewBaseTheme';
+import { SHARED_WEBVIEW_BASE, BREAKPOINT_MOBILE } from './webviewBaseTheme';
 import { SHARED_FORM_STYLE } from './webviewFormTheme';
 import { SHARED_TOAST_STYLE } from './webviewShared';
+import { SHARED_MODAL_STYLE } from './webviewModalTheme';
 
 export function getAssistantEditorStyles(): string {
   return `${SHARED_WEBVIEW_BASE}
       body {
-        padding: 24px;
+        padding: 18px;
       }
 
       .shell {
@@ -23,7 +24,7 @@ export function getAssistantEditorStyles(): string {
         align-items: flex-start;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 20px;
+        margin-bottom: 16px;
       }
 
       .hero-title {
@@ -48,7 +49,7 @@ export function getAssistantEditorStyles(): string {
 
       .section {
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: var(--radius-xl);
         padding: 16px;
       }
 
@@ -90,7 +91,7 @@ export function getAssistantEditorStyles(): string {
         flex: 1;
         min-width: 0;
         border: 1px solid var(--input-border);
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         padding: 8px 10px;
         background: var(--input-bg);
         display: inline-flex;
@@ -170,7 +171,7 @@ export function getAssistantEditorStyles(): string {
         max-height: 200px;
         overflow-y: auto;
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         padding: 8px;
       }
 
@@ -214,6 +215,7 @@ export function getAssistantEditorStyles(): string {
         color: inherit;
         font: inherit;
         text-align: left;
+        transition: background var(--duration-normal) ease;
       }
 
       .collapsible-header .section-title {
@@ -223,7 +225,7 @@ export function getAssistantEditorStyles(): string {
       .collapsible-icon {
         font-size: 14px;
         color: var(--muted);
-        transition: transform 0.15s ease;
+        transition: transform var(--duration-normal) ease;
       }
 
       .collapsible-header.collapsed .collapsible-icon {
@@ -233,7 +235,7 @@ export function getAssistantEditorStyles(): string {
       .collapsible-body {
         max-height: 0;
         overflow: hidden;
-        transition: max-height 0.25s ease;
+        transition: max-height var(--duration-slow) ease;
       }
 
       .collapsible-body.open {
@@ -246,10 +248,10 @@ export function getAssistantEditorStyles(): string {
 
       .sub-section-label {
         font-size: 12px;
-        font-weight: 600;
+        font-weight: 700;
         color: var(--muted);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.08em;
         margin-top: 8px;
       }
 
@@ -260,25 +262,18 @@ export function getAssistantEditorStyles(): string {
         flex-shrink: 0;
       }
 
-      .raw-modal-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:1000 }
-      .raw-modal-overlay.visible { display:flex }
-      .raw-modal { width:min(520px,90%);max-height:none;border:1px solid var(--border);border-radius:12px;background:var(--bg);display:flex;flex-direction:column;overflow:hidden }
-      .raw-modal-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border) }
-      .raw-modal-title { font-weight:600; font-size:14px }
-      .raw-modal-close { display:flex; align-items:center; justify-content:center; border:none; background:transparent; color:var(--muted); cursor:pointer; width:28px; height:28px; border-radius:4px }
-      .raw-modal-close:hover { background:var(--hover-bg) }
-      .raw-modal-body { padding:16px; overflow-y:auto; flex:1; min-height:0 }
-      .confirm-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px }
+${SHARED_MODAL_STYLE}
+
       .save-template-field { display:flex; flex-direction:column; gap:4px; margin-bottom:12px }
       .save-template-field label { font-size:12px; color:var(--muted); font-weight:500 }
-      .save-template-field input, .save-template-field textarea { padding:6px 8px; border:1px solid var(--border); border-radius:4px; background:var(--input-bg); color:var(--fg); font-family:inherit; font-size:13px; resize:vertical }
+      .save-template-field input, .save-template-field textarea { padding:9px 10px; border:1px solid var(--input-border); border-radius:var(--radius-md); background:var(--input-bg); color:var(--input-fg); font-family:inherit; font-size:13px; resize:vertical }
       .save-template-preview { margin-bottom:8px }
       .save-template-preview > div { font-size:12px; color:var(--muted); margin-bottom:4px }
-      .save-template-preview pre { margin:0; padding:8px 10px; border:1px solid var(--border); border-radius:4px; background:var(--input-bg); color:var(--muted); font-size:12px; max-height:160px; overflow:auto; white-space:pre-wrap; word-break:break-word }
+      .save-template-preview pre { margin:0; padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--input-bg); color:var(--muted); font-size:12px; max-height:160px; overflow:auto; white-space:pre-wrap; word-break:break-word }
 
 ${SHARED_TOAST_STYLE}
 
-      @media (max-width: 760px) {
+      @media (max-width: ${BREAKPOINT_MOBILE}px) {
         body {
           padding: 16px;
         }

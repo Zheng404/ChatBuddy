@@ -8,16 +8,44 @@ export function getDataManagementJs(): string {
         vscode.postMessage({ type: 'exportData' });
       });
 
-      dom.importBtn.addEventListener('click', () => {
-        vscode.postMessage({ type: 'importData' });
+      dom.importBtn.addEventListener('click', async () => {
+        var strings = runtimeState.strings || {};
+        var confirmed = await openDangerModal({
+          message: strings.confirmImportData || '',
+          actionLabel: strings.importDataAction || 'Import',
+          cancelLabel: strings.cancelAction || 'Cancel'
+        });
+        if (!confirmed) { return; }
+        vscode.postMessage({ type: 'importData', skipConfirm: true });
       });
 
-      dom.importLegacyBtn.addEventListener('click', () => {
-        vscode.postMessage({ type: 'importLegacyData' });
+      dom.importLegacyBtn.addEventListener('click', async () => {
+        var strings = runtimeState.strings || {};
+        var confirmed = await openDangerModal({
+          message: strings.confirmImportLegacyData || '',
+          actionLabel: strings.importLegacyDataAction || 'Import',
+          cancelLabel: strings.cancelAction || 'Cancel'
+        });
+        if (!confirmed) { return; }
+        vscode.postMessage({ type: 'importLegacyData', skipConfirm: true });
       });
 
-      dom.resetBtn.addEventListener('click', () => {
-        vscode.postMessage({ type: 'reset' });
+      dom.resetBtn.addEventListener('click', async () => {
+        var strings = runtimeState.strings || {};
+        // 双次确认：与原 Host 端 VS Code modal 双次确认对齐
+        var firstConfirmed = await openDangerModal({
+          message: strings.confirmResetData || '',
+          actionLabel: strings.resetAction || 'Reset',
+          cancelLabel: strings.cancelAction || 'Cancel'
+        });
+        if (!firstConfirmed) { return; }
+        var secondConfirmed = await openDangerModal({
+          message: strings.confirmResetDataSecond || strings.confirmResetData || '',
+          actionLabel: strings.resetAction || 'Reset',
+          cancelLabel: strings.cancelAction || 'Cancel'
+        });
+        if (!secondConfirmed) { return; }
+        vscode.postMessage({ type: 'reset', skipConfirm: true });
       });
 
       // Selective export

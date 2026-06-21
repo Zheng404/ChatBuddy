@@ -33,10 +33,10 @@ export function createDataActionHandlers(args: {
   refreshAll: () => void;
   getRuntimeStrings: () => Record<string, string>;
 }): {
-  handleResetData: () => Promise<boolean>;
+  handleResetData: (skipConfirm?: boolean) => Promise<boolean>;
   handleExportData: () => Promise<DataActionResult | undefined>;
-  handleImportData: () => Promise<DataActionResult | undefined>;
-  handleImportLegacyData: () => Promise<DataActionResult | undefined>;
+  handleImportData: (skipConfirm?: boolean) => Promise<DataActionResult | undefined>;
+  handleImportLegacyData: (skipConfirm?: boolean) => Promise<DataActionResult | undefined>;
   handleSelectiveExportData: (categories: string[]) => Promise<DataActionResult | undefined>;
 } {
   const {
@@ -72,24 +72,27 @@ export function createDataActionHandlers(args: {
     };
 
   return {
-    handleResetData: async () => {
+    handleResetData: async (skipConfirm?: boolean) => {
       const strings = getRuntimeStrings();
-      const firstConfirm = await vscode.window.showWarningMessage(
-        strings.confirmResetData,
-        { modal: true },
-        strings.resetAction
-      );
-      if (firstConfirm !== strings.resetAction) {
-        return false;
-      }
+      // 前端 webview 已确认时跳过 VS Code 原生对话框（A 类：webview 内触发）
+      if (!skipConfirm) {
+        const firstConfirm = await vscode.window.showWarningMessage(
+          strings.confirmResetData,
+          { modal: true },
+          strings.resetAction
+        );
+        if (firstConfirm !== strings.resetAction) {
+          return false;
+        }
 
-      const secondConfirm = await vscode.window.showWarningMessage(
-        strings.confirmResetDataSecond ?? strings.confirmResetData,
-        { modal: true },
-        strings.resetAction
-      );
-      if (secondConfirm !== strings.resetAction) {
-        return false;
+        const secondConfirm = await vscode.window.showWarningMessage(
+          strings.confirmResetDataSecond ?? strings.confirmResetData,
+          { modal: true },
+          strings.resetAction
+        );
+        if (secondConfirm !== strings.resetAction) {
+          return false;
+        }
       }
 
       chatController.stopGeneration('manual');
@@ -125,7 +128,7 @@ export function createDataActionHandlers(args: {
         tone: 'success'
       };
     },
-    handleImportData: async () => {
+    handleImportData: async (skipConfirm?: boolean) => {
       const strings = getRuntimeStrings();
       const picked = await vscode.window.showOpenDialog({
         canSelectMany: false,
@@ -138,13 +141,16 @@ export function createDataActionHandlers(args: {
       if (!target) {
         return undefined;
       }
-      const confirmed = await vscode.window.showWarningMessage(
-        strings.confirmImportData,
-        { modal: true },
-        strings.importDataAction
-      );
-      if (confirmed !== strings.importDataAction) {
-        return undefined;
+      // 前端 webview 已确认时跳过 VS Code 原生对话框（A 类：webview 内触发）
+      if (!skipConfirm) {
+        const confirmed = await vscode.window.showWarningMessage(
+          strings.confirmImportData,
+          { modal: true },
+          strings.importDataAction
+        );
+        if (confirmed !== strings.importDataAction) {
+          return undefined;
+        }
       }
       let parsed: unknown;
       try {
@@ -181,7 +187,7 @@ export function createDataActionHandlers(args: {
         tone: 'success'
       };
     },
-    handleImportLegacyData: async () => {
+    handleImportLegacyData: async (skipConfirm?: boolean) => {
       const strings = getRuntimeStrings();
       const picked = await vscode.window.showOpenDialog({
         canSelectMany: false,
@@ -194,13 +200,16 @@ export function createDataActionHandlers(args: {
       if (!target) {
         return undefined;
       }
-      const confirmed = await vscode.window.showWarningMessage(
-        strings.confirmImportLegacyData,
-        { modal: true },
-        strings.importLegacyDataAction
-      );
-      if (confirmed !== strings.importLegacyDataAction) {
-        return undefined;
+      // 前端 webview 已确认时跳过 VS Code 原生对话框（A 类：webview 内触发）
+      if (!skipConfirm) {
+        const confirmed = await vscode.window.showWarningMessage(
+          strings.confirmImportLegacyData,
+          { modal: true },
+          strings.importLegacyDataAction
+        );
+        if (confirmed !== strings.importLegacyDataAction) {
+          return undefined;
+        }
       }
 
       let parsed: unknown;

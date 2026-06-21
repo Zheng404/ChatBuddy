@@ -24,6 +24,7 @@ import { BaseSidebarViewProvider } from './sidebarViewBase';
 import { formatSessionTooltip, toDisplayLocale } from './sidebarViewSorters';
 import { SidebarInbound } from './sidebarViewTypes';
 import { ChatStateRepository } from './stateRepository';
+import { postMessageSafely } from './utils';
 import { ChatSessionSummary, RuntimeLocale, RuntimeStrings } from './types';
 
 /** Sessions 视图最小占位行数（与原 SessionsTreeProvider.MIN_SESSIONS_VIEW_ROWS 一致） */
@@ -90,15 +91,20 @@ export class SessionsSidebarViewProvider extends BaseSidebarViewProvider<Session
   /** 处理前端入站消息 */
   protected handleMessage(message: SidebarInbound): void {
     switch (message.type) {
+      case 'ready':
+        // ready 握手由 BaseSidebarViewProvider 统一处理，此处忽略
+        break;
       case 'invokeCommand':
         // 转发执行对应命令（openSessionChat / renameSession / deleteSession / exportSession）
         void vscode.commands.executeCommand(message.command, ...(message.args ?? []));
+        break;
+      case 'toggleGroupCollapse':
+        // sessions view 不处理分组折叠
         break;
       case 'search':
         this.searchKeyword = message.keyword.trim().toLowerCase();
         this.postState(this.buildState());
         break;
-      // sessions view 不处理 toggleGroupCollapse
     }
   }
 
@@ -112,13 +118,13 @@ export class SessionsSidebarViewProvider extends BaseSidebarViewProvider<Session
   /** 通知 webview 聚焦搜索框 */
   public focusSearch(): void {
     if (!this.view || !this.isReady()) { return; }
-    void this.view.webview.postMessage({ type: 'focusSearch' }).then(undefined, () => {});
+    postMessageSafely(this.view.webview.postMessage({ type: 'focusSearch' }));
   }
 
   /** 通知 webview 滚动到指定会话并高亮 */
   public scrollToSession(sessionId: string): void {
     if (!this.view || !this.isReady()) { return; }
-    void this.view.webview.postMessage({ type: 'scrollTo', id: sessionId }).then(undefined, () => {});
+    postMessageSafely(this.view.webview.postMessage({ type: 'scrollTo', id: sessionId }));
   }
 }
 

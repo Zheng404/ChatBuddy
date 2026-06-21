@@ -16,8 +16,13 @@ export async function fileExists(filePath: string): Promise<boolean> {
     await fs.promises.access(filePath, fs.constants.F_OK);
     return true;
   } catch (err) {
-    warn('Error checking file existence:', err);
-    return false;
+    // ENOENT 表示文件确实不存在，返回 false 是合法的「不存在」语义。
+    // 其他错误（EACCES 权限不足、ENOTDIR 等）表示真实检查失败，必须向上传播——
+    // 否则调用方会误判为「文件不存在」并触发不必要的迁移/重置流程。
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return false;
+    }
+    throw err;
   }
 }
 
@@ -39,12 +44,33 @@ export async function readTextFile(filePath: string): Promise<string | undefined
 export async function readJsonFile<T>(filePath: string): Promise<T | undefined> {
   const content = await readTextFile(filePath);
   if (!content || !content.trim()) {
+    // 文件不存在（readTextFile 在 ENOENT 时返回 undefined）或文件为空，
+    // 这是合法的「无数据」语义，返回 undefined。
     return undefined;
   }
   try {
     return JSON.parse(content) as T;
   } catch (parseError) {
-    console.warn(`[Compass] Failed to parse JSON file: ${filePath}`, parseError);
+    // 文件存在但 JSON 已损坏——必须抛出，让调用方区分「文件不存在」（合法降级）
+    // 与「文件已损坏」（需触发恢复/告警）。错误消息包含完整 filePath 便于定位。
+    const reason = parseError instanceof Error ? parseError.message : String(parseError);
+    throw new Error(`[Compass] Failed to parse JSON file: ${filePath} (${reason})`);
+  }
+}
+
+/**
+ * 读取 JSON 文件，损坏时降级为 undefined 并记录 error 日志。
+ *
+ * 适用于「文件损坏等价于文件缺失」的降级场景（如结构化状态文件加载）——
+ * 后续的一致性校验/migrator 恢复流程会处理缺失情况。
+ * 与 `readJsonFile` 的区别：此函数不会抛出解析错误，但通过 error 级别日志
+ * 让损坏可被感知，避免静默降级导致问题难以诊断。
+ */
+export async function readJsonFileSafe<T>(filePath: string): Promise<T | undefined> {
+  try {
+    return await readJsonFile<T>(filePath);
+  } catch (err) {
+    console.error(`[ChatBuddy] Failed to read JSON file, treating as missing: ${filePath}`, err);
     return undefined;
   }
 }
@@ -348,7 +374,15 @@ export async function restoreFromSnapshot<T>(metaPath: string): Promise<T | unde
   }
 
   for (const entry of entries) {
-    const data = await readJsonFile<T>(path.join(snapshotDir, entry));
+    // readJsonFile 现在会在 JSON 损坏时抛出（含 filePath）。
+    // 单个损坏快照不应中断整个恢复流程——catch 后继续尝试更老的快照。
+    let data: T | undefined;
+    try {
+      data = await readJsonFile<T>(path.join(snapshotDir, entry));
+    } catch (err) {
+      warn(`Error reading snapshot ${entry}, trying older snapshots:`, err);
+      continue;
+    }
     if (data) {
       console.warn(`[Compass] Restored state.core from snapshot: ${entry}`);
       return data;
@@ -378,6 +412,6 @@ async function pruneOldSnapshots(snapshotDir: string): Promise<void> {
 
   while (entries.length > MAX_SNAPSHOTS) {
     const oldest = entries.shift()!;
-    await fs.promises.unlink(path.join(snapshotDir, oldest)).catch(() => {});
+    await fs.promises.unlink(path.join(snapshotDir, oldest)).catch((err) => warn('Failed to delete old snapshot:', err));
   }
 }

@@ -8,7 +8,7 @@ export function getWebviewChatToolsCss(): string {
       .reasoning-block {
         margin: 0 0 10px;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--assistant-bg) 86%, var(--bg) 14%);
         overflow: hidden;
       }
@@ -36,7 +36,7 @@ export function getWebviewChatToolsCss(): string {
       .tool-rounds-block {
         margin: 0 0 10px;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--assistant-bg) 86%, var(--bg) 14%);
         overflow: hidden;
       }
@@ -78,7 +78,7 @@ export function getWebviewChatToolsCss(): string {
         margin: 4px 0;
         padding: 4px 8px;
         background: var(--code-bg);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
         font-size: 11px;
         white-space: pre-wrap;
@@ -91,7 +91,7 @@ export function getWebviewChatToolsCss(): string {
         margin-top: 4px;
         padding: 4px 8px;
         background: var(--code-bg);
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         font-family: "Cascadia Code", "JetBrains Mono", monospace;
         font-size: 11px;
         white-space: pre-wrap;
@@ -116,11 +116,12 @@ export function getWebviewChatToolsCss(): string {
         width: 100%;
         text-align: left;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         padding: 10px 12px;
         background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
         color: var(--fg);
         cursor: pointer;
+        transition: background var(--duration-normal) ease;
       }
 
       .mcp-entry:hover {

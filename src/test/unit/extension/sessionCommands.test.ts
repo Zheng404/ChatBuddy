@@ -346,7 +346,7 @@ describe('deleteSession', () => {
   beforeEach(setupVscodeStubs);
   afterEach(restoreVscodeStubs);
 
-  test('deletes session after confirmation', async () => {
+  test('deletes session (confirmation handled by webview)', async () => {
     let deleteCalled = false;
     let setSelectedCalled = false;
     let openChatCalled = false;
@@ -372,8 +372,7 @@ describe('deleteSession', () => {
       refreshAll: () => { refreshed = true; }
     });
 
-    vscode.window.showWarningMessage = async () => 'Delete';
-
+    // P0 改造：确认已前移到 webview Danger Modal，Host 端不再弹 VS Code 原生对话框
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.deleteSession')!;
     await handler(assistant.id, session.id);
@@ -384,27 +383,32 @@ describe('deleteSession', () => {
     assert.equal(refreshed, true);
   });
 
-  test('aborts when user cancels', async () => {
+  test('directly executes without host confirmation (confirmed in webview)', async () => {
+    // P0 改造：确认逻辑前移到 webview Danger Modal，Host 端命令直接执行
     let deleteCalled = false;
+    let setSelectedCalled = false;
     const assistant = makeAssistant();
     const session = makeSession();
     const ctx = createMockContext({
       repository: {
         getAssistantById: () => assistant,
+        setSelectedAssistant: () => { setSelectedCalled = true; },
         getSessionById: () => session
       } as unknown as ExtensionContext['repository'],
       chatController: {
-        deleteSessionForSelectedAssistant: () => { deleteCalled = true; }
-      } as unknown as ExtensionContext['chatController']
+        deleteSessionForSelectedAssistant: () => { deleteCalled = true; },
+        openAssistantChat: () => { /* no-op */ }
+      } as unknown as ExtensionContext['chatController'],
+      refreshAll: () => { /* no-op */ }
     });
-
-    vscode.window.showWarningMessage = async () => undefined;
 
     registerSessionCommands(ctx);
     const handler = registeredCommands.get('chatbuddy.deleteSession')!;
     await handler(assistant.id, session.id);
 
-    assert.equal(deleteCalled, false);
+    // Host 端不再弹确认框，直接执行删除
+    assert.equal(setSelectedCalled, true);
+    assert.equal(deleteCalled, true);
   });
 });
 

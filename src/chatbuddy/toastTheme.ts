@@ -19,7 +19,7 @@ export const SHARED_TOAST_STYLE = `
         max-width: min(420px, calc(100vw - 36px));
         padding: 10px 12px;
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--bg) 94%, black 6%);
         color: var(--fg);
         font-size: 12px;
@@ -27,7 +27,7 @@ export const SHARED_TOAST_STYLE = `
         box-shadow: 0 8px 24px color-mix(in srgb, black 30%, transparent);
         opacity: 0;
         transform: translateY(-6px);
-        animation: toast-enter 160ms ease forwards;
+        animation: toast-enter var(--duration-normal) ease forwards;
       }
 
       .toast.success {
